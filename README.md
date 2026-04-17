@@ -39,6 +39,8 @@ The system is intentionally split into two planes:
 
 ## Expected data flow
 
+# cv-intel
+
 `CV files -> parse -> extract JSON -> normalize -> chunk -> embed -> summarize -> sync -> search -> rank -> analyze`
 
 ## Setup
