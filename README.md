@@ -59,6 +59,10 @@ Recommended local setup:
 
 The current local development environment uses a mix of Docker containers and local processes.
 
+See also:
+
+- [infra/README.md](infra/README.md)
+
 ### Docker-backed infrastructure
 
 Supabase local development is running through Docker containers. In practice, this gives you:

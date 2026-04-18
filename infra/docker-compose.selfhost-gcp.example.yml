@@ -1,0 +1,121 @@
+version: "3.9"
+
+# Reference only.
+# This file is a lightweight starter for evaluating self-hosted Supabase on GCP.
+# It is not a full production deployment by itself.
+# For production self-hosting, follow the official Supabase self-hosting documentation
+# and add proper secrets, backups, monitoring, TLS, and hardening.
+
+services:
+  db:
+    image: public.ecr.aws/supabase/postgres:15.8.1.085
+    container_name: cvintel_supabase_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "54322:5432"
+    volumes:
+      - supabase_db_data:/var/lib/postgresql/data
+
+  kong:
+    image: public.ecr.aws/supabase/kong:2.8.1
+    container_name: cvintel_supabase_kong
+    restart: unless-stopped
+    depends_on:
+      - auth
+      - rest
+      - storage
+      - realtime
+      - edge-runtime
+    ports:
+      - "54321:8000"
+
+  auth:
+    image: public.ecr.aws/supabase/gotrue:v2.188.1
+    container_name: cvintel_supabase_auth
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_AUD: authenticated
+
+  rest:
+    image: public.ecr.aws/supabase/postgrest:v14.8
+    container_name: cvintel_supabase_rest
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+
+  storage:
+    image: public.ecr.aws/supabase/storage-api:v1.48.28
+    container_name: cvintel_supabase_storage
+    restart: unless-stopped
+    depends_on:
+      - db
+      - rest
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+
+  realtime:
+    image: public.ecr.aws/supabase/realtime:v2.82.0
+    container_name: cvintel_supabase_realtime
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+
+  meta:
+    image: public.ecr.aws/supabase/postgres-meta:v0.96.4
+    container_name: cvintel_supabase_meta
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      PG_META_DB_HOST: db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+
+  studio:
+    image: public.ecr.aws/supabase/studio:2026.04.08-sha-205cbe7
+    container_name: cvintel_supabase_studio
+    restart: unless-stopped
+    depends_on:
+      - meta
+    ports:
+      - "54323:3000"
+    environment:
+      STUDIO_DEFAULT_ORGANIZATION: ${STUDIO_DEFAULT_ORG}
+      STUDIO_DEFAULT_PROJECT: ${STUDIO_DEFAULT_PROJECT}
+      SUPABASE_URL: ${API_EXTERNAL_URL}
+      SUPABASE_PUBLIC_URL: ${API_EXTERNAL_URL}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+
+  edge-runtime:
+    image: public.ecr.aws/supabase/edge-runtime:v1.73.3
+    container_name: cvintel_supabase_edge_runtime
+    restart: unless-stopped
+
+volumes:
+  supabase_db_data:
