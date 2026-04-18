@@ -7,6 +7,7 @@ import {
   Home,
   LayoutDashboard,
   Search,
+  SlidersHorizontal,
   Workflow,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
@@ -21,6 +22,7 @@ const productRoutes = [
 
 const operationsRoutes = [
   { to: "/admin", label: "Platform Dashboard", icon: LayoutDashboard },
+  { to: "/admin/search-simulator", label: "Search Simulator", icon: SlidersHorizontal },
   { to: "/admin/parsing", label: "Parsing Quality", icon: FileText },
   { to: "/admin/parsing/lab", label: "Parsing Lab", icon: FlaskConical },
 ];
@@ -84,6 +86,8 @@ export function Sidebar({ mobileOpen, isMobile, onClose }: SidebarProps) {
             const active =
               route.to === "/admin"
                 ? location.pathname === route.to || location.pathname === "/admin/dashboard"
+                : route.to === "/admin/search-simulator"
+                ? location.pathname === route.to
                 : route.to === "/admin/parsing/lab"
                 ? location.pathname === route.to
                 : location.pathname === route.to ||

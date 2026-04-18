@@ -15,6 +15,9 @@ enabled = true
 [functions.search]
 verify_jwt = true
 
+[functions.search-debug]
+verify_jwt = true
+
 [functions.compare]
 verify_jwt = true
 

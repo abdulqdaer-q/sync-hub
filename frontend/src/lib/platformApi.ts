@@ -13,6 +13,7 @@ import type {
   ParserProfileInput,
   SearchFilterOptions,
   SearchFilters,
+  SearchDebugResponse,
   SearchQueryOptions,
   SearchResponse,
   SystemHealth,
@@ -52,6 +53,7 @@ type JsonRecord = Record<string, unknown>;
 
 type PlatformApi = {
   search: (query: string, filters: SearchFilters, options?: SearchQueryOptions, tenantIds?: string[]) => Promise<SearchResponse>;
+  searchDebug: (query: string, filters: SearchFilters, options?: SearchQueryOptions, tenantIds?: string[]) => Promise<SearchDebugResponse>;
   getSearchFilterOptions: (tenantIds?: string[]) => Promise<SearchFilterOptions>;
   getWorkspaceStats: (tenantIds?: string[]) => Promise<WorkspaceStats>;
   getCandidate: (candidateId: string) => Promise<CandidateDetail>;
@@ -212,6 +214,15 @@ function mapEvidenceSnippet(payload: JsonRecord, fallbackIndex: number): Candida
   };
 }
 
+function mapDebugEvidenceSnippet(payload: JsonRecord, fallbackIndex: number) {
+  return {
+    id: String(payload.chunk_id ?? payload.id ?? `e-${fallbackIndex}`),
+    chunkType: String(payload.chunk_type ?? payload.chunkType ?? "summary"),
+    excerpt: String(payload.text ?? payload.excerpt ?? ""),
+    relevance: Math.max(0, Math.min(1, toNumber(payload.semantic_similarity ?? payload.relevance ?? payload.lexical_score, 0.72))),
+  };
+}
+
 async function invokeFunction<T>(name: string, body: JsonRecord): Promise<T> {
   if (!supabase) {
     throw new Error("Missing Supabase browser client configuration.");
@@ -345,6 +356,82 @@ function mapRemoteSearch(payload: JsonRecord): SearchResponse {
       rankVersion: String(asRecord(payload.meta).rank_version ?? "v1"),
       source: "remote",
     },
+  };
+}
+
+function mapRemoteSearchDebug(payload: JsonRecord): SearchDebugResponse {
+  const request = asRecord(payload.request);
+  const analysis = asRecord(payload.analysis);
+  const embedding = asRecord(analysis.embedding);
+  const rawResults = asArray(payload.results);
+  const explicitFilters = asRecord(request.explicit_filters);
+  const llmIntent = asRecord(analysis.llm_intent);
+  const resolvedIntent = asRecord(analysis.resolved_intent);
+  const meta = asRecord(payload.meta);
+
+  const normalizeFilters = (record: JsonRecord) => ({
+    role: typeof record.role === "string" ? record.role : null,
+    seniority: typeof record.seniority === "string" ? record.seniority : null,
+    minYearsExperience: typeof record.min_years_experience === "number" ? record.min_years_experience : null,
+    location: typeof record.location === "string" ? record.location : null,
+    skills: toStringArray(record.skills),
+  });
+
+  return {
+    request: {
+      query: String(request.query ?? ""),
+      limit: toNumber(request.limit, rawResults.length),
+      offset: toNumber(request.offset, 0),
+      tenantIds: toStringArray(request.tenant_ids),
+      explicitFilters: normalizeFilters(explicitFilters),
+    },
+    analysis: {
+      intentSource: String(analysis.intent_source ?? "rule_based") as SearchDebugResponse["analysis"]["intentSource"],
+      llmIntent: Object.keys(llmIntent).length ? normalizeFilters(llmIntent) : null,
+      resolvedIntent: normalizeFilters(resolvedIntent),
+      embedding: {
+        provider: String(embedding.provider ?? "unknown"),
+        version: typeof embedding.version === "string" ? embedding.version : null,
+        dimensions: toNumber(embedding.dimensions, 0),
+        preview: asArray(embedding.preview).map((value) => toNumber(value)),
+      },
+      rpcPayload: asRecord(analysis.rpc_payload),
+      engine: {
+        usesLexical: Boolean(analysis.uses_lexical),
+        usesSemantic: Boolean(analysis.uses_semantic),
+        usesNameBoost: Boolean(analysis.uses_name_boost),
+        strictFilters: toStringArray(analysis.strict_filters),
+      },
+    },
+    results: rawResults.map((row) => {
+      const record = asRecord(row);
+      const subscoresRecord = asRecord(record.subscores);
+      return {
+        tenantId: record.tenant_id ? String(record.tenant_id) : null,
+        candidateId: String(record.candidate_id),
+        name: String(record.name ?? "Unknown candidate"),
+        currentTitle: String(record.current_title ?? "Candidate"),
+        location: String(record.location ?? "Unknown"),
+        yearsExperience: toNumber(record.years_experience),
+        seniority: String(record.seniority ?? "unknown"),
+        primaryRole: String(record.primary_role ?? "generalist"),
+        scoreRaw: toNumber(record.score),
+        displayedMatchScore: normalizeBackendMatchScore(record.score),
+        subscores: Object.fromEntries(
+          Object.entries(subscoresRecord).map(([key, value]) => [key, toNumber(value)]),
+        ),
+        matchedFilters: asRecord(record.matched_filters),
+        summaryShort: String(record.summary_short ?? ""),
+        evidence: asArray(record.evidence).map((item, index) => mapDebugEvidenceSnippet(asRecord(item), index)),
+      };
+    }),
+    nextCursor: typeof payload.next_cursor === "number" ? payload.next_cursor : null,
+    meta: {
+      count: toNumber(meta.count, rawResults.length),
+      rankVersion: String(meta.rank_version ?? "v1"),
+      source: "remote",
+    },
+    rawResponse: payload,
   };
 }
 
@@ -584,6 +671,93 @@ function createMockApi(): PlatformApi {
       await wait(180);
       return searchCandidates(query, filters, options);
     },
+    async searchDebug(query, filters, options, tenantIds) {
+      await wait(180);
+      const response = searchCandidates(query, filters, options);
+      const explicitFilters = {
+        role: filters.role?.trim() || null,
+        seniority: normalizeSeniorityValue(filters.seniority) ?? null,
+        minYearsExperience:
+          typeof filters.minYearsExperience === "number" && filters.minYearsExperience > 0
+            ? filters.minYearsExperience
+            : null,
+        location: filters.location?.trim() || null,
+        skills: normalizeSkillList(filters.skills ?? []),
+      };
+
+      return {
+        request: {
+          query,
+          limit: Math.max(1, Math.min(50, Math.trunc(options?.limit ?? 12))),
+          offset: Math.max(0, Math.trunc(options?.offset ?? 0)),
+          tenantIds: tenantIds ?? [],
+          explicitFilters,
+        },
+        analysis: {
+          intentSource: "rule_based",
+          llmIntent: null,
+          resolvedIntent: explicitFilters,
+          embedding: {
+            provider: "mock",
+            version: "mock-v1",
+            dimensions: 0,
+            preview: [],
+          },
+          rpcPayload: {
+            p_q: query,
+            p_tenant_ids: tenantIds ?? [],
+            p_filter_role: explicitFilters.role,
+            p_filter_seniority: explicitFilters.seniority,
+            p_filter_min_years: explicitFilters.minYearsExperience,
+            p_filter_skills: explicitFilters.skills,
+            p_filter_location: explicitFilters.location,
+          },
+          engine: {
+            usesLexical: Boolean(query.trim()),
+            usesSemantic: false,
+            usesNameBoost: Boolean(query.trim()),
+            strictFilters: Object.entries(explicitFilters)
+              .filter(([, value]) => Array.isArray(value) ? value.length > 0 : value !== null && value !== "")
+              .map(([key]) => key),
+          },
+        },
+        results: response.results.map((candidate) => ({
+          tenantId: candidate.tenantId ?? null,
+          candidateId: candidate.candidateId,
+          name: candidate.name,
+          currentTitle: candidate.currentTitle,
+          location: candidate.location,
+          yearsExperience: candidate.yearsExperience,
+          seniority: candidate.seniority,
+          primaryRole: candidate.primaryRole,
+          scoreRaw: candidate.matchScore / 100,
+          displayedMatchScore: candidate.matchScore,
+          subscores: {
+            semantic_similarity: candidate.matchSignals.semantic,
+            skill_match: candidate.matchSignals.skill,
+            experience_match: candidate.matchSignals.experience,
+          },
+          matchedFilters: {
+            role: explicitFilters.role,
+            seniority: explicitFilters.seniority,
+            min_years_experience: explicitFilters.minYearsExperience,
+            location: explicitFilters.location,
+            required_skills: explicitFilters.skills,
+          },
+          summaryShort: candidate.shortSummary,
+          evidence: [],
+        })),
+        nextCursor: response.nextCursor,
+        meta: {
+          ...response.meta,
+        },
+        rawResponse: {
+          results: response.results,
+          next_cursor: response.nextCursor,
+          meta: response.meta,
+        },
+      };
+    },
     async getSearchFilterOptions(_tenantIds) {
       await wait(80);
       return createFallbackSearchFilterOptions();
@@ -698,6 +872,32 @@ function createRemoteApi(): PlatformApi {
         return mapRemoteSearch(payload);
       } catch {
         return mock.search(query, filters, options);
+      }
+    },
+    async searchDebug(query, filters, options, tenantIds) {
+      try {
+        const explicitFilters = {
+          role: filters.role?.trim() || null,
+          seniority: normalizeSeniorityValue(filters.seniority) ?? null,
+          min_years_experience:
+            typeof filters.minYearsExperience === "number" && filters.minYearsExperience > 0
+              ? filters.minYearsExperience
+              : null,
+          location: filters.location?.trim() || null,
+          skills: normalizeSkillList(filters.skills ?? []),
+        };
+        const limit = Math.max(1, Math.min(50, Math.trunc(options?.limit ?? 12)));
+        const offset = Math.max(0, Math.trunc(options?.offset ?? 0));
+        const payload = await invokeFunction<JsonRecord>("search-debug", {
+          q: query,
+          tenant_ids: tenantIds ?? [],
+          filters: explicitFilters,
+          limit,
+          offset,
+        });
+        return mapRemoteSearchDebug(payload);
+      } catch {
+        return mock.searchDebug(query, filters, options, tenantIds);
       }
     },
     async getSearchFilterOptions(tenantIds) {

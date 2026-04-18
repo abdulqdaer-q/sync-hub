@@ -87,6 +87,74 @@ export type SearchResponse = {
   };
 };
 
+export type SearchDebugFilters = {
+  role: string | null;
+  seniority: string | null;
+  minYearsExperience: number | null;
+  skills: string[];
+  location: string | null;
+};
+
+export type SearchDebugEvidence = {
+  id: string;
+  chunkType: string;
+  excerpt: string;
+  relevance: number;
+};
+
+export type SearchDebugResult = {
+  tenantId?: string | null;
+  candidateId: string;
+  name: string;
+  currentTitle: string;
+  location: string;
+  yearsExperience: number;
+  seniority: string;
+  primaryRole: string;
+  scoreRaw: number;
+  displayedMatchScore: number;
+  subscores: Record<string, number>;
+  matchedFilters: Record<string, unknown>;
+  summaryShort: string;
+  evidence: SearchDebugEvidence[];
+};
+
+export type SearchDebugResponse = {
+  request: {
+    query: string;
+    limit: number;
+    offset: number;
+    tenantIds: string[];
+    explicitFilters: SearchDebugFilters;
+  };
+  analysis: {
+    intentSource: "llm" | "rule_based";
+    llmIntent: SearchDebugFilters | null;
+    resolvedIntent: SearchDebugFilters;
+    embedding: {
+      provider: string;
+      version: string | null;
+      dimensions: number;
+      preview: number[];
+    };
+    rpcPayload: Record<string, unknown>;
+    engine: {
+      usesLexical: boolean;
+      usesSemantic: boolean;
+      usesNameBoost: boolean;
+      strictFilters: string[];
+    };
+  };
+  results: SearchDebugResult[];
+  nextCursor: number | null;
+  meta: {
+    count: number;
+    rankVersion: string;
+    source: "mock" | "remote";
+  };
+  rawResponse: Record<string, unknown>;
+};
+
 export type WorkspaceStats = {
   documentCount: number;
   candidateCount: number;

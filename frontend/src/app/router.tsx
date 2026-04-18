@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/ui";
 import { CandidateDossierPage } from "@/screens/CandidateDossierPage";
 import { IntelligentComparisonPage } from "@/screens/IntelligentComparisonPage";
 import { IntelligenceHubPage } from "@/screens/IntelligenceHubPage";
+import { SearchConfigurationPage } from "@/screens/SearchConfigurationPage";
 import { SearchDiscoveryPage } from "@/screens/SearchDiscoveryPage";
 import { ParsingDetailPage } from "@/screens/admin/ParsingDetailPage";
 import { ParsingLabPage } from "@/screens/admin/ParsingLabPage";
@@ -23,11 +24,12 @@ export const router = createHashRouter([
       { path: "chat", element: <IntelligenceHubPage /> },
       { path: "dossier/:candidateId", element: <CandidateDossierPage /> },
       { path: "compare", element: <IntelligentComparisonPage /> },
-      { path: "search-config", element: <Navigate to="/search" replace /> },
+      { path: "search-config", element: <Navigate to="/admin/search-simulator" replace /> },
       { path: "intelligence", element: <Navigate to="/chat" replace /> },
       { path: "analytics", element: <Navigate to="/search" replace /> },
       { path: "admin", element: <PlatformAdminDashboardPage /> },
       { path: "admin/dashboard", element: <PlatformAdminDashboardPage /> },
+      { path: "admin/search-simulator", element: <SearchConfigurationPage /> },
       { path: "admin/parsing/lab", element: <ParsingLabPage /> },
       { path: "admin/parsing", element: <ParsingOverviewPage /> },
       { path: "admin/parsing/:documentId", element: <ParsingDetailPage /> },

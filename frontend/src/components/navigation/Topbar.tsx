@@ -29,6 +29,11 @@ const routeMeta: Array<{ test: (path: string) => boolean; title: string; subtitl
     subtitle: "Cross-workspace admin view for corpus volume, tenant coverage, and parser rollout health",
   },
   {
+    test: (path) => path === "/admin/search-simulator",
+    title: "Search Simulator",
+    subtitle: "Live search-debug trace with exact request payloads, intent resolution, embeddings, and raw ranked rows",
+  },
+  {
     test: (path) => path === "/admin/parsing",
     title: "Parsing Quality",
     subtitle: "Operational view of CV field coverage, confidence, and parser diagnostics",
