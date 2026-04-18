@@ -64,6 +64,84 @@ PYTHONPATH=worker/src python3 -m cv_intelligence_worker ingest ./cvs --tenant-id
 PYTHONPATH=worker/src python3 -m cv_intelligence_worker compare --tenant-id <tenant-id> --candidate-id <id-1> --candidate-id <id-2> --no-sync
 ```
 
+Current worker behavior:
+
+- The worker reads from local files and directories only.
+- It accepts any file/folder path passed to `discover` or `ingest`.
+- If you pass a directory, it recursively scans supported files under that directory.
+- There is no hard per-run CV limit today. One run processes every supported file discovered under the provided inputs.
+- `CV_BATCH_SIZE` exists in config, but the current ingestion loop still processes discovered documents sequentially; it is not a run cap.
+
+### Tenant admin utility
+
+Use the repo utility below to list workspaces or create a new workspace owner account plus tenant.
+
+```bash
+python3 scripts/tenant_admin.py list-tenants
+python3 scripts/tenant_admin.py create-tenant-account \
+  --email owner@example.com \
+  --password 'ChangeMe123!' \
+  --tenant-name 'Acme Recruiting' \
+  --tenant-icon 'https://cdn.example.com/acme.png'
+python3 scripts/tenant_admin.py bulk-create-from-csv tenants.csv
+```
+
+Requirements:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+The create command prints:
+
+- tenant id
+- tenant slug
+- tenant icon
+- recommended folder name
+- recommended Google Drive folder path
+
+CSV import format:
+
+```csv
+email,password,tenant_name,tenant_icon
+owner1@example.com,ChangeMe123!,Acme Recruiting,https://cdn.example.com/acme.png
+owner2@example.com,ChangeMe123!,Beta Talent,
+```
+
+Optional CSV columns also supported:
+
+- `tenant_slug`
+- `full_name`
+- `role`
+
+### Google Drive synced-folder ingestion
+
+The worker does not yet call the Google Drive API directly. The recommended near-term pattern is:
+
+1. Create a shared Drive root such as `CV Intelligence`
+2. Create one folder per workspace using the tenant slug
+3. Sync that folder locally with Google Drive Desktop
+4. Point the worker at the synced local path
+
+Recommended folder convention:
+
+```text
+CV Intelligence/<tenant-slug>/
+```
+
+Example:
+
+```text
+CV Intelligence/acme-recruiting/
+```
+
+Then ingest it locally:
+
+```bash
+PYTHONPATH=worker/src python3 -m cv_intelligence_worker ingest \
+  "/path/to/Google Drive/CV Intelligence/acme-recruiting" \
+  --tenant-id <tenant-id>
+```
+
 ### Local Ollama demo profile
 
 For a fully local demo, use Ollama for CV extraction, chunk embeddings, backend intent extraction, and grounded `/ask` synthesis.

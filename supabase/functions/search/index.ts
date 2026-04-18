@@ -3,6 +3,7 @@ import { createAuthedClient } from "../_shared/client.ts";
 import { generateStructuredObject } from "../_shared/llm.ts";
 import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
 import { buildSearchIntentConfig, resolveSearchFilters, type SearchIntentPayload } from "../_shared/searchIntent.ts";
+import { normalizeSeniorityValue, normalizeSkillList } from "../_shared/searchTaxonomy.ts";
 
 function asString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -19,6 +20,18 @@ function asStringArray(value: unknown) {
   return Array.isArray(value)
     ? value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
     : [];
+}
+
+function normalizeExplicitFilters(filters: Record<string, unknown>) {
+  const minYearsRaw = asNumber(filters.min_years_experience);
+
+  return {
+    role: asString(filters.role),
+    seniority: normalizeSeniorityValue(asString(filters.seniority)) ?? null,
+    min_years_experience: minYearsRaw !== null && minYearsRaw > 0 ? minYearsRaw : null,
+    location: asString(filters.location),
+    skills: normalizeSkillList(asStringArray(filters.skills)),
+  };
 }
 
 async function extractIntentWithLlm(query: string, filters: Record<string, unknown>): Promise<SearchIntentPayload | null> {
@@ -41,7 +54,7 @@ Deno.serve(async (req) => {
     const supabase = createAuthedClient(req);
     const query = String(body.q ?? "");
     const tenantIds = asStringArray(body.tenant_ids);
-    const requestFilters = (body.filters ?? {}) as Record<string, unknown>;
+    const requestFilters = normalizeExplicitFilters((body.filters ?? {}) as Record<string, unknown>);
     let intentSource = "rule_based";
     let llmIntent: SearchIntentPayload | null = null;
 
@@ -55,11 +68,11 @@ Deno.serve(async (req) => {
     }
 
     const filters = resolveSearchFilters(query, {
-      role: asString(requestFilters.role) ?? null,
-      seniority: asString(requestFilters.seniority) ?? null,
-      min_years_experience: asNumber(requestFilters.min_years_experience) ?? null,
-      location: asString(requestFilters.location) ?? null,
-      skills: asStringArray(requestFilters.skills),
+      role: requestFilters.role ?? null,
+      seniority: requestFilters.seniority ?? null,
+      min_years_experience: requestFilters.min_years_experience ?? null,
+      location: requestFilters.location ?? null,
+      skills: requestFilters.skills,
     }, llmIntent);
     const queryEmbeddingPayload = Array.isArray(body.query_embedding)
       ? {
@@ -81,6 +94,11 @@ Deno.serve(async (req) => {
       p_embedding_version: queryEmbeddingPayload.embeddingVersion,
       p_rank_version: body.rank_version ?? "v1",
       p_tenant_ids: tenantIds.length ? tenantIds : null,
+      p_filter_role: requestFilters.role ?? null,
+      p_filter_seniority: requestFilters.seniority ?? null,
+      p_filter_min_years: requestFilters.min_years_experience ?? null,
+      p_filter_skills: requestFilters.skills ?? [],
+      p_filter_location: requestFilters.location ?? null,
     });
 
     if (error) {
@@ -95,6 +113,7 @@ Deno.serve(async (req) => {
         rank_version: body.rank_version ?? "v1",
         intent_source: intentSource,
         intent: filters,
+        explicit_filters: requestFilters,
         tenant_ids: tenantIds,
         embedding_provider: queryEmbeddingPayload.provider,
         embedding_version: queryEmbeddingPayload.embeddingVersion,

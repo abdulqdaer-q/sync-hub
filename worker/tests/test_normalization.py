@@ -94,6 +94,34 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual(normalized.role_tags[0], "security")
         self.assertNotEqual(normalized.role_tags[0], "devops")
 
+    def test_normalize_profile_rejects_impossible_staff_plus_without_experience_signal(self) -> None:
+        profile = self._base_profile(
+            current_title="AI & Backend Engineer",
+            headline="AI & Backend Engineer",
+            seniority="staff-plus",
+            years_experience=0.0,
+            skills=["Python", "Laravel", "TensorFlow"],
+            summary="Software engineer focused on backend systems and AI/ML, with experience building scalable applications and clean architectures.",
+        )
+
+        normalized = normalize_profile(profile)
+
+        self.assertEqual(normalized.seniority, "unclassified")
+
+    def test_normalize_profile_keeps_explicit_senior_when_title_confirms_it(self) -> None:
+        profile = self._base_profile(
+            current_title="Senior Backend Engineer",
+            headline="Senior Backend Engineer",
+            seniority="senior",
+            years_experience=0.0,
+            skills=["Node.js", "GraphQL"],
+            summary="Backend engineer working on APIs and platform services.",
+        )
+
+        normalized = normalize_profile(profile)
+
+        self.assertEqual(normalized.seniority, "senior")
+
 
 if __name__ == "__main__":
     unittest.main()

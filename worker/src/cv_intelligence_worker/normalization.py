@@ -129,6 +129,8 @@ DATE_RANGE_PATTERN = re.compile(
     r"(?P<start>(?:\d{1,2}/)?\d{4}|present|current)\s*[-–]\s*(?P<end>(?:\d{1,2}/)?\d{4}|present|current)",
     re.IGNORECASE,
 )
+SENIOR_SIGNAL_RE = re.compile(r"\b(senior|principal|staff|lead|architect|head of)\b", re.IGNORECASE)
+JUNIOR_SIGNAL_RE = re.compile(r"\b(junior|intern|entry(?:\s|-)?level)\b", re.IGNORECASE)
 ACADEMIC_HINTS = (
     "information technology",
     "computer engineering",
@@ -235,21 +237,26 @@ def infer_years_experience(profile: CandidateProfile) -> float:
 def infer_seniority(profile: CandidateProfile, years_experience: float) -> str:
     explicit = _normalize_seniority_label(profile.seniority)
     haystack = f"{profile.current_title} {profile.headline} {' '.join(skill.lower() for skill in profile.skills)} {profile.summary}".lower()
+    has_senior_signal = bool(SENIOR_SIGNAL_RE.search(haystack))
+    has_junior_signal = bool(JUNIOR_SIGNAL_RE.search(haystack))
+    experience_entry_count = len(profile.experience)
 
     if explicit != "unclassified":
-        if explicit in {"senior", "staff-plus"} and 0 < years_experience < 6:
-            if not any(term in haystack for term in ("senior", "principal", "staff", "lead", "architect", "head of")):
+        if explicit in {"senior", "staff-plus"} and years_experience <= 0 and not has_senior_signal:
+            explicit = "mid" if experience_entry_count >= 2 else "unclassified"
+        elif explicit in {"senior", "staff-plus"} and 0 < years_experience < 6:
+            if not has_senior_signal:
                 explicit = "mid"
         if explicit == "junior" and years_experience >= 4:
-            if not any(term in haystack for term in ("junior", "intern", "entry level")):
+            if not has_junior_signal:
                 explicit = "mid"
         return explicit
 
-    if any(term in haystack for term in ("principal", "staff", "lead", "architect", "head of")):
+    if re.search(r"\b(principal|staff|lead|architect|head of)\b", haystack):
         return "staff-plus"
-    if "senior" in haystack or years_experience >= 6:
+    if re.search(r"\bsenior\b", haystack) or years_experience >= 6:
         return "senior"
-    if any(term in haystack for term in ("junior", "intern")) or (0 < years_experience < 2):
+    if has_junior_signal or (0 < years_experience < 2):
         return "junior"
     if "mid" in haystack or years_experience >= 3:
         return "mid"

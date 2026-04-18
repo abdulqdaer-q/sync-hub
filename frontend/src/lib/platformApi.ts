@@ -45,8 +45,7 @@ import {
   type ParsingProfileRow,
   type ParsingSourceDocumentRow,
 } from "@/lib/parsingQuality";
-import { deriveSearchFilters } from "@/lib/queryIntent";
-import { formatSeniorityValue, SEARCH_SENIORITY_TABLE, SEARCH_SKILL_TABLE } from "@/lib/searchTaxonomy";
+import { formatSeniorityValue, normalizeSeniorityValue, normalizeSkillList, SEARCH_SENIORITY_TABLE, SEARCH_SKILL_TABLE } from "@/lib/searchTaxonomy";
 import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
 
 type JsonRecord = Record<string, unknown>;
@@ -677,19 +676,22 @@ function createRemoteApi(): PlatformApi {
   return {
     async search(query, filters, options, tenantIds) {
       try {
-        const derivedFilters = deriveSearchFilters(query, filters);
+        const explicitFilters = {
+          role: filters.role?.trim() || null,
+          seniority: normalizeSeniorityValue(filters.seniority) ?? null,
+          min_years_experience:
+            typeof filters.minYearsExperience === "number" && filters.minYearsExperience > 0
+              ? filters.minYearsExperience
+              : null,
+          location: filters.location?.trim() || null,
+          skills: normalizeSkillList(filters.skills ?? []),
+        };
         const limit = Math.max(1, Math.min(50, Math.trunc(options?.limit ?? 12)));
         const offset = Math.max(0, Math.trunc(options?.offset ?? 0));
         const payload = await invokeFunction<JsonRecord>("search", {
           q: query,
           tenant_ids: tenantIds ?? [],
-          filters: {
-            role: derivedFilters.role ?? null,
-            seniority: derivedFilters.seniority ?? null,
-            min_years_experience: derivedFilters.minYearsExperience ?? null,
-            location: derivedFilters.location ?? null,
-            skills: derivedFilters.skills ?? [],
-          },
+          filters: explicitFilters,
           limit,
           offset,
         });

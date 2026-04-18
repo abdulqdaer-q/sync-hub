@@ -717,13 +717,16 @@ function calculateSearchResult(candidate: CandidateDetail, query: string, filter
   if (filters.role && candidate.primaryRole !== filters.role && !candidate.currentTitle.toLowerCase().includes(filters.role.toLowerCase())) {
     return null;
   }
-  if (filters.seniority && candidate.seniority !== filters.seniority) {
+  if (filters.seniority && seniorityRank(candidate.seniority) < seniorityRank(filters.seniority)) {
     return null;
   }
   if (requiredYears && candidate.yearsExperience < requiredYears) {
     return null;
   }
   if (filters.location && !candidate.location.toLowerCase().includes(filters.location.toLowerCase())) {
+    return null;
+  }
+  if (requiredSkills.length > 0 && matchedSkills.length !== requiredSkills.length) {
     return null;
   }
 
@@ -749,6 +752,23 @@ function calculateSearchResult(candidate: CandidateDetail, query: string, filter
     avatarHue: candidate.avatarHue,
     matchNarrative: candidate.matchNarrative,
   };
+}
+
+function seniorityRank(value: string | null | undefined) {
+  switch ((value ?? "").trim().toLowerCase()) {
+    case "junior":
+      return 1;
+    case "mid":
+    case "mid-level":
+      return 2;
+    case "senior":
+    case "mid-senior":
+      return 3;
+    case "staff-plus":
+      return 4;
+    default:
+      return 0;
+  }
 }
 
 export function searchCandidates(query: string, filters: SearchFilters, options: SearchQueryOptions = {}): SearchResponse {

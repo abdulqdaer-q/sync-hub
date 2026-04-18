@@ -9,7 +9,7 @@ import type { SearchFilterOptions, SearchFilters, SearchResponse, WorkspaceStats
 import { useAuth } from "@/lib/auth";
 import { platformApi } from "@/lib/platformApi";
 import { usePlatformScope } from "@/lib/platformScope";
-import { deriveSearchFilters, parseSkillText } from "@/lib/queryIntent";
+import { parseSkillText } from "@/lib/queryIntent";
 import { Avatar, EmptyState, PageIntro, Panel, ProgressBar, ScorePill, StatCard, Tag } from "@/components/ui";
 
 type SearchRequest = {
@@ -224,27 +224,19 @@ export function SearchDiscoveryPage() {
       return;
     }
 
-    const derivedFilters = deriveSearchFilters(normalizedQuery, {
+    const explicitFilters: SearchFilters = {
       seniority,
       minYearsExperience: minYears,
       location,
       skills: selectedSkills,
-    });
-
-    if (derivedFilters.seniority) {
-      setSeniority(derivedFilters.seniority);
-    }
-    if (minYears === 0 && (derivedFilters.minYearsExperience ?? 0) > 0) {
-      setMinYears(derivedFilters.minYearsExperience ?? 0);
-    }
-    setSelectedSkills(derivedFilters.skills ?? []);
+    };
 
     setError(null);
     setResponse(null);
     requestedOffsetsRef.current = new Set([0]);
     setRequest({
       query: normalizedQuery,
-      filters: derivedFilters,
+      filters: explicitFilters,
       offset: 0,
       limit: PAGE_SIZE,
     });
