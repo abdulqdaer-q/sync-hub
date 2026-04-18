@@ -5,9 +5,11 @@ import argparse
 import csv
 import json
 import os
+import shutil
 import sys
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib import error, parse, request
 
@@ -38,6 +40,27 @@ class BootstrapResult:
     role: str
     folder_name: str
     drive_root: str
+
+
+@dataclass(frozen=True)
+class WorkspaceFolderResult:
+    tenant_id: str
+    tenant_name: str
+    tenant_slug: str
+    local_folder: str
+    drive_folder: str
+
+
+@dataclass(frozen=True)
+class WorkspaceSyncResult:
+    tenant_id: str
+    tenant_name: str
+    tenant_slug: str
+    source_folder: str
+    drive_folder: str
+    copied_files: int
+    deleted_files: int
+    dry_run: bool
 
 
 class SupabaseAdminClient:
@@ -123,6 +146,18 @@ class SupabaseAdminClient:
             raise SupabaseAdminError("Membership insert returned no rows.")
         return result[0]
 
+    def rename_tenant(self, *, tenant_slug: str, new_name: str, new_slug: str) -> dict[str, Any]:
+        result = self._request(
+            "PATCH",
+            "/rest/v1/tenants",
+            payload={"name": new_name.strip(), "slug": new_slug.strip()},
+            query={"slug": f"eq.{tenant_slug.strip()}", "select": "id,name,slug,icon_url"},
+            extra_headers={"Prefer": "return=representation"},
+        )
+        if not isinstance(result, list) or not result:
+            raise SupabaseAdminError(f"Could not find tenant with slug '{tenant_slug}'.")
+        return result[0]
+
     def list_tenants(self) -> list[dict[str, Any]]:
         tenants = self._request(
             "GET",
@@ -181,11 +216,69 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.getenv("CV_DRIVE_ROOT", "CV Intelligence"),
         help="Logical Google Drive root folder name",
     )
+    parser.add_argument(
+        "--workspace-root-path",
+        default=os.getenv("CV_WORKSPACE_ROOT_PATH", "./workspaces"),
+        help="Local root used to create one folder per tenant slug",
+    )
+    parser.add_argument(
+        "--drive-sync-path",
+        default=os.getenv("CV_DRIVE_SYNC_PATH", ""),
+        help="Optional local Google Drive Desktop root; folders will be created under <drive-sync-path>/<drive-root>/<tenant-slug>",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list-tenants", help="List tenants with candidate and document counts")
     list_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a human-readable table")
+
+    folder_parser = subparsers.add_parser(
+        "ensure-workspace-folders",
+        help="Create local tenant folders under the configured workspace root and optional Drive sync path",
+    )
+    folder_parser.add_argument(
+        "--tenant-slug",
+        action="append",
+        default=[],
+        help="Optional slug filter; pass multiple times to limit which tenants get folders",
+    )
+    folder_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a human-readable summary")
+
+    sync_parser = subparsers.add_parser(
+        "sync-workspaces-to-drive",
+        help="Copy local workspace folder contents into a Google Drive Desktop synced root",
+    )
+    sync_parser.add_argument(
+        "--tenant-slug",
+        action="append",
+        default=[],
+        help="Optional slug filter; pass multiple times to sync only selected tenants",
+    )
+    sync_parser.add_argument(
+        "--delete",
+        action="store_true",
+        help="Delete files from the Drive destination that no longer exist in the local workspace folder",
+    )
+    sync_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the copy/delete plan without changing any files",
+    )
+    sync_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a human-readable summary")
+
+    rename_parser = subparsers.add_parser(
+        "rename-tenant",
+        help="Rename a tenant/workspace and optionally move its local and synced Drive folders",
+    )
+    rename_parser.add_argument("--tenant-slug", required=True, help="Current tenant slug")
+    rename_parser.add_argument("--new-name", required=True, help="New workspace display name")
+    rename_parser.add_argument("--new-slug", required=True, help="New workspace slug")
+    rename_parser.add_argument(
+        "--move-folders",
+        action="store_true",
+        help="Also rename the local workspace folder and optional synced Drive folder if they exist",
+    )
+    rename_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a human-readable summary")
 
     create_parser = subparsers.add_parser("create-tenant-account", help="Create an auth user, tenant, and owner membership")
     create_parser.add_argument("--email", required=True, help="Login email for the workspace owner")
@@ -195,10 +288,20 @@ def build_parser() -> argparse.ArgumentParser:
     create_parser.add_argument("--tenant-icon", default="", help="Optional tenant icon URL or asset path")
     create_parser.add_argument("--full-name", default="", help="Optional owner full name")
     create_parser.add_argument("--role", default="owner", choices=["owner", "admin", "recruiter", "viewer"])
+    create_parser.add_argument(
+        "--create-folders",
+        action="store_true",
+        help="Also create the tenant folder under --workspace-root-path and optional --drive-sync-path",
+    )
     create_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a human-readable summary")
 
     bulk_parser = subparsers.add_parser("bulk-create-from-csv", help="Create users and tenants from a CSV file")
     bulk_parser.add_argument("csv_path", help="CSV file with at least email,password,tenant_name,tenant_icon columns")
+    bulk_parser.add_argument(
+        "--create-folders",
+        action="store_true",
+        help="Also create tenant folders under --workspace-root-path and optional --drive-sync-path",
+    )
     bulk_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a human-readable summary")
 
     return parser
@@ -268,6 +371,159 @@ def create_tenant_account(client: SupabaseAdminClient, args: argparse.Namespace)
     )
 
 
+def normalize_slug_filters(values: Iterable[str]) -> set[str]:
+    return {value.strip() for value in values if value.strip()}
+
+
+def create_workspace_folder(path: Path) -> str:
+    path.mkdir(parents=True, exist_ok=True)
+    gitkeep = path / ".gitkeep"
+    if not gitkeep.exists():
+        gitkeep.touch()
+    return str(path.resolve())
+
+
+def should_skip_sync_path(path: Path) -> bool:
+    return path.name in {".gitkeep", ".DS_Store"}
+
+
+def ensure_workspace_folders(
+    rows: Iterable[dict[str, Any]],
+    *,
+    workspace_root_path: str,
+    drive_sync_path: str,
+    drive_root: str,
+    slug_filters: Optional[set[str]] = None,
+) -> list[WorkspaceFolderResult]:
+    workspace_root = Path(workspace_root_path).expanduser().resolve()
+    workspace_root.mkdir(parents=True, exist_ok=True)
+
+    drive_root_path: Optional[Path] = None
+    if drive_sync_path.strip():
+        drive_root_path = Path(drive_sync_path).expanduser().resolve() / drive_root
+        drive_root_path.mkdir(parents=True, exist_ok=True)
+
+    results: list[WorkspaceFolderResult] = []
+    for row in rows:
+        tenant_slug = str(row["slug"]).strip()
+        if slug_filters and tenant_slug not in slug_filters:
+            continue
+
+        local_folder = create_workspace_folder(workspace_root / tenant_slug)
+        drive_folder = ""
+        if drive_root_path is not None:
+            drive_folder = create_workspace_folder(drive_root_path / tenant_slug)
+
+        results.append(
+            WorkspaceFolderResult(
+                tenant_id=str(row["tenant_id"]),
+                tenant_name=str(row["name"]),
+                tenant_slug=tenant_slug,
+                local_folder=local_folder,
+                drive_folder=drive_folder,
+            )
+        )
+    return results
+
+
+def sync_workspace_to_drive(
+    rows: Iterable[dict[str, Any]],
+    *,
+    workspace_root_path: str,
+    drive_sync_path: str,
+    drive_root: str,
+    slug_filters: Optional[set[str]] = None,
+    delete: bool = False,
+    dry_run: bool = False,
+) -> list[WorkspaceSyncResult]:
+    if not drive_sync_path.strip():
+        raise SupabaseAdminError("--drive-sync-path is required for sync-workspaces-to-drive.")
+
+    workspace_root = Path(workspace_root_path).expanduser().resolve()
+    drive_root_path = Path(drive_sync_path).expanduser().resolve() / drive_root
+    drive_root_path.mkdir(parents=True, exist_ok=True)
+
+    results: list[WorkspaceSyncResult] = []
+    for row in rows:
+        tenant_slug = str(row["slug"]).strip()
+        if slug_filters and tenant_slug not in slug_filters:
+            continue
+
+        source_folder = workspace_root / tenant_slug
+        if not source_folder.exists():
+            raise SupabaseAdminError(f"Local workspace folder does not exist: {source_folder}")
+
+        drive_folder = drive_root_path / tenant_slug
+        if not dry_run:
+            drive_folder.mkdir(parents=True, exist_ok=True)
+
+        copied_files = 0
+        deleted_files = 0
+
+        source_rel_files: set[Path] = set()
+        for source_path in source_folder.rglob("*"):
+            if source_path.is_dir() or should_skip_sync_path(source_path):
+                continue
+
+            relative_path = source_path.relative_to(source_folder)
+            source_rel_files.add(relative_path)
+            destination_path = drive_folder / relative_path
+            destination_parent = destination_path.parent
+            if not dry_run:
+                destination_parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, destination_path)
+            copied_files += 1
+
+        if delete and drive_folder.exists():
+            for destination_path in sorted(drive_folder.rglob("*"), reverse=True):
+                if destination_path.is_dir():
+                    if not dry_run and destination_path != drive_folder:
+                        try:
+                            destination_path.rmdir()
+                        except OSError:
+                            pass
+                    continue
+                if should_skip_sync_path(destination_path):
+                    continue
+
+                relative_path = destination_path.relative_to(drive_folder)
+                if relative_path not in source_rel_files:
+                    if not dry_run:
+                        destination_path.unlink()
+                    deleted_files += 1
+
+        results.append(
+            WorkspaceSyncResult(
+                tenant_id=str(row["tenant_id"]),
+                tenant_name=str(row["name"]),
+                tenant_slug=tenant_slug,
+                source_folder=str(source_folder),
+                drive_folder=str(drive_folder),
+                copied_files=copied_files,
+                deleted_files=deleted_files,
+                dry_run=dry_run,
+            )
+        )
+
+    return results
+
+
+def move_workspace_folder(source: Path, destination: Path) -> str:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() == destination.resolve():
+        return str(destination.resolve())
+    if source.exists():
+        if destination.exists():
+            raise SupabaseAdminError(f"Destination folder already exists: {destination}")
+        source.rename(destination)
+    else:
+        destination.mkdir(parents=True, exist_ok=True)
+        gitkeep = destination / ".gitkeep"
+        if not gitkeep.exists():
+            gitkeep.touch()
+    return str(destination.resolve())
+
+
 def load_csv_rows(csv_path: str) -> list[dict[str, str]]:
     with open(csv_path, "r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -301,6 +557,9 @@ def build_namespace(row: dict[str, str], drive_root: str) -> argparse.Namespace:
         full_name=row.get("full_name", ""),
         role=row.get("role", "owner") or "owner",
         drive_root=drive_root,
+        workspace_root_path=row.get("workspace_root_path", ""),
+        drive_sync_path=row.get("drive_sync_path", ""),
+        create_folders=(row.get("create_folders", "") or "").strip().lower() in {"1", "true", "yes"},
     )
 
 
@@ -311,6 +570,25 @@ def validate_csv_row(row: dict[str, str], row_number: int) -> None:
 
 
 def bulk_create_from_csv(client: SupabaseAdminClient, csv_path: str, drive_root: str) -> dict[str, Any]:
+    return bulk_create_from_csv_with_paths(
+        client,
+        csv_path,
+        drive_root=drive_root,
+        workspace_root_path="",
+        drive_sync_path="",
+        create_folders=False,
+    )
+
+
+def bulk_create_from_csv_with_paths(
+    client: SupabaseAdminClient,
+    csv_path: str,
+    *,
+    drive_root: str,
+    workspace_root_path: str,
+    drive_sync_path: str,
+    create_folders: bool,
+) -> dict[str, Any]:
     rows = load_csv_rows(csv_path)
     successes: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
@@ -318,19 +596,39 @@ def bulk_create_from_csv(client: SupabaseAdminClient, csv_path: str, drive_root:
     for index, row in enumerate(rows, start=2):
         try:
             validate_csv_row(row, index)
-            result = create_tenant_account(client, build_namespace(row, drive_root))
-            successes.append(
-                {
-                    "row": index,
-                    "email": result.email,
-                    "tenant_id": result.tenant_id,
-                    "tenant_name": result.tenant_name,
-                    "tenant_slug": result.tenant_slug,
-                    "tenant_icon": result.tenant_icon,
-                    "folder_name": result.folder_name,
-                    "google_drive_folder": f"{result.drive_root}/{result.folder_name}",
-                }
-            )
+            namespace = build_namespace(row, drive_root)
+            namespace.workspace_root_path = workspace_root_path
+            namespace.drive_sync_path = drive_sync_path
+            namespace.create_folders = create_folders
+            result = create_tenant_account(client, namespace)
+            payload: dict[str, Any] = {
+                "row": index,
+                "email": result.email,
+                "tenant_id": result.tenant_id,
+                "tenant_name": result.tenant_name,
+                "tenant_slug": result.tenant_slug,
+                "tenant_icon": result.tenant_icon,
+                "folder_name": result.folder_name,
+                "google_drive_folder": f"{result.drive_root}/{result.folder_name}",
+            }
+            if create_folders:
+                folders = ensure_workspace_folders(
+                    [
+                        {
+                            "tenant_id": result.tenant_id,
+                            "name": result.tenant_name,
+                            "slug": result.tenant_slug,
+                        }
+                    ],
+                    workspace_root_path=workspace_root_path,
+                    drive_sync_path=drive_sync_path,
+                    drive_root=drive_root,
+                )
+                if folders:
+                    payload["local_workspace_folder"] = folders[0].local_folder
+                    if folders[0].drive_folder:
+                        payload["drive_workspace_folder"] = folders[0].drive_folder
+            successes.append(payload)
         except Exception as exc:  # noqa: BLE001
             failures.append(
                 {
@@ -365,6 +663,124 @@ def main(argv: Optional[list[str]] = None) -> int:
             print_tenant_table(rows, args.drive_root)
         return 0
 
+    if args.command == "ensure-workspace-folders":
+        rows = client.list_tenants()
+        results = ensure_workspace_folders(
+            rows,
+            workspace_root_path=args.workspace_root_path,
+            drive_sync_path=args.drive_sync_path,
+            drive_root=args.drive_root,
+            slug_filters=normalize_slug_filters(args.tenant_slug),
+        )
+        payload = {
+            "workspace_root_path": str(Path(args.workspace_root_path).expanduser().resolve()),
+            "drive_root": args.drive_root,
+            "drive_sync_path": str(Path(args.drive_sync_path).expanduser().resolve()) if args.drive_sync_path else "",
+            "created": [
+                {
+                    "tenant_id": result.tenant_id,
+                    "tenant_name": result.tenant_name,
+                    "tenant_slug": result.tenant_slug,
+                    "local_workspace_folder": result.local_folder,
+                    "drive_workspace_folder": result.drive_folder,
+                }
+                for result in results
+            ],
+        }
+        if args.json:
+            print(compact_json(payload))
+        else:
+            print(f"Workspace root: {payload['workspace_root_path']}")
+            if payload["drive_sync_path"]:
+                print(f"Drive sync root: {payload['drive_sync_path']}/{args.drive_root}")
+            print(f"Tenants prepared: {len(payload['created'])}")
+            for result in payload["created"]:
+                print(f"  {result['tenant_slug']} -> {result['local_workspace_folder']}")
+                if result["drive_workspace_folder"]:
+                    print(f"    drive -> {result['drive_workspace_folder']}")
+        return 0
+
+    if args.command == "sync-workspaces-to-drive":
+        rows = client.list_tenants()
+        results = sync_workspace_to_drive(
+            rows,
+            workspace_root_path=args.workspace_root_path,
+            drive_sync_path=args.drive_sync_path,
+            drive_root=args.drive_root,
+            slug_filters=normalize_slug_filters(args.tenant_slug),
+            delete=args.delete,
+            dry_run=args.dry_run,
+        )
+        payload = {
+            "workspace_root_path": str(Path(args.workspace_root_path).expanduser().resolve()),
+            "drive_root": args.drive_root,
+            "drive_sync_path": str(Path(args.drive_sync_path).expanduser().resolve()),
+            "delete": args.delete,
+            "dry_run": args.dry_run,
+            "results": [
+                {
+                    "tenant_id": result.tenant_id,
+                    "tenant_name": result.tenant_name,
+                    "tenant_slug": result.tenant_slug,
+                    "source_folder": result.source_folder,
+                    "drive_folder": result.drive_folder,
+                    "copied_files": result.copied_files,
+                    "deleted_files": result.deleted_files,
+                    "dry_run": result.dry_run,
+                }
+                for result in results
+            ],
+        }
+        if args.json:
+            print(compact_json(payload))
+        else:
+            print(f"Workspace root: {payload['workspace_root_path']}")
+            print(f"Drive sync root: {payload['drive_sync_path']}/{args.drive_root}")
+            print(f"Mode: {'dry-run' if args.dry_run else 'live sync'}")
+            for result in payload["results"]:
+                print(
+                    f"  {result['tenant_slug']}: copied {result['copied_files']} file(s)"
+                    + (f", deleted {result['deleted_files']} file(s)" if args.delete else "")
+                )
+                print(f"    from {result['source_folder']}")
+                print(f"    to   {result['drive_folder']}")
+        return 0
+
+    if args.command == "rename-tenant":
+        old_slug = args.tenant_slug.strip()
+        new_slug = args.new_slug.strip()
+        renamed = client.rename_tenant(tenant_slug=old_slug, new_name=args.new_name, new_slug=new_slug)
+        payload = {
+            "tenant_id": renamed["id"],
+            "old_slug": old_slug,
+            "new_slug": renamed["slug"],
+            "new_name": renamed["name"],
+            "local_workspace_folder": "",
+            "drive_workspace_folder": "",
+        }
+        if args.move_folders:
+            workspace_root = Path(args.workspace_root_path).expanduser().resolve()
+            payload["local_workspace_folder"] = move_workspace_folder(
+                workspace_root / old_slug,
+                workspace_root / new_slug,
+            )
+            if args.drive_sync_path.strip():
+                drive_root = Path(args.drive_sync_path).expanduser().resolve() / args.drive_root
+                payload["drive_workspace_folder"] = move_workspace_folder(
+                    drive_root / old_slug,
+                    drive_root / new_slug,
+                )
+        if args.json:
+            print(compact_json(payload))
+        else:
+            print(f"Renamed tenant '{old_slug}' -> '{payload['new_slug']}'")
+            print(f"Display name: {payload['new_name']}")
+            if payload["local_workspace_folder"]:
+                print(f"Local workspace folder: {payload['local_workspace_folder']}")
+            if payload["drive_workspace_folder"]:
+                print(f"Drive workspace folder: {payload['drive_workspace_folder']}")
+        return 0
+
     if args.command == "create-tenant-account":
         result = create_tenant_account(client, args)
         payload = {
@@ -378,6 +794,23 @@ def main(argv: Optional[list[str]] = None) -> int:
             "folder_name": result.folder_name,
             "google_drive_folder": f"{result.drive_root}/{result.folder_name}",
         }
+        if args.create_folders:
+            folders = ensure_workspace_folders(
+                [
+                    {
+                        "tenant_id": result.tenant_id,
+                        "name": result.tenant_name,
+                        "slug": result.tenant_slug,
+                    }
+                ],
+                workspace_root_path=args.workspace_root_path,
+                drive_sync_path=args.drive_sync_path,
+                drive_root=args.drive_root,
+            )
+            if folders:
+                payload["local_workspace_folder"] = folders[0].local_folder
+                if folders[0].drive_folder:
+                    payload["drive_workspace_folder"] = folders[0].drive_folder
         if args.json:
             print(compact_json(payload))
         else:
@@ -389,13 +822,27 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"Owner email: {result.email}")
             print(f"Folder name: {result.folder_name}")
             print(f"Google Drive folder: {result.drive_root}/{result.folder_name}")
+            if args.create_folders:
+                print(f"Local workspace folder: {payload['local_workspace_folder']}")
+                if payload.get("drive_workspace_folder"):
+                    print(f"Drive workspace folder: {payload['drive_workspace_folder']}")
             print("")
             print("Recommended worker input:")
-            print(f"  <synced-google-drive-path>/{result.drive_root}/{result.folder_name}")
+            if payload.get("drive_workspace_folder"):
+                print(f"  {payload['drive_workspace_folder']}")
+            else:
+                print(f"  {Path(args.workspace_root_path).expanduser().resolve() / result.folder_name}")
         return 0
 
     if args.command == "bulk-create-from-csv":
-        payload = bulk_create_from_csv(client, args.csv_path, args.drive_root)
+        payload = bulk_create_from_csv_with_paths(
+            client,
+            args.csv_path,
+            drive_root=args.drive_root,
+            workspace_root_path=args.workspace_root_path,
+            drive_sync_path=args.drive_sync_path,
+            create_folders=args.create_folders,
+        )
         if args.json:
             print(compact_json(payload))
         else:
@@ -410,6 +857,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                         f"  row {result['row']}: {result['tenant_name']} "
                         f"({result['tenant_slug']}) -> {result['google_drive_folder']}"
                     )
+                    if result.get("local_workspace_folder"):
+                        print(f"    local -> {result['local_workspace_folder']}")
+                    if result.get("drive_workspace_folder"):
+                        print(f"    drive -> {result['drive_workspace_folder']}")
             if payload["failures"]:
                 print("")
                 print("Failures:")

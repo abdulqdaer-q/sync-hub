@@ -5,6 +5,7 @@ Offline-first CV search, ranking, and candidate analysis for recruiter workflows
 ## What this repo contains
 
 - `cvs/`: sample CV files for local development and pipeline validation.
+- `workspaces/`: git-safe tenant folder skeletons; real CV files placed here stay ignored.
 - `supabase/`: online backend layer for auth, Postgres, `pgvector`, RLS, and retrieval APIs.
 - `worker/`: offline ingestion and AI processing on a laptop or dedicated operator machine.
 - `frontend/`: static React frontend for search, dossiers, comparison, intelligence, analytics, and admin operations.
@@ -48,7 +49,7 @@ The system is intentionally split into two planes:
 Recommended local setup:
 
 1. Create a `.env` file from `.env.example`.
-2. Put source CVs into `cvs/` or point the worker at another folder.
+2. Put source CVs into `workspaces/<tenant-slug>/` or point the worker at another folder.
 3. Apply the canonical Supabase migration in `supabase/migrations/20260417140000_init.sql`.
 4. Deploy the three Edge Functions in `supabase/functions/`.
 5. Run the worker from `worker/`.
@@ -126,8 +127,8 @@ cd frontend && npm run dev --host 0.0.0.0 --port 5175
 
 ```bash
 python3 -m unittest discover -s worker/tests -t worker
-PYTHONPATH=worker/src python3 -m cv_intelligence_worker discover ./cvs --tenant-id <tenant-id>
-PYTHONPATH=worker/src python3 -m cv_intelligence_worker ingest ./cvs --tenant-id <tenant-id> --no-sync
+PYTHONPATH=worker/src python3 -m cv_intelligence_worker discover ./workspaces/<tenant-slug> --tenant-id <tenant-id>
+PYTHONPATH=worker/src python3 -m cv_intelligence_worker ingest ./workspaces/<tenant-slug> --tenant-id <tenant-id> --no-sync
 PYTHONPATH=worker/src python3 -m cv_intelligence_worker compare --tenant-id <tenant-id> --candidate-id <id-1> --candidate-id <id-2> --no-sync
 ```
 
@@ -145,11 +146,13 @@ Use the repo utility below to list workspaces or create a new workspace owner ac
 
 ```bash
 python3 scripts/tenant_admin.py list-tenants
+python3 scripts/tenant_admin.py ensure-workspace-folders
 python3 scripts/tenant_admin.py create-tenant-account \
   --email owner@example.com \
   --password 'ChangeMe123!' \
   --tenant-name 'Acme Recruiting' \
-  --tenant-icon 'https://cdn.example.com/acme.png'
+  --tenant-icon 'https://cdn.example.com/acme.png' \
+  --create-folders
 python3 scripts/tenant_admin.py bulk-create-from-csv tenants.csv
 ```
 
@@ -164,7 +167,34 @@ The create command prints:
 - tenant slug
 - tenant icon
 - recommended folder name
+- local workspace folder path when `--create-folders` is used
 - recommended Google Drive folder path
+
+Workspace-root options:
+
+- `--workspace-root-path ./workspaces`
+  - local repo-safe folder root
+- `--drive-sync-path "/path/to/Google Drive"`
+  - optional local Google Drive Desktop root; folders are created under `<drive-sync-path>/<drive-root>/<tenant-slug>`
+
+Examples:
+
+```bash
+python3 scripts/tenant_admin.py ensure-workspace-folders
+python3 scripts/tenant_admin.py ensure-workspace-folders \
+  --drive-sync-path "/Users/you/Library/CloudStorage/GoogleDrive-company"
+python3 scripts/tenant_admin.py sync-workspaces-to-drive \
+  --drive-sync-path "/Users/you/Library/CloudStorage/GoogleDrive-company" \
+  --tenant-slug demo \
+  --dry-run
+python3 scripts/tenant_admin.py create-tenant-account \
+  --email owner@example.com \
+  --password 'ChangeMe123!' \
+  --tenant-name 'Acme Recruiting' \
+  --tenant-icon 'https://cdn.example.com/acme.png' \
+  --create-folders \
+  --drive-sync-path "/Users/you/Library/CloudStorage/GoogleDrive-company"
+```
 
 CSV import format:
 
@@ -201,13 +231,72 @@ Example:
 CV Intelligence/acme-recruiting/
 ```
 
-Then ingest it locally:
+Then ingest it locally from either:
+
+- `workspaces/acme-recruiting/`
+- or the synced Google Drive folder
+
+Examples:
 
 ```bash
+PYTHONPATH=worker/src python3 -m cv_intelligence_worker ingest \
+  "./workspaces/acme-recruiting" \
+  --tenant-id <tenant-id>
 PYTHONPATH=worker/src python3 -m cv_intelligence_worker ingest \
   "/path/to/Google Drive/CV Intelligence/acme-recruiting" \
   --tenant-id <tenant-id>
 ```
+
+If you want to copy the local tenant workspace folders into the synced Google Drive root instead of creating them manually, use:
+
+```bash
+python3 scripts/tenant_admin.py sync-workspaces-to-drive \
+  --drive-sync-path "/Users/you/Library/CloudStorage/GoogleDrive-company" \
+  --tenant-slug demo \
+  --dry-run
+python3 scripts/tenant_admin.py sync-workspaces-to-drive \
+  --drive-sync-path "/Users/you/Library/CloudStorage/GoogleDrive-company" \
+  --tenant-slug demo
+```
+
+Notes:
+
+- `--dry-run` previews the copy plan without writing files
+- `--delete` makes the Drive destination mirror the local workspace folder exactly
+- omitting `--tenant-slug` syncs **all** tenant workspace folders
+
+Sync all tenants example:
+
+```bash
+python3 scripts/tenant_admin.py \
+  --drive-sync-path "/Users/example/Library/CloudStorage/GoogleDrive-user@example.com/My Drive/cv-intelligence" \
+  sync-workspaces-to-drive
+```
+
+This creates or updates folders like:
+
+```text
+/Users/example/Library/CloudStorage/GoogleDrive-user@example.com/My Drive/cv-intelligence/CV Intelligence/demo
+/Users/example/Library/CloudStorage/GoogleDrive-user@example.com/My Drive/cv-intelligence/CV Intelligence/beta
+```
+
+### Seeding a workspace from the sample `cvs/` folder
+
+The repo keeps a small local sample corpus in `./cvs` for testing. If you want to seed the `demo` workspace folder with those same files, copy them into `workspaces/demo/`:
+
+```bash
+cp -f ./cvs/*.pdf ./workspaces/demo/
+```
+
+Then ingest the seeded workspace folder into the local `demo` tenant:
+
+```bash
+PYTHONPATH=worker/src python3 -m cv_intelligence_worker ingest \
+  "./workspaces/demo" \
+  --tenant-id 00000000-0000-0000-0000-000000000000
+```
+
+The copied PDFs under `workspaces/demo/` are ignored by git.
 
 ### Local Ollama demo profile
 
