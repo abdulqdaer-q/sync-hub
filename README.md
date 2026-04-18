@@ -55,6 +55,69 @@ Recommended local setup:
 6. Build the static frontend from `frontend/`.
 7. For local auth testing, apply `supabase/migrations/20260417163000_bootstrap_tenant_v1.sql` after the canonical init migration.
 
+## Local infrastructure
+
+The current local development environment uses a mix of Docker containers and local processes.
+
+### Docker-backed infrastructure
+
+Supabase local development is running through Docker containers. In practice, this gives you:
+
+- `Postgres` database
+- `Kong` API gateway
+- `Auth` (`gotrue`)
+- `PostgREST`
+- `Storage API`
+- `Realtime`
+- `Studio`
+- `Analytics / Logflare`
+- `Mailpit`
+- `pgvector` support in the database layer
+
+Important local ports:
+
+- `http://127.0.0.1:54321` -> Supabase API gateway
+- `postgresql://postgres:postgres@127.0.0.1:54322/postgres` -> local Postgres
+- `http://127.0.0.1:54323` -> Supabase Studio
+- `http://127.0.0.1:54324` -> Mailpit
+
+This is the core local backend infrastructure for the project.
+
+### Local non-Docker processes
+
+In addition to the Dockerized Supabase stack, local development currently uses:
+
+- `supabase functions serve --no-verify-jwt`
+  - runs the Edge Functions locally for endpoints like:
+    - `/search`
+    - `/search-debug`
+    - `/compare`
+    - `/ask`
+    - `/agent`
+- `ollama serve`
+  - provides local LLM and embedding endpoints during local AI testing
+- `npm run dev --host 0.0.0.0 --port 5175`
+  - runs the frontend dev server
+
+### Practical local architecture
+
+So the local stack is effectively:
+
+1. Dockerized Supabase services for data/auth/storage/API plumbing
+2. Local Edge Function runtime for TypeScript serverless endpoints
+3. Local Ollama runtime for optional extraction, embeddings, and local AI demos
+4. Local Vite dev server for the frontend
+
+### Useful local inspection commands
+
+```bash
+docker ps
+supabase status
+supabase functions serve --no-verify-jwt
+ollama serve
+cd frontend && npm run dev --host 0.0.0.0 --port 5175
+```
+
 ### Worker commands
 
 ```bash
