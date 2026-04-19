@@ -5,6 +5,7 @@ type SearchFilters = {
   seniority?: string | null;
   min_years_experience?: number | null;
   skills?: string[] | null;
+  companies?: string[] | null;
   location?: string | null;
 };
 
@@ -34,6 +35,7 @@ export type SearchIntentPayload = {
   seniority: string | null;
   min_years_experience: number | null;
   skills: string[];
+  companies: string[];
   location: string | null;
 };
 
@@ -96,6 +98,16 @@ function normalizeSkills(skills: string[] | null | undefined) {
   return normalizeSkillList(skills ?? []);
 }
 
+function normalizeCompanies(companies: string[] | null | undefined) {
+  return Array.from(
+    new Set(
+      (companies ?? [])
+        .map((company) => company.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 export function buildSearchIntentConfig(query: string, filters: SearchFilters = {}) {
   return {
     schemaName: "search_intent",
@@ -124,6 +136,13 @@ export function buildSearchIntentConfig(query: string, filters: SearchFilters = 
           description:
             "Explicitly requested skills only. Normalize aliases and dedupe.",
         },
+        companies: {
+          type: "array",
+          items: { type: "string" },
+          uniqueItems: true,
+          description:
+            "Explicitly requested company names only. Preserve canonical company spelling when possible.",
+        },
         location: {
           type: ["string", "null"] as const,
           description: "Explicit location only. Otherwise null.",
@@ -134,6 +153,7 @@ export function buildSearchIntentConfig(query: string, filters: SearchFilters = 
         "seniority",
         "min_years_experience",
         "skills",
+        "companies",
         "location",
       ],
     },
@@ -144,12 +164,13 @@ export function buildSearchIntentConfig(query: string, filters: SearchFilters = 
       "If query conflicts with existing_filters, query wins.",
       "Do not invent constraints.",
       "Normalize role and seniority to the allowed enums.",
-      "Set missing or uncertain scalar fields to null and skills to [].",
+      "Set missing or uncertain scalar fields to null, and list fields to [].",
       "Skills must be explicitly requested, normalized, and deduplicated.",
+      "Companies must be explicitly requested and deduplicated.",
       "Location must be explicitly stated in the query.",
       "For years of experience, return only the minimum requested number.",
       "Examples: '5+ years' -> 5, '3-5 years' -> 3.",
-      "Do not infer skills, location, or years from the role alone.",
+      "Do not infer skills, companies, location, or years from the role alone.",
     ].join(" "),
     userPrompt: JSON.stringify({
       query,
@@ -168,11 +189,13 @@ export function resolveSearchFilters(query: string, requestFilters: SearchFilter
     min_years_experience: llmIntent?.min_years_experience ?? requestFilters.min_years_experience ?? null,
     location: llmIntent?.location ?? requestFilters.location ?? null,
     skills: llmIntent?.skills?.length ? llmIntent.skills : (requestFilters.skills ?? []),
+    companies: llmIntent?.companies?.length ? llmIntent.companies : (requestFilters.companies ?? []),
   });
 }
 
 export function deriveSearchFilters(query: string, filters: SearchFilters = {}) {
   const explicitSkills = normalizeSkills(filters.skills);
+  const explicitCompanies = normalizeCompanies(filters.companies);
   const minYears = typeof filters.min_years_experience === "number" && filters.min_years_experience > 0
     ? filters.min_years_experience
     : null;
@@ -183,5 +206,6 @@ export function deriveSearchFilters(query: string, filters: SearchFilters = {}) 
     min_years_experience: minYears ?? extractMinYears(query),
     location: filters.location?.trim() || null,
     skills: explicitSkills.length ? explicitSkills : extractSkillsFromQuery(query),
+    companies: explicitCompanies,
   };
 }

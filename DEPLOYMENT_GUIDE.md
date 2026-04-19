@@ -148,7 +148,7 @@ or Ollama-compatible:
 supabase secrets set \
   LLM_PROVIDER=ollama \
   OLLAMA_BASE_URL=http://host.docker.internal:11434 \
-  OLLAMA_MODEL=qwen2.5:3b \
+  OLLAMA_MODEL=qwen3:30b-a3b \
   OLLAMA_EMBEDDING_MODEL=nomic-embed-text \
   OLLAMA_EMBEDDING_VERSION=ollama-nomic-embed-text-v1
 ```
@@ -222,13 +222,16 @@ CV_SOURCE_DIR=./cvs
 CV_WORKER_TENANT_ID=YOUR_TENANT_ID
 CV_WORKER_UPLOADED_BY=ops@example.com
 
-CV_MODEL_BASE_URL=http://127.0.0.1:11434/v1
-CV_MODEL_API_KEY=local
-CV_EXTRACTION_PROVIDER=ollama
-CV_EXTRACTION_MODEL=qwen2.5:3b
-CV_EMBEDDING_PROVIDER=ollama
-CV_EMBEDDING_MODEL=nomic-embed-text
-CV_EMBEDDING_VERSION=ollama-nomic-embed-text-v1
+CV_MODEL_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+CV_MODEL_API_KEY=YOUR_GEMINI_API_KEY
+CV_EXTRACTION_PROVIDER=openai-compatible
+CV_EXTRACTION_MODEL=gemini-2.5-flash
+CV_EMBEDDING_PROVIDER=openai
+CV_EMBEDDING_MODEL=gemini-embedding-001
+CV_EMBEDDING_DIMENSION=768
+CV_EMBEDDING_VERSION=gemini-embedding-001-768-v1
+CV_WORKER_CACHE_DIR=./tmp/cv_intelligence_worker
+CV_DELETE_SYNCED_BUNDLES=true
 CV_ALLOW_HEURISTIC_FALLBACK=true
 ```
 

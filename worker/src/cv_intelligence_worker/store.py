@@ -29,6 +29,20 @@ class LocalArtifactStore:
         payload["source_file"] = bundle.source.source_path
         return self.write_json(tenant_dir / "bundles" / f"{bundle.profile.candidate_id}.json", payload)
 
+    def delete_file(self, path: Path) -> None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return
+        cache_root = self.config.cache_path()
+        for parent in path.parents:
+            if parent == cache_root:
+                break
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+
     def save_comparison(self, artifact: ComparisonArtifact, artifact_key: str) -> Path:
         tenant_dir = self.tenant_dir(artifact.tenant_id)
         return self.write_json(tenant_dir / "comparisons" / f"{artifact_key}.json", dataclass_to_dict(artifact))

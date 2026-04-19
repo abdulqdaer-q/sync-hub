@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, BrainCircuit, DatabaseZap, FlaskConical, GitCompareArrows, SearchCheck, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { FilterMultiSelect } from "@/components/FilterMultiSelect";
+import { PickerDropdown } from "@/components/PickerDropdown";
 import { PlatformScopeControl } from "@/components/PlatformScopeControl";
 import { EmptyState, PageIntro, Panel, Tag } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
@@ -117,6 +118,7 @@ export function SearchConfigurationPage() {
   const [minYears, setMinYears] = useState(0);
   const [location, setLocation] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [filterOptions, setFilterOptions] = useState<SearchFilterOptions | null>(null);
   const [response, setResponse] = useState<SearchDebugResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -176,6 +178,7 @@ export function SearchConfigurationPage() {
     minYearsExperience: minYears,
     location,
     skills: selectedSkills,
+    companies: selectedCompanies,
   };
 
   const stageNarrative = useMemo(() => {
@@ -189,6 +192,8 @@ export function SearchConfigurationPage() {
       }`,
       `Intent source: ${response.analysis.intentSource}. Resolved role=${response.analysis.resolvedIntent.role ?? "none"}, seniority=${response.analysis.resolvedIntent.seniority ?? "none"}, skills=${
         response.analysis.resolvedIntent.skills.length ? response.analysis.resolvedIntent.skills.join(", ") : "none"
+      }, companies=${
+        response.analysis.resolvedIntent.companies.length ? response.analysis.resolvedIntent.companies.join(", ") : "none"
       }`,
       `Embedding provider: ${response.analysis.embedding.provider} · version=${response.analysis.embedding.version ?? "n/a"} · dimensions=${response.analysis.embedding.dimensions}`,
       `Lexical=${response.analysis.engine.usesLexical ? "on" : "off"} · Semantic=${response.analysis.engine.usesSemantic ? "on" : "off"} · Returned ${response.meta.count} result(s)`,
@@ -208,6 +213,7 @@ export function SearchConfigurationPage() {
         response.analysis.resolvedIntent.minYearsExperience !== null ? `min ${response.analysis.resolvedIntent.minYearsExperience}+ years` : null,
         response.analysis.resolvedIntent.location ? `location ${response.analysis.resolvedIntent.location}` : null,
         response.analysis.resolvedIntent.skills.length ? `skills ${response.analysis.resolvedIntent.skills.join(", ")}` : null,
+        response.analysis.resolvedIntent.companies.length ? `companies ${response.analysis.resolvedIntent.companies.join(", ")}` : null,
       ].filter(Boolean).join(" · ")
     : "";
   const topReasonsForTopResult = topResult ? topReasons(topResult.subscores) : [];
@@ -222,7 +228,7 @@ export function SearchConfigurationPage() {
 
   async function handleRun() {
     const normalizedQuery = query.trim();
-    const hasStructuredInput = Boolean(seniority || minYears > 0 || location.trim() || selectedSkills.length);
+    const hasStructuredInput = Boolean(seniority || minYears > 0 || location.trim() || selectedSkills.length || selectedCompanies.length);
     if (!normalizedQuery && !hasStructuredInput) {
       setError("Enter a text query or at least one explicit filter to simulate search.");
       return;
@@ -293,14 +299,13 @@ export function SearchConfigurationPage() {
           <div className="simulator-filters-grid">
             <label className="panel__section">
               <span>Seniority</span>
-              <select className="form-select" value={seniority} onChange={(event) => setSeniority(event.target.value)}>
-                <option value="">Any</option>
-                {(filterOptions?.seniority ?? []).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <PickerDropdown
+                value={seniority}
+                options={filterOptions?.seniority ?? []}
+                onChange={setSeniority}
+                placeholder="Any seniority"
+                emptyLabel="No seniority values available"
+              />
             </label>
 
             <label className="panel__section">
@@ -317,11 +322,12 @@ export function SearchConfigurationPage() {
 
           <label className="panel__section">
             <span>Location</span>
-            <input
-              className="form-input"
+            <PickerDropdown
               value={location}
-              onChange={(event) => setLocation(event.target.value)}
-              placeholder="Aleppo"
+              options={(filterOptions?.locations ?? []).map((option) => ({ value: option, label: option }))}
+              onChange={setLocation}
+              placeholder="Any location"
+              emptyLabel="No indexed locations available"
             />
           </label>
 
@@ -334,6 +340,17 @@ export function SearchConfigurationPage() {
               placeholder="Add strict required skills"
               searchPlaceholder="Search skills"
               normalizeInput={parseSkillText}
+            />
+          </label>
+
+          <label className="panel__section">
+            <span>Companies</span>
+            <FilterMultiSelect
+              options={filterOptions?.companies ?? []}
+              values={selectedCompanies}
+              onChange={setSelectedCompanies}
+              placeholder="Add current or past companies"
+              searchPlaceholder="Search companies"
             />
           </label>
 
@@ -351,6 +368,7 @@ export function SearchConfigurationPage() {
                 setMinYears(0);
                 setLocation("");
                 setSelectedSkills([]);
+                setSelectedCompanies([]);
                 setError(null);
                 setResponse(null);
               }}

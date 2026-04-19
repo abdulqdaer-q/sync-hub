@@ -115,6 +115,8 @@ type CandidateChunkRow = {
 type CandidateSearchFacetRow = {
   seniority: string | null;
   skills: string[] | null;
+  companies: string[] | null;
+  location: string | null;
 };
 
 type CandidateTimelineRow = {
@@ -182,6 +184,10 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(normalized) ? normalized : fallback;
 }
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function hueFromId(seed: string) {
   return seed.split("").reduce((memo, character) => memo + character.charCodeAt(0), 0) % 360;
 }
@@ -198,6 +204,148 @@ function countDistinctEmployers(rows: CandidateTimelineRow[]) {
         .filter(Boolean)
     ),
   ).size;
+}
+
+function normalizeSearchFilters(filters: SearchFilters) {
+  return {
+    role: filters.role?.trim() || null,
+    seniority: normalizeSeniorityValue(filters.seniority) ?? null,
+    min_years_experience:
+      typeof filters.minYearsExperience === "number" && filters.minYearsExperience > 0
+        ? filters.minYearsExperience
+        : null,
+    location: filters.location?.trim() || null,
+    skills: normalizeSkillList(filters.skills ?? []),
+    companies: dedupeSorted((filters.companies ?? []).map((company) => company.trim())),
+  };
+}
+
+function createEmptySearchFilterOptions(): SearchFilterOptions {
+  return {
+    seniority: [],
+    skills: [],
+    companies: [],
+    locations: [],
+  };
+}
+
+function createEmptyWorkspaceStats(): WorkspaceStats {
+  return {
+    documentCount: 0,
+    candidateCount: 0,
+    companyCount: 0,
+  };
+}
+
+function buildSearchRpcPayload(
+  query: string,
+  filters: ReturnType<typeof normalizeSearchFilters>,
+  options?: SearchQueryOptions,
+  tenantIds?: string[],
+) {
+  const limit = Math.max(1, Math.min(50, Math.trunc(options?.limit ?? 12)));
+  const offset = Math.max(0, Math.trunc(options?.offset ?? 0));
+
+  return {
+    p_q: query,
+    p_query_embedding: null,
+    p_limit: limit,
+    p_offset: offset,
+    p_role: filters.role,
+    p_seniority: filters.seniority,
+    p_min_years: filters.min_years_experience,
+    p_skills: filters.skills,
+    p_embedding_version: null,
+    p_rank_version: "v1",
+    p_tenant_ids: tenantIds?.length ? tenantIds : null,
+    p_filter_role: filters.role,
+    p_filter_seniority: filters.seniority,
+    p_filter_min_years: filters.min_years_experience,
+    p_filter_skills: filters.skills,
+    p_filter_companies: filters.companies,
+    p_filter_location: filters.location,
+  };
+}
+
+async function runDirectSearchRpc(
+  query: string,
+  filters: ReturnType<typeof normalizeSearchFilters>,
+  options?: SearchQueryOptions,
+  tenantIds?: string[],
+) {
+  if (!supabase) {
+    throw new Error("Missing Supabase browser client configuration.");
+  }
+
+  const rpcPayload = buildSearchRpcPayload(query, filters, options, tenantIds);
+  const { data, error } = await supabase.rpc("search_candidates_v1", rpcPayload);
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    rpcPayload,
+    rows: asArray(data),
+    nextCursor:
+      asArray(data).length < rpcPayload.p_limit
+        ? null
+        : rpcPayload.p_offset + rpcPayload.p_limit,
+  };
+}
+
+async function runDirectSearchDebugRpc(
+  query: string,
+  filters: ReturnType<typeof normalizeSearchFilters>,
+  options?: SearchQueryOptions,
+  tenantIds?: string[],
+) {
+  const { rpcPayload, rows, nextCursor } = await runDirectSearchRpc(query, filters, options, tenantIds);
+  const strictFilters = Object.entries(filters)
+    .filter(([, value]) => (Array.isArray(value) ? value.length > 0 : value !== null && value !== ""))
+    .map(([key]) => key);
+
+  return {
+    request: {
+      query,
+      limit: rpcPayload.p_limit,
+      offset: rpcPayload.p_offset,
+      tenant_ids: tenantIds ?? [],
+      explicit_filters: filters,
+    },
+    analysis: {
+      intent_source: "rule_based",
+      llm_intent: null,
+      resolved_intent: filters,
+      embedding: {
+        provider: "none",
+        version: null,
+        dimensions: 0,
+        preview: [],
+      },
+      rpc_payload: rpcPayload,
+      uses_lexical: Boolean(query.trim()),
+      uses_semantic: false,
+      uses_name_boost: Boolean(query.trim()),
+      strict_filters: strictFilters,
+    },
+    results: rows,
+    next_cursor: nextCursor,
+    meta: {
+      count: rows.length,
+      rank_version: String(rpcPayload.p_rank_version),
+      source: "remote",
+    },
+    raw_response: {
+      results: rows,
+      next_cursor: nextCursor,
+      meta: {
+        count: rows.length,
+        rank_version: String(rpcPayload.p_rank_version),
+        source: "remote",
+      },
+    },
+  } satisfies JsonRecord;
 }
 
 function normalizeBackendMatchScore(rawScore: unknown) {
@@ -375,6 +523,7 @@ function mapRemoteSearchDebug(payload: JsonRecord): SearchDebugResponse {
     minYearsExperience: typeof record.min_years_experience === "number" ? record.min_years_experience : null,
     location: typeof record.location === "string" ? record.location : null,
     skills: toStringArray(record.skills),
+    companies: toStringArray(record.companies),
   });
 
   return {
@@ -444,6 +593,8 @@ function createFallbackSearchFilterOptions(): SearchFilterOptions {
       label: formatSeniorityValue(value) || value,
     })),
     skills: dedupeSorted(SEARCH_SKILL_TABLE.map((entry) => String(entry.value))),
+    companies: [],
+    locations: [],
   };
 }
 
@@ -460,12 +611,22 @@ function mapSearchFilterOptions(rows: CandidateSearchFacetRow[]): SearchFilterOp
   const skills = dedupeSorted(
     rows.flatMap((row) => row.skills ?? []),
   );
+  const companies = dedupeSorted(
+    rows.flatMap((row) => row.companies ?? []),
+  );
+  const locations = dedupeSorted(
+    rows
+      .map((row) => row.location ?? "")
+      .filter(Boolean),
+  );
 
   const fallback = createFallbackSearchFilterOptions();
 
   return {
     seniority: seniority.length ? seniority : fallback.seniority,
     skills: skills.length ? skills : fallback.skills,
+    companies: companies.length ? companies : fallback.companies,
+    locations: locations.length ? locations : fallback.locations,
   };
 }
 
@@ -683,6 +844,7 @@ function createMockApi(): PlatformApi {
             : null,
         location: filters.location?.trim() || null,
         skills: normalizeSkillList(filters.skills ?? []),
+        companies: dedupeSorted((filters.companies ?? []).map((company) => company.trim())),
       };
 
       return {
@@ -710,6 +872,7 @@ function createMockApi(): PlatformApi {
             p_filter_seniority: explicitFilters.seniority,
             p_filter_min_years: explicitFilters.minYearsExperience,
             p_filter_skills: explicitFilters.skills,
+            p_filter_companies: explicitFilters.companies,
             p_filter_location: explicitFilters.location,
           },
           engine: {
@@ -743,6 +906,7 @@ function createMockApi(): PlatformApi {
             min_years_experience: explicitFilters.minYearsExperience,
             location: explicitFilters.location,
             required_skills: explicitFilters.skills,
+            required_companies: explicitFilters.companies,
           },
           summaryShort: candidate.shortSummary,
           evidence: [],
@@ -849,17 +1013,9 @@ function createRemoteApi(): PlatformApi {
 
   return {
     async search(query, filters, options, tenantIds) {
+      const explicitFilters = normalizeSearchFilters(filters);
+
       try {
-        const explicitFilters = {
-          role: filters.role?.trim() || null,
-          seniority: normalizeSeniorityValue(filters.seniority) ?? null,
-          min_years_experience:
-            typeof filters.minYearsExperience === "number" && filters.minYearsExperience > 0
-              ? filters.minYearsExperience
-              : null,
-          location: filters.location?.trim() || null,
-          skills: normalizeSkillList(filters.skills ?? []),
-        };
         const limit = Math.max(1, Math.min(50, Math.trunc(options?.limit ?? 12)));
         const offset = Math.max(0, Math.trunc(options?.offset ?? 0));
         const payload = await invokeFunction<JsonRecord>("search", {
@@ -870,22 +1026,29 @@ function createRemoteApi(): PlatformApi {
           offset,
         });
         return mapRemoteSearch(payload);
-      } catch {
-        return mock.search(query, filters, options);
+      } catch (functionError) {
+        try {
+          const fallbackPayload = await runDirectSearchRpc(query, explicitFilters, options, tenantIds);
+          return mapRemoteSearch({
+            results: fallbackPayload.rows,
+            next_cursor: fallbackPayload.nextCursor,
+            meta: {
+              count: fallbackPayload.rows.length,
+              rank_version: String(fallbackPayload.rpcPayload.p_rank_version),
+              source: "remote",
+            },
+          });
+        } catch (rpcError) {
+          throw new Error(
+            `Live search failed. Edge Function error: ${errorMessage(functionError)}. Direct Supabase RPC error: ${errorMessage(rpcError)}.`,
+          );
+        }
       }
     },
     async searchDebug(query, filters, options, tenantIds) {
+      const explicitFilters = normalizeSearchFilters(filters);
+
       try {
-        const explicitFilters = {
-          role: filters.role?.trim() || null,
-          seniority: normalizeSeniorityValue(filters.seniority) ?? null,
-          min_years_experience:
-            typeof filters.minYearsExperience === "number" && filters.minYearsExperience > 0
-              ? filters.minYearsExperience
-              : null,
-          location: filters.location?.trim() || null,
-          skills: normalizeSkillList(filters.skills ?? []),
-        };
         const limit = Math.max(1, Math.min(50, Math.trunc(options?.limit ?? 12)));
         const offset = Math.max(0, Math.trunc(options?.offset ?? 0));
         const payload = await invokeFunction<JsonRecord>("search-debug", {
@@ -896,8 +1059,15 @@ function createRemoteApi(): PlatformApi {
           offset,
         });
         return mapRemoteSearchDebug(payload);
-      } catch {
-        return mock.searchDebug(query, filters, options, tenantIds);
+      } catch (functionError) {
+        try {
+          const fallbackPayload = await runDirectSearchDebugRpc(query, explicitFilters, options, tenantIds);
+          return mapRemoteSearchDebug(fallbackPayload);
+        } catch (rpcError) {
+          throw new Error(
+            `Live search debug failed. Edge Function error: ${errorMessage(functionError)}. Direct Supabase RPC error: ${errorMessage(rpcError)}.`,
+          );
+        }
       }
     },
     async getSearchFilterOptions(tenantIds) {
@@ -908,7 +1078,7 @@ function createRemoteApi(): PlatformApi {
       try {
         let query = supabase
           .from("candidate_search_rows")
-          .select("seniority, skills")
+          .select("seniority, skills, companies, location")
           .limit(10000);
 
         if (tenantIds?.length) {
@@ -923,12 +1093,12 @@ function createRemoteApi(): PlatformApi {
 
         return mapSearchFilterOptions((data ?? []) as CandidateSearchFacetRow[]);
       } catch {
-        return mock.getSearchFilterOptions();
+        return createEmptySearchFilterOptions();
       }
     },
     async getWorkspaceStats(tenantIds) {
       if (!supabase || !tenantIds?.length) {
-        return mock.getWorkspaceStats();
+        return createEmptyWorkspaceStats();
       }
 
       try {
@@ -954,7 +1124,7 @@ function createRemoteApi(): PlatformApi {
           companyCount: countDistinctEmployers((timelineResult.data ?? []) as CandidateTimelineRow[]),
         };
       } catch {
-        return mock.getWorkspaceStats();
+        return createEmptyWorkspaceStats();
       }
     },
     async getCandidate(candidateId) {

@@ -298,30 +298,36 @@ PYTHONPATH=worker/src python3 -m cv_intelligence_worker ingest \
 
 The copied PDFs under `workspaces/demo/` are ignored by git.
 
-### Local Ollama demo profile
+### Default Gemini worker profile
 
-For a fully local demo, use Ollama for CV extraction, chunk embeddings, backend intent extraction, and grounded `/ask` synthesis.
+The default worker profile now targets Gemini Flash extraction plus Gemini 768-dimension embeddings. Set a Gemini API key in your shell and the worker will use these defaults automatically.
 
 Worker-side example:
 
 ```bash
-CV_MODEL_BASE_URL=http://127.0.0.1:11434
-CV_EXTRACTION_PROVIDER=ollama
-CV_EXTRACTION_MODEL=qwen2.5:3b
-CV_EMBEDDING_PROVIDER=ollama
-CV_EMBEDDING_MODEL=nomic-embed-text
-CV_EMBEDDING_VERSION=ollama-nomic-embed-text-v1
+GEMINI_API_KEY=YOUR_GEMINI_API_KEY
+CV_MODEL_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+CV_EXTRACTION_PROVIDER=openai-compatible
+CV_EXTRACTION_MODEL=gemini-2.5-flash
+CV_EMBEDDING_PROVIDER=openai
+CV_EMBEDDING_MODEL=gemini-embedding-001
+CV_EMBEDDING_DIMENSION=768
+CV_EMBEDDING_VERSION=gemini-embedding-001-768-v1
+CV_WORKER_CACHE_DIR=./tmp/cv_intelligence_worker
+CV_DELETE_SYNCED_BUNDLES=true
 ```
 
 Supabase Edge Function example:
 
 ```bash
 LLM_PROVIDER=ollama
-OLLAMA_MODEL=qwen2.5:3b
+OLLAMA_MODEL=qwen3:30b-a3b
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 OLLAMA_EMBEDDING_VERSION=ollama-nomic-embed-text-v1
 ```
+
+Ollama is still supported if you explicitly set the worker env vars back to an Ollama model profile.
 
 ### Frontend commands
 

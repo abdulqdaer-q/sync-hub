@@ -57,6 +57,8 @@ class OpenAICompatibleEmbedder:
             "model": self.config.embedding_model,
             "input": [chunk.text for chunk in chunks],
         }
+        if self.config.embedding_model.startswith("gemini-embedding-") and self.config.embedding_dimension > 0:
+            payload["dimensions"] = self.config.embedding_dimension
         request = urllib.request.Request(
             f"{self.config.model_base_url.rstrip('/')}/embeddings",
             data=json.dumps(payload).encode("utf-8"),

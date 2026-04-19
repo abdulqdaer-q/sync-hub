@@ -31,6 +31,7 @@ function normalizeExplicitFilters(filters: Record<string, unknown>) {
     min_years_experience: minYearsRaw !== null && minYearsRaw > 0 ? minYearsRaw : null,
     location: asString(filters.location),
     skills: normalizeSkillList(asStringArray(filters.skills)),
+    companies: asStringArray(filters.companies),
   };
 }
 
@@ -75,6 +76,7 @@ Deno.serve(async (req) => {
       min_years_experience: requestFilters.min_years_experience ?? null,
       location: requestFilters.location ?? null,
       skills: requestFilters.skills,
+      companies: requestFilters.companies,
     }, llmIntent);
 
     const queryEmbeddingPayload = Array.isArray(body.query_embedding)
@@ -101,6 +103,7 @@ Deno.serve(async (req) => {
       p_filter_seniority: requestFilters.seniority ?? null,
       p_filter_min_years: requestFilters.min_years_experience ?? null,
       p_filter_skills: requestFilters.skills ?? [],
+      p_filter_companies: requestFilters.companies ?? [],
       p_filter_location: requestFilters.location ?? null,
     };
 

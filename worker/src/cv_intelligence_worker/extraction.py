@@ -8,7 +8,7 @@ from dataclasses import replace
 from typing import Any
 
 from .config import WorkerConfig
-from .normalization import normalize_profile
+from .normalization import normalize_location, normalize_profile
 from .schema import CandidateProfile, DocumentSource, DocumentText, EducationEntry, ExperienceEntry, ProjectEntry
 from .utils import compact_whitespace, dedupe_keep_order, stable_uuid
 
@@ -70,6 +70,104 @@ SECTION_ALIASES = {
     "interests": {"interests"},
 }
 SECTION_STOPPERS = {"summary", "experience", "education", "skills", "projects", "certifications", "languages", "leadership", "interests"}
+SECTION_RENDER_ORDER = (
+    "header",
+    "summary",
+    "experience",
+    "education",
+    "skills",
+    "projects",
+    "certifications",
+    "languages",
+    "leadership",
+    "interests",
+)
+EXTRACTION_OUTPUT_SCHEMA = {
+    "name": "string|null",
+    "current_title": "string|null",
+    "headline": "string|null",
+    "location": "string|null",
+    "email": "string|null",
+    "phone": "string|null",
+    "links": ["string"],
+    "years_experience": "number|null",
+    "seniority": "string|null",
+    "role_tags": ["string"],
+    "skills": ["string"],
+    "languages": ["string"],
+    "certifications": ["string"],
+    "experience": [
+        {
+            "company": "string|null",
+            "title": "string|null",
+            "start_date": "string|null",
+            "end_date": "string|null",
+            "location": "string|null",
+            "description": "string|null",
+        }
+    ],
+    "education": [
+        {
+            "institution": "string|null",
+            "degree": "string|null",
+            "field": "string|null",
+            "start_date": "string|null",
+            "end_date": "string|null",
+            "description": "string|null",
+        }
+    ],
+    "projects": [
+        {
+            "name": "string|null",
+            "description": "string|null",
+            "technologies": ["string"],
+        }
+    ],
+    "summary": "string|null",
+}
+OLLAMA_FORMAT_SCHEMA = {
+    "name": "string",
+    "current_title": "string",
+    "headline": "string",
+    "location": "string",
+    "email": "string",
+    "phone": "string",
+    "links": ["string"],
+    "years_experience": "number",
+    "seniority": "string",
+    "role_tags": ["string"],
+    "skills": ["string"],
+    "languages": ["string"],
+    "certifications": ["string"],
+    "experience": [
+        {
+            "company": "string",
+            "title": "string",
+            "start_date": "string",
+            "end_date": "string",
+            "location": "string",
+            "description": "string",
+        }
+    ],
+    "education": [
+        {
+            "institution": "string",
+            "degree": "string",
+            "field": "string",
+            "start_date": "string",
+            "end_date": "string",
+            "description": "string",
+        }
+    ],
+    "projects": [
+        {
+            "name": "string",
+            "description": "string",
+            "technologies": ["string"],
+        }
+    ],
+    "summary": "string",
+}
 
 
 def _split_lines(text: str) -> list[str]:
@@ -113,6 +211,89 @@ def _extract_sections(text: str) -> dict[str, list[str]]:
             continue
         sections.setdefault(current, []).append(line)
     return sections
+
+
+def _extractor_system_prompt() -> str:
+    schema_text = json.dumps(EXTRACTION_OUTPUT_SCHEMA, indent=2, ensure_ascii=True)
+    return (
+        "Transform the input CV or profile text into structured JSON that matches the provided schema.\n\n"
+        "Requirements:\n"
+        "- Return valid JSON only.\n"
+        "- Do not return markdown, comments, or explanations.\n"
+        "- Follow the schema exactly.\n"
+        "- Do not hallucinate or infer unsupported facts.\n"
+        "- If a value is missing, use null for scalar fields and [] for arrays.\n"
+        "- Preserve meaning and keep extracted descriptions concise but faithful to the source.\n"
+        "- Remove duplicates and trim whitespace.\n\n"
+        "Extraction rules:\n"
+        "- Treat labeled sections such as EXPERIENCE, EDUCATION, PROJECTS, CERTIFICATIONS, SKILLS, and LANGUAGES as the primary source of truth.\n"
+        "- When section labels are present, prefer them over inference.\n"
+        "- Do not mix data across sections.\n"
+        "- Do not use education, certifications, training, or course dates as work experience dates.\n"
+        "- Populate experience only from the EXPERIENCE section.\n"
+        "- Use PRE_EXPERIENCE_DATE_HINTS only if it appears immediately before the EXPERIENCE section.\n"
+        "- Keep training, internships, courses, and degrees under education unless they are explicitly presented as employment or work experience.\n"
+        "- Do not split one role into multiple jobs because of subheadings such as Project Leadership, Client Engagement, Responsibilities, Achievements, or similar labels.\n"
+        "- Bind dates, location, and description content to the nearest relevant role or education entry.\n"
+        "- If multiple distinct roles exist under the same company, create separate experience entries only when the title and/or dates clearly differ.\n\n"
+        "Normalization rules:\n"
+        "- Normalize dates when possible to YYYY-MM.\n"
+        "- If normalization is not reliable, keep the original text.\n"
+        "- For current roles, end_date may be \"Present\" if that is what the source says.\n"
+        "- links should contain URLs only.\n"
+        "- languages should contain spoken or human languages only.\n"
+        "- skills should contain explicit professional or technical skills only.\n"
+        "- certifications should contain named certifications only.\n"
+        "- location must be a real geographic city, state, or country explicitly stated in the CV.\n"
+        "- Normalize location to a canonical City, Country form when the place is clear from the CV.\n"
+        "- Correct obvious location spelling and formatting variants when safe, for example Damscus, Damascus syria, and Damascus, syria should become Damascus, Syria.\n"
+        "- If no explicit candidate location is present, set location to null.\n"
+        "- Do not use skills, systems, industries, company names, or generic work modes such as ERP, CRM, Remote, Hybrid, or On-site as location.\n"
+        "- role_tags should contain normalized job-role labels.\n"
+        "- years_experience should be estimated from experience dates only.\n"
+        "- seniority should be inferred from role titles and scope only when supported by the CV.\n\n"
+        "Output schema:\n"
+        f"{schema_text}"
+    )
+
+
+def _split_pre_experience_date_hints(summary_lines: list[str]) -> tuple[list[str], list[str]]:
+    cleaned = [compact_whitespace(line) for line in summary_lines if compact_whitespace(line)]
+    if not cleaned:
+        return [], []
+
+    hints: list[str] = []
+    while cleaned:
+        candidate = cleaned[-1]
+        if _is_date_line(candidate) or LOCATION_HINT_RE.match(candidate):
+            hints.insert(0, candidate)
+            cleaned.pop()
+            continue
+        break
+    return cleaned, hints
+
+
+def _render_sectioned_cv_text(sections: dict[str, list[str]], max_chars: int = 16000) -> str:
+    rendered_sections = {key: list(value) for key, value in sections.items()}
+    summary_lines, pre_experience_hints = _split_pre_experience_date_hints(rendered_sections.get("summary", []))
+    if summary_lines != rendered_sections.get("summary", []):
+        rendered_sections["summary"] = summary_lines
+    if pre_experience_hints:
+        rendered_sections["pre_experience_date_hints"] = pre_experience_hints
+
+    order = ["header", "summary", "pre_experience_date_hints", *[name for name in SECTION_RENDER_ORDER if name not in {"header", "summary"}]]
+    blocks: list[str] = []
+    for section_name in order:
+        lines = [compact_whitespace(line) for line in rendered_sections.get(section_name, []) if compact_whitespace(line)]
+        if not lines:
+            continue
+        label = section_name.upper()
+        blocks.append(f"<{label}>\n" + "\n".join(lines) + f"\n</{label}>")
+
+    rendered = "\n\n".join(blocks).strip()
+    if len(rendered) <= max_chars:
+        return rendered
+    return rendered[:max_chars].rstrip()
 
 
 def _extract_name(lines: list[str], source: DocumentSource) -> str:
@@ -366,52 +547,9 @@ def _extract_languages(lines: list[str]) -> list[str]:
 
 
 def _structured_prompt(document_text: DocumentText) -> dict[str, Any]:
+    sections = _extract_sections(document_text.raw_text)
     return {
-        "task": "Extract a structured candidate profile from CV text. Return JSON only.",
-        "schema": {
-            "name": "string",
-            "current_title": "string",
-            "headline": "string",
-            "location": "string",
-            "email": "string",
-            "phone": "string",
-            "links": ["string"],
-            "years_experience": "number",
-            "seniority": "string",
-            "role_tags": ["string"],
-            "skills": ["string"],
-            "languages": ["string"],
-            "certifications": ["string"],
-            "experience": [
-                {
-                    "company": "string",
-                    "title": "string",
-                    "start_date": "string",
-                    "end_date": "string",
-                    "location": "string",
-                    "description": "string",
-                }
-            ],
-            "education": [
-                {
-                    "institution": "string",
-                    "degree": "string",
-                    "field": "string",
-                    "start_date": "string",
-                    "end_date": "string",
-                    "description": "string",
-                }
-            ],
-            "projects": [
-                {
-                    "name": "string",
-                    "description": "string",
-                    "technologies": ["string"],
-                }
-            ],
-            "summary": "string",
-        },
-        "cv_text": document_text.raw_text[:16000],
+        "sectioned_cv_text": _render_sectioned_cv_text(sections, max_chars=16000),
     }
 
 
@@ -453,13 +591,15 @@ def _number_value(value: Any) -> float:
 
 def _merge_extracted_profile(source: DocumentSource, document_text: DocumentText, extracted: dict[str, Any]) -> CandidateProfile:
     profile = heuristic_extract_profile(source, document_text)
+    extracted_location = normalize_location(_string_value(extracted.get("location")))
+    heuristic_location = normalize_location(profile.location)
     return normalize_profile(
         replace(
             profile,
             name=_string_value(extracted.get("name")) or profile.name,
             current_title=_string_value(extracted.get("current_title")) or profile.current_title,
             headline=_string_value(extracted.get("headline")) or profile.headline,
-            location=_string_value(extracted.get("location")) or profile.location,
+            location=extracted_location or heuristic_location,
             email=_string_value(extracted.get("email")) or profile.email,
             phone=_string_value(extracted.get("phone")) or profile.phone,
             links=_string_list(extracted.get("links")) or profile.links,
@@ -476,7 +616,7 @@ def _merge_extracted_profile(source: DocumentSource, document_text: DocumentText
                     start_date=_string_value(item.get("start_date")) or None,
                     end_date=_string_value(item.get("end_date")) or None,
                     description=_string_value(item.get("description")),
-                    location=_string_value(item.get("location")) or None,
+                    location=normalize_location(_string_value(item.get("location"))) or None,
                 )
                 for item in (extracted.get("experience") or [])
                 if isinstance(item, dict)
@@ -517,7 +657,7 @@ class OpenAICompatibleExtractor:
         payload = {
             "model": self.config.extraction_model,
             "messages": [
-                {"role": "system", "content": "You are a CV parser. Return strict JSON only."},
+                {"role": "system", "content": _extractor_system_prompt()},
                 {"role": "user", "content": json.dumps(prompt)},
             ],
             "temperature": 0,
@@ -550,10 +690,10 @@ class OllamaExtractor:
         payload = {
             "model": self.config.extraction_model,
             "stream": False,
-            "format": prompt["schema"],
+            "format": OLLAMA_FORMAT_SCHEMA,
             "options": {"temperature": 0},
             "messages": [
-                {"role": "system", "content": "You are a CV parser. Return strict JSON only."},
+                {"role": "system", "content": _extractor_system_prompt()},
                 {"role": "user", "content": json.dumps(prompt)},
             ],
         }

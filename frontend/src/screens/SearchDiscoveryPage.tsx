@@ -3,6 +3,7 @@ import { ArrowRight, ArrowUp, BriefcaseBusiness, Building2, CheckCircle2, FileTe
 import { Link } from "react-router-dom";
 import { PlatformScopeControl } from "@/components/PlatformScopeControl";
 import { FilterMultiSelect } from "@/components/FilterMultiSelect";
+import { PickerDropdown } from "@/components/PickerDropdown";
 import { defaultSearchQuery } from "@/data/mockData";
 import { buildChatHref } from "@/lib/chatAgent";
 import type { SearchFilterOptions, SearchFilters, SearchResponse, WorkspaceStats } from "@/lib/contracts";
@@ -50,6 +51,7 @@ export function SearchDiscoveryPage() {
   const [minYears, setMinYears] = useState(0);
   const [location, setLocation] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<SearchSortOption>("best-match");
   const [filterOptions, setFilterOptions] = useState<SearchFilterOptions | null>(null);
   const [workspaceStats, setWorkspaceStats] = useState<WorkspaceStats | null>(null);
@@ -218,7 +220,7 @@ export function SearchDiscoveryPage() {
 
   function handleExecute() {
     const normalizedQuery = query.trim();
-    const hasStructuredInput = Boolean(seniority || minYears > 0 || location.trim() || selectedSkills.length);
+    const hasStructuredInput = Boolean(seniority || minYears > 0 || location.trim() || selectedSkills.length || selectedCompanies.length);
     if (!normalizedQuery && !hasStructuredInput) {
       setError("Enter a title, skill, or filter to start searching.");
       return;
@@ -229,6 +231,7 @@ export function SearchDiscoveryPage() {
       minYearsExperience: minYears,
       location,
       skills: selectedSkills,
+      companies: selectedCompanies,
     };
 
     setError(null);
@@ -361,14 +364,13 @@ export function SearchDiscoveryPage() {
 
           <label className="panel__section">
             <span>Seniority</span>
-            <select className="form-select" value={seniority} onChange={(event) => setSeniority(event.target.value)}>
-              <option value="">Any</option>
-              {(filterOptions?.seniority ?? []).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <PickerDropdown
+              value={seniority}
+              options={filterOptions?.seniority ?? []}
+              onChange={setSeniority}
+              placeholder="Any seniority"
+              emptyLabel="No seniority values available"
+            />
             <p className="muted">Options are loaded from the indexed candidate corpus.</p>
           </label>
 
@@ -379,7 +381,13 @@ export function SearchDiscoveryPage() {
 
           <label className="panel__section">
             <span>Location hint</span>
-            <input className="form-input" value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Optional city or region" />
+            <PickerDropdown
+              value={location}
+              options={(filterOptions?.locations ?? []).map((option) => ({ value: option, label: option }))}
+              onChange={setLocation}
+              placeholder="Any location"
+              emptyLabel="No indexed locations available"
+            />
           </label>
 
           <label className="panel__section">
@@ -394,6 +402,19 @@ export function SearchDiscoveryPage() {
               emptyLabel="No indexed skills match the current search"
             />
             <p className="muted">Indexed skills come from Supabase. Typed values are still normalized into canonical search tokens.</p>
+          </label>
+
+          <label className="panel__section">
+            <span>Companies</span>
+            <FilterMultiSelect
+              options={filterOptions?.companies ?? []}
+              values={selectedCompanies}
+              onChange={setSelectedCompanies}
+              placeholder="Add current or past companies"
+              searchPlaceholder="Search indexed companies or type to add"
+              emptyLabel="No indexed companies match the current search"
+            />
+            <p className="muted">Company filters are backed by parsed experience history from Supabase.</p>
           </label>
         </Panel>
       </form>

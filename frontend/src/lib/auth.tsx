@@ -9,6 +9,7 @@ export type TenantMembership = {
   id: string;
   slug: string;
   name: string;
+  iconUrl: string | null;
   role: string;
   status: string;
 };
@@ -41,6 +42,7 @@ type TenantRow = {
   id: string;
   slug: string;
   name: string;
+  icon_url: string | null;
 };
 
 type PlatformAdminRow = {
@@ -83,6 +85,19 @@ function resolveCurrentTenant(memberships: TenantMembership[]) {
   const storedTenantId = readStoredTenantId();
   const storedMembership = memberships.find((membership) => membership.id === storedTenantId);
   return storedMembership ?? memberships[0] ?? null;
+}
+
+function dedupeTenantMemberships(memberships: TenantMembership[]) {
+  const membershipByTenantId = new Map<string, TenantMembership>();
+
+  for (const membership of memberships) {
+    const current = membershipByTenantId.get(membership.id);
+    if (!current || current.role === "platform-admin") {
+      membershipByTenantId.set(membership.id, membership);
+    }
+  }
+
+  return Array.from(membershipByTenantId.values());
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
@@ -130,6 +145,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       supabase
         .from("tenant_memberships")
         .select("tenant_id, role, status")
+        .eq("user_id", nextSession.user.id)
         .eq("status", "active"),
       supabase
         .from("platform_admins")
@@ -169,8 +185,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
 
     const tenantResult = nextIsPlatformAdmin
-      ? await supabase.from("tenants").select("id, slug, name").order("name")
-      : await supabase.from("tenants").select("id, slug, name").in("id", membershipRows.map((membership) => membership.tenant_id));
+      ? await supabase.from("tenants").select("id, slug, name, icon_url").order("name")
+      : await supabase.from("tenants").select("id, slug, name, icon_url").in("id", membershipRows.map((membership) => membership.tenant_id));
 
     if (tenantResult.error) {
       setAuthError(tenantResult.error.message);
@@ -191,13 +207,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
           id: tenant.id,
           slug: tenant.slug,
           name: tenant.name,
+          iconUrl: tenant.icon_url,
           role: membership.role,
           status: membership.status,
         } satisfies TenantMembership;
       })
       .filter((membership): membership is TenantMembership => Boolean(membership));
 
-    const merged = nextIsPlatformAdmin
+    const merged = dedupeTenantMemberships(nextIsPlatformAdmin
       ? [
           ...mergedMemberships,
           ...tenantRows
@@ -206,11 +223,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
               id: tenant.id,
               slug: tenant.slug,
               name: tenant.name,
+              iconUrl: tenant.icon_url,
               role: "platform-admin",
               status: "active",
             }) satisfies TenantMembership),
-        ].sort((left, right) => left.name.localeCompare(right.name))
-      : mergedMemberships;
+        ]
+      : mergedMemberships).sort((left, right) => left.name.localeCompare(right.name));
 
     const nextTenant = resolveCurrentTenant(merged);
     setMemberships(merged);

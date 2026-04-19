@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from cv_intelligence_worker.extraction import heuristic_extract_profile
+from cv_intelligence_worker.extraction import (
+    _extractor_system_prompt,
+    _merge_extracted_profile,
+    _structured_prompt,
+    heuristic_extract_profile,
+)
 from cv_intelligence_worker.schema import DocumentSource, DocumentText
 
 
@@ -103,6 +108,107 @@ English
         self.assertIn("Docker", profile.skills)
         self.assertGreater(profile.years_experience, 0.0)
         self.assertEqual(profile.education[0].degree, "Software Engineering")
+
+    def test_structured_prompt_uses_labeled_sections_for_llm_extraction(self) -> None:
+        source = DocumentSource(
+            tenant_id="tenant-1",
+            source_path="/tmp/resume.pdf",
+            source_type="file",
+            original_filename="resume.pdf",
+            mime_type="application/pdf",
+            document_id="doc-3",
+            document_sha256="ghi",
+            ingestion_run_id="run-3",
+        )
+        document = DocumentText(
+            source=source,
+            raw_text="""Jane Doe
+Frontend Developer
+
+Summary
+Frontend developer building product experiences.
+08/2024 - Present
+Montreal, Canada
+
+Work Experience
+Frontend Developer, Example Agency
+Built responsive product pages and campaign experiences.
+
+Education
+Digital Banking Training, Example Bank
+09/2021 - 09/2021
+Damascus, Syria
+""",
+            parser_name="pdftotext-raw",
+            parser_version="2.0.0",
+        )
+
+        prompt = _structured_prompt(document)
+        system_prompt = _extractor_system_prompt()
+
+        self.assertIn("<EXPERIENCE>", prompt["sectioned_cv_text"])
+        self.assertIn("</EXPERIENCE>", prompt["sectioned_cv_text"])
+        self.assertIn("<EDUCATION>", prompt["sectioned_cv_text"])
+        self.assertIn("</EDUCATION>", prompt["sectioned_cv_text"])
+        self.assertIn("<PRE_EXPERIENCE_DATE_HINTS>", prompt["sectioned_cv_text"])
+        self.assertIn("</PRE_EXPERIENCE_DATE_HINTS>", prompt["sectioned_cv_text"])
+        self.assertIn(
+            "Do not use education, certifications, training, or course dates as work experience dates.",
+            system_prompt,
+        )
+        self.assertIn("location must be a real geographic city, state, or country explicitly stated in the CV.", system_prompt)
+        self.assertIn("Normalize location to a canonical City, Country form when the place is clear from the CV.", system_prompt)
+        self.assertIn("Output schema:", system_prompt)
+
+    def test_merge_extracted_profile_rejects_non_geographic_location(self) -> None:
+        source = DocumentSource(
+            tenant_id="tenant-1",
+            source_path="/tmp/resume.pdf",
+            source_type="file",
+            original_filename="resume.pdf",
+            mime_type="application/pdf",
+            document_id="doc-4",
+            document_sha256="jkl",
+            ingestion_run_id="run-4",
+        )
+        document = DocumentText(
+            source=source,
+            raw_text="""Jane Doe
+Frontend Developer
+jane@example.com +1 555 0100 Damascus, Syria
+
+Summary
+Frontend developer with product and campaign experience.
+""",
+            parser_name="pdftotext-raw",
+            parser_version="2.0.0",
+        )
+
+        merged = _merge_extracted_profile(
+            source,
+            document,
+            {
+                "name": "Jane Doe",
+                "current_title": "Frontend Developer",
+                "headline": "Frontend Developer",
+                "location": "ERP, CRM",
+                "email": "jane@example.com",
+                "phone": "+1 555 0100",
+                "links": [],
+                "years_experience": 0,
+                "seniority": "mid",
+                "role_tags": ["frontend"],
+                "skills": ["React"],
+                "languages": [],
+                "certifications": [],
+                "experience": [],
+                "education": [],
+                "projects": [],
+                "summary": "Frontend developer with product and campaign experience.",
+            },
+        )
+
+        self.assertEqual(merged.location, "Damascus, Syria")
 
 
 if __name__ == "__main__":

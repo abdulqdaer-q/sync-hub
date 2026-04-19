@@ -61,6 +61,7 @@ export type SearchFilters = {
   seniority?: string;
   minYearsExperience?: number;
   skills?: string[];
+  companies?: string[];
   location?: string;
 };
 
@@ -70,6 +71,8 @@ export type SearchFilterOptions = {
     label: string;
   }>;
   skills: string[];
+  companies: string[];
+  locations: string[];
 };
 
 export type SearchQueryOptions = {
@@ -92,6 +95,7 @@ export type SearchDebugFilters = {
   seniority: string | null;
   minYearsExperience: number | null;
   skills: string[];
+  companies: string[];
   location: string | null;
 };
 

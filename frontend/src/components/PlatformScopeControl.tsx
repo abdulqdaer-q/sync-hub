@@ -1,7 +1,8 @@
-import { Building2, Globe2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Building2, Check, ChevronDown, Globe2 } from "lucide-react";
 import type { TenantMembership } from "@/lib/auth";
 import type { PlatformScopeMode } from "@/lib/platformScope";
-import { Tag } from "@/components/ui";
+import { TenantBadge } from "@/components/ui";
 
 type PlatformScopeControlProps = {
   isPlatformAdmin: boolean;
@@ -20,6 +21,30 @@ export function PlatformScopeControl({
   workspaceOptions,
   onChangeWorkspace,
 }: PlatformScopeControlProps) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setWorkspaceMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setWorkspaceMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
+
   if (!isPlatformAdmin) {
     return null;
   }
@@ -27,42 +52,82 @@ export function PlatformScopeControl({
   return (
     <div className="platform-scope-control">
       <div className="platform-scope-control__switch">
-        <button
-          className={scopeMode === "current" ? "button button--primary" : "button button--secondary"}
-          type="button"
-          onClick={() => onChangeScopeMode("current")}
-        >
-          <Building2 size={14} />
-          Current Workspace
-        </button>
+        <div ref={rootRef} className="platform-scope-control__workspace-dropdown">
+          <button
+            className={scopeMode === "current"
+              ? "button button--primary platform-scope-control__workspace-trigger"
+              : "button button--secondary platform-scope-control__workspace-trigger"}
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={workspaceMenuOpen}
+            onClick={() => {
+              onChangeScopeMode("current");
+              setWorkspaceMenuOpen((current) => !current);
+            }}
+          >
+            <TenantBadge
+              name={currentWorkspace?.name ?? "Workspace"}
+              iconUrl={currentWorkspace?.iconUrl}
+              size="sm"
+            />
+            <span className="platform-scope-control__workspace-copy">
+              <span className="platform-scope-control__workspace-caption">Current Workspace</span>
+              <strong>{currentWorkspace?.name ?? "Select workspace"}</strong>
+            </span>
+            <ChevronDown
+              size={14}
+              className={`platform-scope-control__workspace-chevron${workspaceMenuOpen ? " platform-scope-control__workspace-chevron--open" : ""}`}
+            />
+          </button>
+
+          {workspaceMenuOpen ? (
+            <div className="platform-scope-control__workspace-menu" role="menu">
+              {workspaceOptions.map((workspace) => {
+                const isSelected = workspace.id === currentWorkspace?.id;
+
+                return (
+                  <button
+                    key={workspace.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={isSelected}
+                    className={`platform-scope-control__workspace-option${isSelected ? " platform-scope-control__workspace-option--active" : ""}`}
+                    onClick={() => {
+                      onChangeWorkspace(workspace.id);
+                      onChangeScopeMode("current");
+                      setWorkspaceMenuOpen(false);
+                    }}
+                  >
+                    <span className="platform-scope-control__workspace-option-main">
+                      <TenantBadge
+                        name={workspace.name}
+                        iconUrl={workspace.iconUrl}
+                        size="sm"
+                      />
+                      <span className="platform-scope-control__workspace-option-copy">
+                        <strong>{workspace.name}</strong>
+                        <span>{workspace.role}</span>
+                      </span>
+                    </span>
+                    {isSelected ? <Check size={14} /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
         <button
           className={scopeMode === "all" ? "button button--primary" : "button button--secondary"}
           type="button"
-          onClick={() => onChangeScopeMode("all")}
+          onClick={() => {
+            setWorkspaceMenuOpen(false);
+            onChangeScopeMode("all");
+          }}
         >
           <Globe2 size={14} />
           All Workspaces
         </button>
       </div>
-
-      {scopeMode === "current" ? (
-        <label className="platform-scope-control__workspace">
-          <span>Workspace</span>
-          <select
-            className="form-select"
-            value={currentWorkspace?.id ?? ""}
-            onChange={(event) => onChangeWorkspace(event.target.value)}
-          >
-            {workspaceOptions.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : (
-        <Tag tone="primary">{workspaceOptions.length} workspaces in scope</Tag>
-      )}
     </div>
   );
 }

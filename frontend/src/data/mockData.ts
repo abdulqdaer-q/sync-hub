@@ -441,7 +441,7 @@ const mockParsingDetails: ParsingDocumentDetail[] = candidates.slice(0, 6).map((
     status,
     qualityBand,
     parserVersion: "pdftotext-raw-v2",
-    modelVersion: index >= 4 ? "heuristic-fallback-v1" : "ollama-qwen2.5-3b-v1",
+    modelVersion: index >= 4 ? "heuristic-fallback-v1" : "ollama-qwen3-30b-a3b-v1",
     promptVersion: "structured-json-v2",
     embeddingVersion: "ollama-nomic-embed-text-v1",
     warnings: [...parseWarnings, ...processingWarnings],
@@ -537,21 +537,21 @@ export function getParsingDocument(documentId: string) {
 
 let parserProfiles: ParserProfile[] = [
   {
-    id: "profile-active-ollama-v2",
+    id: "profile-active-gemini-v1",
     tenantId: "mock-tenant",
-    name: "Ollama Structured Extraction v2",
-    slug: "ollama-structured-v2",
-    description: "Primary production profile for clean digital PDFs with Ollama extraction and section-first chunking.",
+    name: "Gemini Flash Extraction v1",
+    slug: "gemini-flash-v1",
+    description: "Primary production profile for clean digital PDFs with Gemini Flash extraction and Gemini 768-dimension embeddings.",
     status: "active",
     extractionProvider: "openai-compatible",
-    extractionModel: "qwen2.5:3b",
+    extractionModel: "gemini-2.5-flash",
     parserVersion: "pdftotext-raw-v2",
-    modelVersion: "ollama-qwen2.5-3b-v2",
-    promptVersion: "structured-json-v2",
+    modelVersion: "gemini-2.5-flash-v1",
+    promptVersion: "openai-json-v1",
     chunkVersion: "section-first-v2",
-    embeddingProvider: "ollama",
-    embeddingModel: "nomic-embed-text",
-    embeddingVersion: "ollama-nomic-embed-text-v1",
+    embeddingProvider: "openai",
+    embeddingModel: "gemini-embedding-001",
+    embeddingVersion: "gemini-embedding-001-768-v1",
     chunkingProfile: "section-first",
     ocrEnabled: false,
     allowHeuristicFallback: true,
@@ -577,14 +577,14 @@ let parserProfiles: ParserProfile[] = [
     description: "Draft profile for scanned or layout-heavy PDFs that need OCR before extraction.",
     status: "draft",
     extractionProvider: "openai-compatible",
-    extractionModel: "qwen2.5:3b",
+    extractionModel: "gemini-2.5-flash",
     parserVersion: "ocr-pipeline-v1",
-    modelVersion: "ollama-qwen2.5-3b-v2",
-    promptVersion: "structured-json-ocr-v1",
+    modelVersion: "gemini-2.5-flash-v1",
+    promptVersion: "openai-json-ocr-v1",
     chunkVersion: "dense-experience-v1",
-    embeddingProvider: "ollama",
-    embeddingModel: "nomic-embed-text",
-    embeddingVersion: "ollama-nomic-embed-text-v1",
+    embeddingProvider: "openai",
+    embeddingModel: "gemini-embedding-001",
+    embeddingVersion: "gemini-embedding-001-768-v1",
     chunkingProfile: "dense-experience",
     ocrEnabled: true,
     allowHeuristicFallback: true,
@@ -684,6 +684,7 @@ function tokenize(value: string) {
 }
 
 function calculateSearchResult(candidate: CandidateDetail, query: string, filters: SearchFilters): CandidateSearchResult | null {
+  const employerNames = candidate.timeline.map((entry) => entry.employer);
   const haystack = [
     candidate.name,
     candidate.currentTitle,
@@ -693,6 +694,7 @@ function calculateSearchResult(candidate: CandidateDetail, query: string, filter
     candidate.primaryRole,
     candidate.location,
     ...candidate.topSkills,
+    ...employerNames,
     ...candidate.recommendedRoles,
   ]
     .join(" ")
@@ -703,8 +705,12 @@ function calculateSearchResult(candidate: CandidateDetail, query: string, filter
   const semantic = tokens.length ? Math.min(1, 0.45 + matchedTokens / (tokens.length * 1.2)) : 0.76;
 
   const requiredSkills = filters.skills ?? [];
+  const requiredCompanies = filters.companies ?? [];
   const matchedSkills = requiredSkills.filter((skill) =>
     candidate.topSkills.some((candidateSkill) => candidateSkill.toLowerCase() === skill.toLowerCase()),
+  );
+  const matchedCompanies = requiredCompanies.filter((company) =>
+    employerNames.some((employer) => employer.toLowerCase() === company.toLowerCase()),
   );
   const skillSignal =
     requiredSkills.length > 0
@@ -727,6 +733,9 @@ function calculateSearchResult(candidate: CandidateDetail, query: string, filter
     return null;
   }
   if (requiredSkills.length > 0 && matchedSkills.length !== requiredSkills.length) {
+    return null;
+  }
+  if (requiredCompanies.length > 0 && matchedCompanies.length === 0) {
     return null;
   }
 

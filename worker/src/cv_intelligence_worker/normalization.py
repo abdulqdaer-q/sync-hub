@@ -123,7 +123,10 @@ ROLE_HINT_RE = re.compile(
 LOCATION_PATTERN = re.compile(r"^[A-Za-z .'-]+,\s*[A-Za-z .'-]+$")
 CONTACT_PATTERN = re.compile(r"@|https?://|linkedin|github|portfolio|\+\d")
 DATE_FRAGMENT_RE = re.compile(r"\b(?:19|20)\d{2}\b")
-YEARS_PATTERN = re.compile(r"(\d+)\+?\s+years?")
+YEARS_PATTERN = re.compile(
+    r"\b(?P<count>\d+|one|two|three|four|five|six|seven|eight|nine|ten)\+?\s+years?\b",
+    re.IGNORECASE,
+)
 TITLE_VERB_RE = re.compile(r"\b(collaborated|implemented|developed|built|worked|improved|led|designed|optimized|conducted)\b", re.IGNORECASE)
 DATE_RANGE_PATTERN = re.compile(
     r"(?P<start>(?:\d{1,2}/)?\d{4}|present|current)\s*[-–]\s*(?P<end>(?:\d{1,2}/)?\d{4}|present|current)",
@@ -131,6 +134,14 @@ DATE_RANGE_PATTERN = re.compile(
 )
 SENIOR_SIGNAL_RE = re.compile(r"\b(senior|principal|staff|lead|architect|head of)\b", re.IGNORECASE)
 JUNIOR_SIGNAL_RE = re.compile(r"\b(junior|intern|entry(?:\s|-)?level)\b", re.IGNORECASE)
+GENERIC_EXPERIENCE_TITLE_RE = re.compile(
+    r"\b(project leadership|client engagement|key achievements?|responsibilities|achievements?)\b",
+    re.IGNORECASE,
+)
+WORK_EXPERIENCE_TITLE_RE = re.compile(
+    r"\b(developer|engineer|specialist|manager|analyst|designer|consultant|administrator|architect|seo|security|devops|sre|qa|growth[\s-]?hacker)\b",
+    re.IGNORECASE,
+)
 ACADEMIC_HINTS = (
     "information technology",
     "computer engineering",
@@ -141,6 +152,122 @@ ACADEMIC_HINTS = (
     "degree",
     "student",
 )
+LOCATION_SEGMENT_PATTERN = re.compile(r"^[A-Za-z .'-]+$")
+LOCATION_WORD_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
+GEO_ACRONYMS = {"uae", "uk", "usa", "ksa"}
+LOCATION_CONNECTOR_TOKENS = {"and", "of", "the", "al", "de", "la", "st", "saint"}
+COUNTRY_ALIASES = {
+    "bahrain": "Bahrain",
+    "canada": "Canada",
+    "egypt": "Egypt",
+    "france": "France",
+    "germany": "Germany",
+    "iraq": "Iraq",
+    "jordan": "Jordan",
+    "ksa": "Saudi Arabia",
+    "kuwait": "Kuwait",
+    "lebanon": "Lebanon",
+    "oman": "Oman",
+    "qatar": "Qatar",
+    "saudi-arabia": "Saudi Arabia",
+    "syria": "Syria",
+    "syrian-arab-republic": "Syria",
+    "turkey": "Turkey",
+    "uae": "United Arab Emirates",
+    "uk": "United Kingdom",
+    "united-arab-emirates": "United Arab Emirates",
+    "united-kingdom": "United Kingdom",
+    "united-states": "United States",
+    "usa": "United States",
+}
+CITY_ALIASES = {
+    "aleppo": "Aleppo",
+    "cairo": "Cairo",
+    "damascus": "Damascus",
+    "damscus": "Damascus",
+    "montreal": "Montreal",
+}
+IMPLICIT_COUNTRY_BY_CITY = {
+    "aleppo": "Syria",
+    "cairo": "Egypt",
+    "damascus": "Syria",
+    "montreal": "Canada",
+}
+BLOCKED_LOCATION_TOKENS = {
+    "agency",
+    "ai",
+    "api",
+    "apis",
+    "app",
+    "application",
+    "applications",
+    "backend",
+    "bank",
+    "company",
+    "consultant",
+    "crm",
+    "cms",
+    "css",
+    "dashboard",
+    "data",
+    "department",
+    "developer",
+    "devops",
+    "engineer",
+    "erp",
+    "figma",
+    "foundation",
+    "frontend",
+    "full",
+    "github",
+    "growth",
+    "hacker",
+    "html",
+    "hybrid",
+    "javascript",
+    "lab",
+    "labs",
+    "laravel",
+    "lead",
+    "linkedin",
+    "manager",
+    "marketing",
+    "node",
+    "onsite",
+    "on",
+    "php",
+    "platform",
+    "project",
+    "projects",
+    "python",
+    "qa",
+    "react",
+    "remote",
+    "sales",
+    "seo",
+    "software",
+    "specialist",
+    "sql",
+    "stack",
+    "suite",
+    "system",
+    "systems",
+    "team",
+    "technical",
+    "technology",
+    "technologies",
+    "university",
+    "ux",
+    "ui",
+    "web",
+    "wordpress",
+}
+BLOCKED_LOCATION_PHRASES = {
+    "full-time",
+    "part-time",
+    "on-site",
+    "work from home",
+}
 
 
 def canonical_skill(value: object) -> str:
@@ -194,29 +321,276 @@ def _year_from_fragment(value: str) -> int | None:
     return None
 
 
+MONTH_NAME_TO_NUMBER = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+
+NUMBER_WORDS = {
+    "one": 1.0,
+    "two": 2.0,
+    "three": 3.0,
+    "four": 4.0,
+    "five": 5.0,
+    "six": 6.0,
+    "seven": 7.0,
+    "eight": 8.0,
+    "nine": 9.0,
+    "ten": 10.0,
+}
+
+
+def _month_index(year: int, month: int) -> int:
+    return year * 12 + (month - 1)
+
+
+def _month_index_from_fragment(value: str, *, default_month: int = 1) -> int | None:
+    normalized = compact_whitespace(value).lower()
+    if not normalized:
+        return None
+    current = datetime.now(timezone.utc)
+    if normalized in {"present", "current"}:
+        return _month_index(current.year, current.month)
+
+    full_date_match = re.search(r"\b\d{1,2}/(\d{1,2})/(\d{4})\b", normalized)
+    if full_date_match:
+        month = int(full_date_match.group(1))
+        year = int(full_date_match.group(2))
+        if 1 <= month <= 12 and 1980 <= year <= current.year + 1:
+            return _month_index(year, month)
+
+    month_year_match = re.search(r"\b(\d{1,2})/(\d{4})\b", normalized)
+    if month_year_match:
+        month = int(month_year_match.group(1))
+        year = int(month_year_match.group(2))
+        if 1 <= month <= 12 and 1980 <= year <= current.year + 1:
+            return _month_index(year, month)
+
+    year_month_match = re.search(r"\b(\d{4})-(\d{1,2})\b", normalized)
+    if year_month_match:
+        year = int(year_month_match.group(1))
+        month = int(year_month_match.group(2))
+        if 1 <= month <= 12 and 1980 <= year <= current.year + 1:
+            return _month_index(year, month)
+
+    month_name_match = re.search(r"\b([a-z]{3,9})\s+(\d{4})\b", normalized)
+    if month_name_match:
+        month = MONTH_NAME_TO_NUMBER.get(month_name_match.group(1))
+        year = int(month_name_match.group(2))
+        if month and 1980 <= year <= current.year + 1:
+            return _month_index(year, month)
+
+    year = _year_from_fragment(normalized)
+    if year:
+        return _month_index(year, default_month)
+    return None
+
+
+def _is_title_like(value: str, *, allow_long: bool = False) -> bool:
+    text = compact_whitespace(value)
+    if not text:
+        return False
+    if "years of experience" in text.lower():
+        return False
+    if TITLE_VERB_RE.search(text):
+        return False
+    if CONTACT_PATTERN.search(text):
+        return False
+    if LOCATION_PATTERN.match(text):
+        return False
+    if text.lower().startswith("generated by "):
+        return False
+    if DATE_FRAGMENT_RE.search(text):
+        return False
+    if any(term in text.lower() for term in ACADEMIC_HINTS) and not ROLE_HINT_RE.search(text):
+        return False
+    max_words = 14 if allow_long else 10
+    if len(text.split()) > max_words and not ROLE_HINT_RE.search(text):
+        return False
+    return bool(ROLE_HINT_RE.search(text))
+
+
+def _is_countable_experience_entry(entry: ExperienceEntry) -> bool:
+    title = compact_whitespace(entry.title)
+    if not title:
+        return False
+    if GENERIC_EXPERIENCE_TITLE_RE.search(title):
+        return False
+    if WORK_EXPERIENCE_TITLE_RE.search(title):
+        return True
+    return _is_title_like(title, allow_long=True)
+
+
+def count_work_like_experience_entries(entries: list[ExperienceEntry]) -> int:
+    return sum(1 for entry in entries if _is_countable_experience_entry(entry))
+
+
+def has_dated_education_entries(profile: CandidateProfile) -> bool:
+    return any(
+        _year_from_fragment(entry.start_date or "") or _year_from_fragment(entry.end_date or "")
+        for entry in profile.education
+    )
+
+
+def _titlecase_location_token(token: str) -> str:
+    lowered = token.lower()
+    if lowered in LOCATION_CONNECTOR_TOKENS:
+        if lowered == "st":
+            return "St"
+        return lowered
+    parts = re.split(r"([-'’])", token)
+    rebuilt: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if part in {"-", "'", "’"}:
+            rebuilt.append(part)
+            continue
+        rebuilt.append(part[:1].upper() + part[1:].lower())
+    return "".join(rebuilt)
+
+
+def _split_location_segments(cleaned: str) -> list[str]:
+    segments = [compact_whitespace(segment) for segment in cleaned.split(",") if compact_whitespace(segment)]
+    if len(segments) != 1:
+        return segments
+    words = segments[0].split()
+    for size in range(min(3, len(words) - 1), 0, -1):
+        country_candidate = " ".join(words[-size:])
+        if slugify(country_candidate) in COUNTRY_ALIASES:
+            city_candidate = compact_whitespace(" ".join(words[:-size]))
+            if city_candidate:
+                return [city_candidate, country_candidate]
+    return segments
+
+
+def _canonical_location_segment(segment: str) -> str:
+    cleaned = compact_whitespace(segment.strip(" -"))
+    if not cleaned:
+        return ""
+    slug = slugify(cleaned)
+    if slug in COUNTRY_ALIASES:
+        return COUNTRY_ALIASES[slug]
+    if slug in CITY_ALIASES:
+        return CITY_ALIASES[slug]
+    return " ".join(_titlecase_location_token(token) for token in cleaned.split())
+
+
+def _is_location_segment(segment: str) -> bool:
+    cleaned = compact_whitespace(segment.strip(" -"))
+    if not cleaned:
+        return False
+    if not LOCATION_SEGMENT_PATTERN.match(cleaned):
+        return False
+    lowered = cleaned.lower()
+    if any(phrase in lowered for phrase in BLOCKED_LOCATION_PHRASES):
+        return False
+    if ROLE_HINT_RE.search(cleaned) or WORK_EXPERIENCE_TITLE_RE.search(cleaned):
+        return False
+    words = LOCATION_WORD_RE.findall(cleaned)
+    if not words or len(words) > 5:
+        return False
+    acronym = re.sub(r"[^A-Za-z]", "", cleaned).lower()
+    if cleaned.isupper():
+        return acronym in GEO_ACRONYMS
+    for word in words:
+        token = word.lower()
+        if token in LOCATION_CONNECTOR_TOKENS:
+            continue
+        if token in BLOCKED_LOCATION_TOKENS:
+            return False
+    return True
+
+
+def normalize_location(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    cleaned = compact_whitespace(value).strip(" |,-")
+    if not cleaned:
+        return ""
+    if CONTACT_PATTERN.search(cleaned):
+        return ""
+    if DATE_FRAGMENT_RE.search(cleaned):
+        return ""
+    if len(cleaned) > 60:
+        return ""
+    if any(character in cleaned for character in ("/", "|", ";", ":")):
+        return ""
+    segments = _split_location_segments(cleaned)
+    if not segments or len(segments) > 3:
+        return ""
+    canonical_segments: list[str] = []
+    seen: set[str] = set()
+    for segment in segments:
+        canonical = _canonical_location_segment(segment)
+        if not canonical or not _is_location_segment(canonical):
+            return ""
+        key = slugify(canonical)
+        if key in seen:
+            continue
+        seen.add(key)
+        canonical_segments.append(canonical)
+    if not canonical_segments:
+        return ""
+    if len(canonical_segments) == 1:
+        inferred_country = IMPLICIT_COUNTRY_BY_CITY.get(slugify(canonical_segments[0]))
+        if inferred_country:
+            canonical_segments.append(inferred_country)
+    return ", ".join(canonical_segments)
+
+
 def experience_years_from_entries(entries: list[ExperienceEntry]) -> float:
     ranges: list[tuple[int, int]] = []
-    current_year = datetime.now(timezone.utc).year
-    for entry in entries:
-        start_year = _year_from_fragment(entry.start_date or "")
+    work_like_entries = [entry for entry in entries if _is_countable_experience_entry(entry)]
+    for entry in work_like_entries or entries:
+        start_month = _month_index_from_fragment(entry.start_date or "", default_month=1)
         end_text = (entry.end_date or "").lower()
-        end_year = current_year if "present" in end_text or "current" in end_text else _year_from_fragment(end_text)
-        if start_year and end_year and end_year >= start_year:
-            ranges.append((start_year, end_year))
+        end_month = _month_index_from_fragment(end_text, default_month=12)
+        if start_month is not None and end_month is not None and end_month >= start_month:
+            ranges.append((start_month, end_month))
             continue
         merged = f"{entry.start_date or ''} - {entry.end_date or ''} {entry.description}"
         match = DATE_RANGE_PATTERN.search(merged)
         if not match:
             continue
-        start_year = _year_from_fragment(match.group("start"))
-        end_year = current_year if match.group("end").lower() in {"present", "current"} else _year_from_fragment(match.group("end"))
-        if start_year and end_year and end_year >= start_year:
-            ranges.append((start_year, end_year))
+        start_month = _month_index_from_fragment(match.group("start"), default_month=1)
+        end_month = _month_index_from_fragment(match.group("end"), default_month=12)
+        if start_month is not None and end_month is not None and end_month >= start_month:
+            ranges.append((start_month, end_month))
     if not ranges:
         return 0.0
-    min_year = min(start for start, _ in ranges)
-    max_year = max(end for _, end in ranges)
-    return float(max_year - min_year)
+    ranges.sort()
+    merged_ranges: list[tuple[int, int]] = []
+    for start_month, end_month in ranges:
+        if not merged_ranges or start_month > merged_ranges[-1][1] + 1:
+            merged_ranges.append((start_month, end_month))
+        else:
+            previous_start, previous_end = merged_ranges[-1]
+            merged_ranges[-1] = (previous_start, max(previous_end, end_month))
+    total_months = sum((end_month - start_month + 1) for start_month, end_month in merged_ranges)
+    return round(total_months / 12.0, 2)
 
 
 def infer_years_experience(profile: CandidateProfile) -> float:
@@ -224,12 +598,23 @@ def infer_years_experience(profile: CandidateProfile) -> float:
     range_years = experience_years_from_entries(profile.experience)
     haystack = f"{profile.summary}\n{profile.headline}\n{profile.raw_text}"
     regex_match = YEARS_PATTERN.search(haystack.lower())
-    regex_years = float(regex_match.group(1)) if regex_match else 0.0
+    regex_years = 0.0
+    if regex_match:
+        count_text = regex_match.group("count").lower()
+        if count_text.isdigit():
+            regex_years = float(count_text)
+        else:
+            regex_years = NUMBER_WORDS.get(count_text, 0.0)
+    valid_experience_count = count_work_like_experience_entries(profile.experience)
+    has_dated_education = has_dated_education_entries(profile)
 
     candidates = [value for value in (range_years, regex_years) if value > 0]
     if explicit_years > 0:
         reference = max(candidates) if candidates else 0.0
-        if reference == 0.0 or explicit_years <= reference + 3:
+        tolerance = 1.0 if valid_experience_count >= 2 else 5.0
+        if has_dated_education:
+            tolerance = min(tolerance, 1.0)
+        if reference == 0.0 or explicit_years <= reference + tolerance:
             candidates.append(explicit_years)
     return max(candidates, default=0.0)
 
@@ -330,30 +715,6 @@ def infer_additional_skills(profile: CandidateProfile) -> list[str]:
     return dedupe_keep_order(inferred)
 
 
-def _is_title_like(value: str, *, allow_long: bool = False) -> bool:
-    text = compact_whitespace(value)
-    if not text:
-        return False
-    if "years of experience" in text.lower():
-        return False
-    if TITLE_VERB_RE.search(text):
-        return False
-    if CONTACT_PATTERN.search(text):
-        return False
-    if LOCATION_PATTERN.match(text):
-        return False
-    if text.lower().startswith("generated by "):
-        return False
-    if DATE_FRAGMENT_RE.search(text):
-        return False
-    if any(term in text.lower() for term in ACADEMIC_HINTS) and not ROLE_HINT_RE.search(text):
-        return False
-    max_words = 14 if allow_long else 10
-    if len(text.split()) > max_words and not ROLE_HINT_RE.search(text):
-        return False
-    return bool(ROLE_HINT_RE.search(text))
-
-
 def choose_current_title(profile: CandidateProfile) -> str:
     current_title = compact_whitespace(profile.current_title)
     headline = compact_whitespace(profile.headline)
@@ -378,12 +739,54 @@ def normalize_profile(profile: CandidateProfile) -> CandidateProfile:
     years_experience = infer_years_experience(profile)
     current_title = choose_current_title(profile)
     headline = compact_whitespace(profile.headline) or current_title
+    normalized_experience = [
+        replace(entry, location=normalize_location(entry.location) or None)
+        for entry in profile.experience
+    ]
+    location = normalize_location(profile.location)
+    if not location:
+        for entry in normalized_experience:
+            if entry.location:
+                location = entry.location
+                break
     skills = dedupe_keep_order(
         canonical_skill(skill)
-        for skill in [*profile.skills, *infer_additional_skills(replace(profile, current_title=current_title, headline=headline))]
+        for skill in [
+            *profile.skills,
+            *infer_additional_skills(
+                replace(
+                    profile,
+                    current_title=current_title,
+                    headline=headline,
+                    experience=normalized_experience,
+                    location=location,
+                )
+            ),
+        ]
     )
-    role_tags = dedupe_keep_order(infer_role_tags(replace(profile, current_title=current_title, headline=headline, skills=skills)))
-    seniority = infer_seniority(replace(profile, current_title=current_title, headline=headline, skills=skills), years_experience)
+    role_tags = dedupe_keep_order(
+        infer_role_tags(
+            replace(
+                profile,
+                current_title=current_title,
+                headline=headline,
+                skills=skills,
+                experience=normalized_experience,
+                location=location,
+            )
+        )
+    )
+    seniority = infer_seniority(
+        replace(
+            profile,
+            current_title=current_title,
+            headline=headline,
+            skills=skills,
+            experience=normalized_experience,
+            location=location,
+        ),
+        years_experience,
+    )
     aliases = {
         canonical: [raw for raw in profile.skills if canonical_skill(raw).lower() == canonical.lower()]
         for canonical in skills
@@ -393,8 +796,10 @@ def normalize_profile(profile: CandidateProfile) -> CandidateProfile:
         profile,
         current_title=current_title,
         headline=headline or current_title,
+        location=location,
         skills=skills,
         skill_aliases=aliases,
+        experience=normalized_experience,
         role_tags=role_tags,
         years_experience=years_experience,
         seniority=seniority,

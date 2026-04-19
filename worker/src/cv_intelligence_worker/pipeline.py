@@ -90,9 +90,11 @@ class IngestionPipeline:
                     summary=summary,
                     processing_run=processing_run,
                 )
-                self.store.save_bundle(bundle)
+                bundle_path = self.store.save_bundle(bundle)
                 if sync_to_supabase and self.supabase:
                     self.supabase.sync_bundle(bundle)
+                    if self.config.delete_synced_bundles:
+                        self.store.delete_file(bundle_path)
                 bundles.append(bundle)
             except Exception as exc:  # noqa: BLE001
                 failures.append({"source_path": source.source_path, "error": str(exc)})

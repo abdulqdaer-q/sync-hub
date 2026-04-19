@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from cv_intelligence_worker.normalization import normalize_profile
-from cv_intelligence_worker.schema import CandidateProfile, ExperienceEntry
+from cv_intelligence_worker.normalization import normalize_location, normalize_profile
+from cv_intelligence_worker.schema import CandidateProfile, EducationEntry, ExperienceEntry
 
 
 class NormalizationTests(unittest.TestCase):
@@ -121,6 +121,68 @@ class NormalizationTests(unittest.TestCase):
         normalized = normalize_profile(profile)
 
         self.assertEqual(normalized.seniority, "senior")
+
+    def test_normalize_profile_ignores_inflated_years_when_education_overlaps_work_history(self) -> None:
+        profile = self._base_profile(
+            current_title="Front-End Developer with SEO expertise in Information Technology (IT)",
+            headline="Front-End Developer with SEO expertise in Information Technology (IT)",
+            years_experience=10.0,
+            seniority="senior",
+            experience=[
+                ExperienceEntry(
+                    company="Montreal's Leading SEO & Digital Marketing Agency",
+                    title="SEO Developer, Growth-Hacker",
+                    start_date="08/2024",
+                    end_date="Present",
+                    location="Montreal, Canada",
+                ),
+                ExperienceEntry(
+                    company="CREMEDIA GLOBAL - MARKETING AGENCY",
+                    title="Web Developer",
+                    start_date="22/08/2021",
+                    end_date="09/2021",
+                    location="Damascus, Syria",
+                ),
+                ExperienceEntry(
+                    company="CREMEDIA GLOBAL - MARKETING AGENCY",
+                    title="Project Leadership",
+                    start_date="2018-09",
+                    end_date="2023-09",
+                    location="Damascus, Syria",
+                ),
+            ],
+            education=[
+                EducationEntry(
+                    institution="Arab International University",
+                    degree="Bachelor's Degree in Information Technology Engineer - Artificial Intelligence",
+                    start_date="2018-09",
+                    end_date="2023-09",
+                ),
+            ],
+            summary="Front-end developer with over three years of experience building user-friendly websites.",
+        )
+
+        normalized = normalize_profile(profile)
+
+        self.assertLessEqual(normalized.years_experience, 6.0)
+        self.assertNotEqual(normalized.seniority, "senior")
+
+    def test_normalize_profile_discards_invalid_location_terms(self) -> None:
+        profile = self._base_profile(
+            location="ERP, CRM",
+            current_title="Full Stack Developer",
+            headline="Full Stack Developer",
+        )
+
+        normalized = normalize_profile(profile)
+
+        self.assertEqual(normalized.location, "")
+
+    def test_normalize_location_canonicalizes_damascus_variants(self) -> None:
+        self.assertEqual(normalize_location("Damscus"), "Damascus, Syria")
+        self.assertEqual(normalize_location("Damascus syria"), "Damascus, Syria")
+        self.assertEqual(normalize_location("Damascus, syria"), "Damascus, Syria")
+        self.assertEqual(normalize_location("Damascus"), "Damascus, Syria")
 
 
 if __name__ == "__main__":

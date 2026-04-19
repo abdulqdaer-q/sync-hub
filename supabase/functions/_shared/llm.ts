@@ -73,7 +73,7 @@ function envNumber(name: string, fallback: number) {
 function resolveLlmConfig(): LlmConfig | null {
   const provider = envText("LLM_PROVIDER");
   const timeoutMs = envNumber("LLM_TIMEOUT_MS", 12000);
-  const defaultLocalOllamaModel = isLocalRuntime() ? "qwen2.5:3b" : null;
+  const defaultLocalOllamaModel = isLocalRuntime() ? "qwen3:30b-a3b" : null;
 
   if ((provider === "openai" || !provider) && envText("OPENAI_API_KEY")) {
     return {

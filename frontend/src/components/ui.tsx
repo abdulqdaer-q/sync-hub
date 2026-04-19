@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Building2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type PanelProps = {
@@ -115,6 +115,28 @@ export function Avatar({ name, hue, size = "md" }: AvatarProps) {
       }}
     >
       {initials}
+    </div>
+  );
+}
+
+type TenantBadgeProps = {
+  name: string;
+  iconUrl?: string | null;
+  size?: "sm" | "md";
+};
+
+export function TenantBadge({ name, iconUrl, size = "md" }: TenantBadgeProps) {
+  if (iconUrl) {
+    return (
+      <div className={cn("tenant-badge", `tenant-badge--${size}`)}>
+        <img src={iconUrl} alt={`${name} logo`} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("tenant-badge", "tenant-badge--fallback", `tenant-badge--${size}`)}>
+      <Building2 size={size === "sm" ? 14 : 18} />
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
+import { TenantBadge } from "@/components/ui";
 
 const productRoutes = [
   { to: "/search", label: "Search & Discovery", icon: Search },
@@ -105,7 +106,11 @@ export function Sidebar({ mobileOpen, isMobile, onClose }: SidebarProps) {
 
       <div className="sidebar__footer">
         <div className="session-chip">
-          <div className="session-chip__dot" />
+          <TenantBadge
+            name={currentTenant?.name ?? "AI Recruiter Bot"}
+            iconUrl={currentTenant?.iconUrl}
+            size="md"
+          />
           <div>
             <strong>{currentTenant?.name ?? "AI Recruiter Bot"}</strong>
             <span>{currentTenant ? `${currentTenant.role} · ${userEmail ?? "active session"}` : "Active orchestration session"}</span>

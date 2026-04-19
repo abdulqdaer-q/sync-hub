@@ -148,17 +148,23 @@ class SupabaseClient:
             "confidence": bundle.summary.confidence,
             "artifact_version": bundle.summary.artifact_version,
         }
-        skill_rows = [
-            {
-                "id": stable_uuid(bundle.profile.tenant_id, bundle.profile.candidate_id, skill),
-                "tenant_id": bundle.profile.tenant_id,
-                "candidate_id": bundle.profile.candidate_id,
-                "skill_slug": slugify(skill),
-                "canonical_skill": skill,
-                "evidence": {"aliases": bundle.profile.skill_aliases.get(skill, [])},
-            }
-            for skill in bundle.profile.skills
-        ]
+        skill_rows = []
+        seen_skill_slugs: set[str] = set()
+        for skill in bundle.profile.skills:
+            skill_slug = slugify(skill)
+            if not skill_slug or skill_slug in seen_skill_slugs:
+                continue
+            seen_skill_slugs.add(skill_slug)
+            skill_rows.append(
+                {
+                    "id": stable_uuid(bundle.profile.tenant_id, bundle.profile.candidate_id, skill),
+                    "tenant_id": bundle.profile.tenant_id,
+                    "candidate_id": bundle.profile.candidate_id,
+                    "skill_slug": skill_slug,
+                    "canonical_skill": skill,
+                    "evidence": {"aliases": bundle.profile.skill_aliases.get(skill, [])},
+                }
+            )
         chunk_rows = []
         for chunk, embedding in zip(bundle.chunks, bundle.embeddings):
             chunk_rows.append(
@@ -207,7 +213,7 @@ class SupabaseClient:
         self.upsert("candidate_profiles", [profile], "candidate_id")
         self.upsert("candidate_summaries", [summary], "candidate_id")
         if skill_rows:
-            self.upsert("candidate_skill_map", skill_rows, "id")
+            self.upsert("candidate_skill_map", skill_rows, "tenant_id,candidate_id,skill_slug")
         if chunk_rows:
             self.upsert("candidate_chunks", chunk_rows, "id")
         self.upsert("processing_runs", [processing_run], "tenant_id,input_hash")

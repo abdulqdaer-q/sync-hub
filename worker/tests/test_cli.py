@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from cv_intelligence_worker.cli import main
 
@@ -19,8 +21,9 @@ class CliTests(unittest.TestCase):
                 encoding="utf-8",
             )
             buffer = io.StringIO()
-            with redirect_stdout(buffer):
-                exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1", "--no-sync"])
+            with mock.patch.dict(os.environ, {"CV_WORKER_CACHE_DIR": str(Path(tmpdir) / "cache")}):
+                with redirect_stdout(buffer):
+                    exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1", "--no-sync"])
             self.assertEqual(0, exit_code)
             output = buffer.getvalue()
             self.assertIn("ingestion_run_id", output)
@@ -35,29 +38,56 @@ class CliTests(unittest.TestCase):
                 encoding="utf-8",
             )
             ingest_buffer = io.StringIO()
-            with redirect_stdout(ingest_buffer):
-                exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1", "--no-sync"])
+            with mock.patch.dict(os.environ, {"CV_WORKER_CACHE_DIR": str(Path(tmpdir) / "cache")}):
+                with redirect_stdout(ingest_buffer):
+                    exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1", "--no-sync"])
             self.assertEqual(0, exit_code)
             candidate_id = json.loads(ingest_buffer.getvalue())["candidate_ids"][0]
 
             compare_buffer = io.StringIO()
-            with redirect_stdout(compare_buffer):
-                exit_code = main(
-                    [
-                        "compare",
-                        "--tenant-id",
-                        "tenant-1",
-                        "--candidate-id",
-                        candidate_id,
-                        "--candidate-id",
-                        candidate_id,
-                        "--no-sync",
-                    ]
-                )
+            with mock.patch.dict(os.environ, {"CV_WORKER_CACHE_DIR": str(Path(tmpdir) / "cache")}):
+                with redirect_stdout(compare_buffer):
+                    exit_code = main(
+                        [
+                            "compare",
+                            "--tenant-id",
+                            "tenant-1",
+                            "--candidate-id",
+                            candidate_id,
+                            "--candidate-id",
+                            candidate_id,
+                            "--no-sync",
+                        ]
+                    )
             self.assertEqual(0, exit_code)
             output = compare_buffer.getvalue()
             self.assertIn("artifact_key", output)
             self.assertIn("comparison", output)
+
+    def test_synced_ingest_deletes_local_bundle_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "resume.txt"
+            cache_dir = Path(tmpdir) / "cache"
+            path.write_text(
+                "Jane Doe\nSenior Backend Engineer\njane@example.com\nPython, PostgreSQL, GraphQL",
+                encoding="utf-8",
+            )
+            buffer = io.StringIO()
+            env = {
+                "CV_WORKER_CACHE_DIR": str(cache_dir),
+                "SUPABASE_URL": "http://example.test",
+                "SUPABASE_SERVICE_ROLE_KEY": "test-service-role",
+                "CV_DELETE_SYNCED_BUNDLES": "true",
+            }
+            with mock.patch.dict(os.environ, env):
+                with mock.patch("cv_intelligence_worker.pipeline.SupabaseClient") as supabase_client_cls:
+                    with redirect_stdout(buffer):
+                        exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1"])
+            self.assertEqual(0, exit_code)
+            candidate_id = json.loads(buffer.getvalue())["candidate_ids"][0]
+            bundle_path = cache_dir / "tenants" / "tenant-1" / "bundles" / f"{candidate_id}.json"
+            self.assertFalse(bundle_path.exists())
+            supabase_client_cls.return_value.sync_bundle.assert_called_once()
 
 
 if __name__ == "__main__":
