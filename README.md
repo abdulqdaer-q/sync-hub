@@ -154,6 +154,8 @@ python3 scripts/tenant_admin.py create-tenant-account \
   --tenant-icon 'https://cdn.example.com/acme.png' \
   --create-folders
 python3 scripts/tenant_admin.py bulk-create-from-csv tenants.csv
+python3 scripts/tenant_admin.py bulk-add-users-to-tenant-from-csv users.csv \
+  --tenant-slug acme-recruiting
 ```
 
 Requirements:
@@ -209,6 +211,26 @@ Optional CSV columns also supported:
 - `tenant_slug`
 - `full_name`
 - `role`
+
+For multiple people in one existing company, use the dedicated membership import:
+
+```csv
+email,password,full_name,role
+alice@acme.com,ChangeMe123!,Alice Founder,owner
+bob@acme.com,ChangeMe123!,Bob Manager,admin
+charlie@acme.com,ChangeMe123!,Charlie Recruiter,recruiter
+```
+
+Run it against a hosted Supabase project:
+
+```bash
+SUPABASE_URL=https://your-project.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key \
+python3 scripts/tenant_admin.py bulk-add-users-to-tenant-from-csv users.csv \
+  --tenant-slug acme-recruiting
+```
+
+Use `bulk-create-from-csv` only when each CSV row should create a new tenant.
 
 ### Google Drive synced-folder ingestion
 

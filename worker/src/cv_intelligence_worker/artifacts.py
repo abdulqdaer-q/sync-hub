@@ -27,7 +27,7 @@ def build_summary_artifact(profile: CandidateProfile, artifact_version: str) -> 
     if not profile.location:
         risks.append("Location is missing or weakly inferred.")
     if not profile.summary:
-        risks.append("Candidate summary was inferred heuristically.")
+        risks.append("Candidate summary was generated from extracted profile fields.")
     if len(profile.skills) < 3:
         risks.append("Skill extraction returned a small evidence set.")
     recommended_roles = dedupe_keep_order(profile.role_tags + ([profile.current_title] if profile.current_title else []))

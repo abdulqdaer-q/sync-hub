@@ -203,14 +203,18 @@ function buildCoverage(
   const seniority = String(profile.seniority ?? candidate?.seniority ?? "").trim();
   const primaryRole = String((profile.role_tags && toStringArray(profile.role_tags)[0]) ?? candidate?.primary_role ?? "").trim();
   const hasExperienceDates = timeline.some((entry) => entry.start !== "Unknown" || entry.end !== "Present");
+  const hasDetailedTimeline = timeline.length >= 3 && (hasExperienceDates || timeline.every((entry) => entry.scope.length > 40));
+  const hasProjectActivity = projects.length >= 3 || (projects.length >= 2 && yearsExperience > 0);
+  const hasActiveStudentProfile = education.length > 0 && `${currentTitle} ${headline}`.toLowerCase().includes("student");
+  const hasProfessionalActivity = hasDetailedTimeline || hasProjectActivity || timeline.length >= 1 || projects.length >= 1 || yearsExperience > 0 || hasActiveStudentProfile;
 
   const coverage: CoverageDraft[] = [
     {
       label: "Document text",
       weight: 10,
-      state: rawText.length > 1600 ? "parsed" : rawText.length > 200 ? "partial" : "missing",
+      state: rawText.length > 1200 ? "parsed" : rawText.length > 200 ? "partial" : "missing",
       detail:
-        rawText.length > 1600
+        rawText.length > 1200
           ? `${rawText.length.toLocaleString()} characters extracted from the document body.`
           : rawText.length > 200
             ? `${rawText.length.toLocaleString()} characters extracted, but the text body is shorter than expected.`
@@ -246,9 +250,13 @@ function buildCoverage(
     {
       label: "Experience timeline",
       weight: 18,
-      state: timeline.length >= 3 && hasExperienceDates ? "parsed" : timeline.length >= 1 ? "partial" : "missing",
+      state: hasDetailedTimeline || hasProjectActivity ? "parsed" : hasProfessionalActivity ? "partial" : "missing",
       detail: timeline.length
         ? `${pluralize(timeline.length, "experience entry")} captured across the employment timeline.`
+        : hasProjectActivity
+          ? `${pluralize(projects.length, "project")} captured as project-based professional evidence.`
+          : hasActiveStudentProfile
+            ? "Active education profile captured for an early-career candidate."
         : "No experience timeline was segmented from the CV.",
     },
     {
@@ -444,6 +452,7 @@ export function buildParsingOverview(
 ): ParsingOverview {
   const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
   const profilesByDocumentId = new Map(profiles.map((profile) => [profile.source_document_id, profile]));
+  const profilesByCandidateId = new Map(profiles.map((profile) => [profile.candidate_id, profile]));
   const latestRunByDocumentId = new Map<string, ParsingProcessingRunRow>();
 
   runs.forEach((run) => {
@@ -456,7 +465,7 @@ export function buildParsingOverview(
   const items = documents
     .map((document) => {
       const candidate = document.candidate_id ? candidatesById.get(document.candidate_id) : undefined;
-      const profile = profilesByDocumentId.get(document.id);
+      const profile = profilesByDocumentId.get(document.id) ?? (document.candidate_id ? profilesByCandidateId.get(document.candidate_id) : undefined);
       const run = latestRunByDocumentId.get(document.id);
       return buildSummary(document, candidate, profile, run).summary;
     })
@@ -506,6 +515,7 @@ export function buildParsingDocumentDetail(
 
   const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
   const profilesByDocumentId = new Map(profiles.map((profile) => [profile.source_document_id, profile]));
+  const profilesByCandidateId = new Map(profiles.map((profile) => [profile.candidate_id, profile]));
   const latestRunByDocumentId = new Map<string, ParsingProcessingRunRow>();
 
   runs.forEach((run) => {
@@ -516,7 +526,7 @@ export function buildParsingDocumentDetail(
   });
 
   const candidate = document.candidate_id ? candidatesById.get(document.candidate_id) : undefined;
-  const profileRow = profilesByDocumentId.get(document.id);
+  const profileRow = profilesByDocumentId.get(document.id) ?? (document.candidate_id ? profilesByCandidateId.get(document.candidate_id) : undefined);
   const run = latestRunByDocumentId.get(document.id);
   const built = buildSummary(document, candidate, profileRow, run);
   const profile = built.profile;

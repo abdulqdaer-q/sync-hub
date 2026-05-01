@@ -232,7 +232,7 @@ CV_EMBEDDING_DIMENSION=768
 CV_EMBEDDING_VERSION=gemini-embedding-001-768-v1
 CV_WORKER_CACHE_DIR=./tmp/cv_intelligence_worker
 CV_DELETE_SYNCED_BUNDLES=true
-CV_ALLOW_HEURISTIC_FALLBACK=true
+CV_ALLOW_HEURISTIC_FALLBACK=false
 ```
 
 If you do not yet have a worker access token, you can use a service role key temporarily for local/admin environments, but avoid that on laptops in production.
@@ -332,6 +332,7 @@ It supports:
 - `list-tenants`
 - `create-tenant-account`
 - `bulk-create-from-csv`
+- `bulk-add-users-to-tenant-from-csv`
 
 ### 8.3 List tenants
 
@@ -384,7 +385,31 @@ This creates:
 - auth user
 - tenant
 - owner membership
-- folder naming recommendation
+
+### 8.6 Bulk add users to one existing tenant
+
+CSV format:
+
+```csv
+email,password,full_name,role
+alice@acme.com,ChangeMe123!,Alice Founder,owner
+bob@acme.com,ChangeMe123!,Bob Manager,admin
+charlie@acme.com,ChangeMe123!,Charlie Recruiter,recruiter
+```
+
+Run it against your hosted Supabase project:
+
+```bash
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY \
+python3 scripts/tenant_admin.py bulk-add-users-to-tenant-from-csv users.csv \
+  --tenant-slug acme-recruiting
+```
+
+This creates:
+
+- auth user
+- tenant membership
 
 ## 9. Platform Admin Bootstrap
 

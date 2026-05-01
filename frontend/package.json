@@ -10,7 +10,9 @@
     "dev": "vite",
     "build": "npm run check && tsc --noEmit -p tsconfig.node.json && vite build",
     "preview": "vite preview",
-    "check": "tsc --noEmit -p tsconfig.app.json"
+    "check": "tsc --noEmit -p tsconfig.app.json",
+    "tunnel:sync-dev": "cloudflared tunnel --config ../infra/cloudflare/sync-dev.yml run",
+    "tunnel:sync-dev:token": "cloudflared tunnel run --token \"$CLOUDFLARED_TOKEN\""
   },
   "dependencies": {
     "@supabase/supabase-js": "2.49.8",

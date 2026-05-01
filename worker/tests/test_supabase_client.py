@@ -23,6 +23,12 @@ class RecordingSupabaseClient(SupabaseClient):
         self.upsert_calls.append((table, rows, on_conflict))
         return {"table": table, "count": len(rows)}
 
+    def resolve_source_document_id(self, tenant_id: str, document_sha256: str, fallback_id: str) -> str:
+        return fallback_id
+
+    def resolve_candidate_id(self, tenant_id: str, email: str, source_document_id: str, fallback_id: str) -> str:
+        return fallback_id
+
 
 class SupabaseClientTests(unittest.TestCase):
     def test_stable_document_id_depends_on_tenant_path_and_content_hash(self) -> None:

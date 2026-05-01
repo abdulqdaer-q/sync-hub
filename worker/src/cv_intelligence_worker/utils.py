@@ -3,16 +3,52 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import ssl
 from datetime import datetime, timezone
 from typing import Iterable
+from urllib import request as urllib_request
 from uuid import NAMESPACE_URL, uuid5
 
 
 NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+_SSL_CONTEXT: ssl.SSLContext | None = None
+
+
+def build_ssl_context() -> ssl.SSLContext:
+    global _SSL_CONTEXT
+    if _SSL_CONTEXT is not None:
+        return _SSL_CONTEXT
+    try:
+        import certifi  # type: ignore
+    except Exception:
+        _SSL_CONTEXT = ssl.create_default_context()
+    else:
+        _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+    return _SSL_CONTEXT
+
+
+def urlopen(request: urllib_request.Request, *, timeout: int):
+    return urllib_request.urlopen(request, timeout=timeout, context=build_ssl_context())
 
 
 def slugify(value: str) -> str:
     return NON_ALNUM_RE.sub("-", value.lower()).strip("-")
+
+
+def normalize_email(value: str) -> str:
+    return compact_whitespace(value).strip(" <>.,;:").lower()
+
+
+def strip_nul_bytes(value):
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [strip_nul_bytes(item) for item in value]
+    if isinstance(value, tuple):
+        return [strip_nul_bytes(item) for item in value]
+    if isinstance(value, dict):
+        return {key: strip_nul_bytes(item) for key, item in value.items()}
+    return value
 
 
 def stable_uuid(*parts: str) -> str:

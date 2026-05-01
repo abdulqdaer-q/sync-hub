@@ -1,0 +1,17 @@
+# Named tunnel scaffold for the local CV Intelligence stack.
+# Keep the tunnel name fixed as "sync-dev" when creating it:
+#
+#   cloudflared tunnel create sync-dev
+#
+# Then replace the placeholders below with the generated tunnel UUID,
+# the credentials file path written by cloudflared, and your real hostnames.
+
+tunnel: REPLACE_WITH_TUNNEL_ID
+credentials-file: REPLACE_WITH_CREDENTIALS_FILE
+
+ingress:
+  - hostname: app.example.com
+    service: http://127.0.0.1:5173
+  - hostname: api.example.com
+    service: http://127.0.0.1:54321
+  - service: http_status:404

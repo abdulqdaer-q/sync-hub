@@ -5,6 +5,7 @@ import argparse
 import csv
 import json
 import os
+import ssl
 import shutil
 import sys
 from collections import Counter
@@ -12,6 +13,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib import error, parse, request
+
+
+def build_ssl_context() -> ssl.SSLContext:
+    try:
+        import certifi  # type: ignore
+    except Exception:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 def slugify(value: str) -> str:
@@ -63,10 +72,21 @@ class WorkspaceSyncResult:
     dry_run: bool
 
 
+@dataclass(frozen=True)
+class PlatformAdminResult:
+    user_id: str
+    email: str
+    created_user: bool
+    password_updated: bool
+    platform_admin_added: bool
+    note: str
+
+
 class SupabaseAdminClient:
     def __init__(self, base_url: str, service_role_key: str) -> None:
         self.base_url = base_url.rstrip("/")
         self.service_role_key = service_role_key.strip()
+        self.ssl_context = build_ssl_context()
         if not self.base_url:
             raise ValueError("SUPABASE_URL is required")
         if not self.service_role_key:
@@ -98,7 +118,7 @@ class SupabaseAdminClient:
         req = request.Request(url, data=body, headers=headers, method=method.upper())
 
         try:
-            with request.urlopen(req) as response:
+            with request.urlopen(req, context=self.ssl_context) as response:
                 raw = response.read().decode("utf-8")
                 if not raw:
                     return None
@@ -119,6 +139,44 @@ class SupabaseAdminClient:
             payload["user_metadata"] = {"full_name": full_name.strip()}
         return self._request("POST", "/auth/v1/admin/users", payload=payload)
 
+    def update_user_password(self, user_id: str, password: str, full_name: str = "") -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "password": password,
+            "email_confirm": True,
+        }
+        if full_name.strip():
+            payload["user_metadata"] = {"full_name": full_name.strip()}
+        return self._request(
+            "PUT",
+            f"/auth/v1/admin/users/{parse.quote(user_id, safe='')}",
+            payload=payload,
+        )
+
+    def list_auth_users(self, *, page: int = 1, per_page: int = 1000) -> list[dict[str, Any]]:
+        result = self._request(
+            "GET",
+            "/auth/v1/admin/users",
+            query={"page": str(page), "per_page": str(per_page)},
+        )
+        if isinstance(result, dict) and isinstance(result.get("users"), list):
+            return result["users"]
+        if isinstance(result, list):
+            return result
+        raise SupabaseAdminError("Auth user list returned an unexpected response.")
+
+    def get_auth_user_by_email(self, email: str) -> Optional[dict[str, Any]]:
+        target = email.strip().lower()
+        page = 1
+        per_page = 1000
+        while True:
+            users = self.list_auth_users(page=page, per_page=per_page)
+            for user in users:
+                if str(user.get("email") or "").strip().lower() == target:
+                    return user
+            if len(users) < per_page:
+                return None
+            page += 1
+
     def create_tenant(self, *, name: str, slug: str, created_by: str, icon_url: str = "") -> dict[str, Any]:
         result = self._request(
             "POST",
@@ -133,6 +191,18 @@ class SupabaseAdminClient:
         )
         if not isinstance(result, list) or not result:
             raise SupabaseAdminError("Tenant insert returned no rows.")
+        return result[0]
+
+    def get_tenant_by_slug(self, tenant_slug: str) -> Optional[dict[str, Any]]:
+        result = self._request(
+            "GET",
+            "/rest/v1/tenants",
+            query={"slug": f"eq.{tenant_slug.strip()}", "select": "id,name,slug,icon_url", "limit": "1"},
+        )
+        if not isinstance(result, list):
+            raise SupabaseAdminError("Tenant lookup returned an unexpected response.")
+        if not result:
+            return None
         return result[0]
 
     def add_membership(self, *, tenant_id: str, user_id: str, role: str) -> dict[str, Any]:
@@ -201,6 +271,30 @@ class SupabaseAdminClient:
                 }
             )
         return output
+
+    def get_platform_admin(self, user_id: str) -> Optional[dict[str, Any]]:
+        result = self._request(
+            "GET",
+            "/rest/v1/platform_admins",
+            query={"user_id": f"eq.{user_id}", "select": "user_id,note,created_at", "limit": "1"},
+        )
+        if not isinstance(result, list):
+            raise SupabaseAdminError("Platform admin lookup returned an unexpected response.")
+        if not result:
+            return None
+        return result[0]
+
+    def upsert_platform_admin(self, *, user_id: str, note: str) -> dict[str, Any]:
+        result = self._request(
+            "POST",
+            "/rest/v1/platform_admins",
+            payload={"user_id": user_id, "note": note.strip()},
+            query={"on_conflict": "user_id"},
+            extra_headers={"Prefer": "resolution=merge-duplicates,return=representation"},
+        )
+        if not isinstance(result, list) or not result:
+            raise SupabaseAdminError("Platform admin upsert returned no rows.")
+        return result[0]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -304,6 +398,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bulk_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a human-readable summary")
 
+    add_users_parser = subparsers.add_parser(
+        "bulk-add-users-to-tenant-from-csv",
+        help="Create auth users and memberships for one existing tenant from a CSV file",
+    )
+    add_users_parser.add_argument("csv_path", help="CSV file with at least email,password columns")
+    add_users_parser.add_argument("--tenant-slug", required=True, help="Existing tenant slug to add users to")
+    add_users_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a human-readable summary")
+
+    platform_admin_parser = subparsers.add_parser(
+        "ensure-platform-admin",
+        help="Create or update an auth user and grant platform-wide admin access",
+    )
+    platform_admin_parser.add_argument("--email", required=True, help="Login email for the platform admin")
+    platform_admin_parser.add_argument("--password", required=True, help="Login password for the platform admin")
+    platform_admin_parser.add_argument("--full-name", default="", help="Optional display name")
+    platform_admin_parser.add_argument(
+        "--note",
+        default="Platform admin",
+        help="Audit note stored on public.platform_admins",
+    )
+    platform_admin_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a human-readable summary")
+
     return parser
 
 
@@ -368,6 +484,79 @@ def create_tenant_account(client: SupabaseAdminClient, args: argparse.Namespace)
         role=args.role,
         folder_name=folder_name,
         drive_root=args.drive_root,
+    )
+
+
+def create_account_for_existing_tenant(client: SupabaseAdminClient, args: argparse.Namespace) -> BootstrapResult:
+    tenant_slug = args.tenant_slug.strip()
+    if not tenant_slug:
+        raise SupabaseAdminError("Existing tenant membership import requires --tenant-slug.")
+
+    tenant = client.get_tenant_by_slug(tenant_slug)
+    if tenant is None:
+        raise SupabaseAdminError(f"Could not find tenant with slug '{tenant_slug}'.")
+
+    user = client.create_user(args.email, args.password, full_name=args.full_name)
+    user_id = user.get("id")
+    if not user_id:
+        raise SupabaseAdminError("Supabase did not return a user id.")
+
+    tenant_id = str(tenant.get("id") or "")
+    if not tenant_id:
+        raise SupabaseAdminError("Supabase did not return a tenant id.")
+
+    resolved_slug = str(tenant.get("slug") or tenant_slug)
+    resolved_name = str(tenant.get("name") or "").strip()
+    tenant_icon = str(tenant.get("icon_url") or "")
+
+    client.add_membership(tenant_id=tenant_id, user_id=user_id, role=args.role)
+
+    return BootstrapResult(
+        user_id=user_id,
+        email=args.email.strip(),
+        tenant_id=tenant_id,
+        tenant_name=resolved_name,
+        tenant_slug=resolved_slug,
+        tenant_icon=tenant_icon,
+        role=args.role,
+        folder_name=resolved_slug,
+        drive_root=args.drive_root,
+    )
+
+
+def ensure_platform_admin(client: SupabaseAdminClient, args: argparse.Namespace) -> PlatformAdminResult:
+    email = args.email.strip()
+    if not email:
+        raise SupabaseAdminError("Platform admin email is required.")
+    if not args.password:
+        raise SupabaseAdminError("Platform admin password is required.")
+
+    existing_user = client.get_auth_user_by_email(email)
+    created_user = existing_user is None
+    password_updated = False
+    if created_user:
+        user = client.create_user(email, args.password, full_name=args.full_name)
+    else:
+        user_id = str(existing_user.get("id") or "")
+        if not user_id:
+            raise SupabaseAdminError(f"Existing auth user for {email} has no id.")
+        user = client.update_user_password(user_id, args.password, full_name=args.full_name)
+        password_updated = True
+
+    user_id = str(user.get("id") or (existing_user or {}).get("id") or "")
+    if not user_id:
+        raise SupabaseAdminError("Supabase did not return a user id.")
+
+    existing_admin = client.get_platform_admin(user_id)
+    client.upsert_platform_admin(user_id=user_id, note=args.note)
+
+    return PlatformAdminResult(
+        user_id=user_id,
+        email=email,
+        created_user=created_user,
+        password_updated=password_updated,
+        platform_admin_added=existing_admin is None,
+        note=args.note.strip(),
     )
 
 
@@ -524,15 +713,14 @@ def move_workspace_folder(source: Path, destination: Path) -> str:
     return str(destination.resolve())
 
 
-def load_csv_rows(csv_path: str) -> list[dict[str, str]]:
+def load_csv_rows(csv_path: str, *, required_headers: Iterable[str]) -> list[dict[str, str]]:
     with open(csv_path, "r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
             raise SupabaseAdminError("CSV file is missing a header row.")
 
         normalized_headers = {header.strip() for header in reader.fieldnames if header}
-        required_headers = {"email", "password", "tenant_name", "tenant_icon"}
-        missing = sorted(required_headers - normalized_headers)
+        missing = sorted({header.strip() for header in required_headers if header.strip()} - normalized_headers)
         if missing:
             raise SupabaseAdminError(
                 "CSV is missing required headers: " + ", ".join(missing)
@@ -569,6 +757,12 @@ def validate_csv_row(row: dict[str, str], row_number: int) -> None:
         raise SupabaseAdminError(f"Row {row_number} is missing values for: {', '.join(missing_fields)}")
 
 
+def validate_existing_tenant_csv_row(row: dict[str, str], row_number: int) -> None:
+    missing_fields = [field for field in ("email", "password") if not row.get(field, "").strip()]
+    if missing_fields:
+        raise SupabaseAdminError(f"Row {row_number} is missing values for: {', '.join(missing_fields)}")
+
+
 def bulk_create_from_csv(client: SupabaseAdminClient, csv_path: str, drive_root: str) -> dict[str, Any]:
     return bulk_create_from_csv_with_paths(
         client,
@@ -589,7 +783,7 @@ def bulk_create_from_csv_with_paths(
     drive_sync_path: str,
     create_folders: bool,
 ) -> dict[str, Any]:
-    rows = load_csv_rows(csv_path)
+    rows = load_csv_rows(csv_path, required_headers=("email", "password", "tenant_name", "tenant_icon"))
     successes: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
 
@@ -641,6 +835,55 @@ def bulk_create_from_csv_with_paths(
 
     return {
         "csv_path": csv_path,
+        "processed": len(rows),
+        "created": len(successes),
+        "failed": len(failures),
+        "results": successes,
+        "failures": failures,
+    }
+
+
+def bulk_add_users_to_tenant_from_csv(
+    client: SupabaseAdminClient,
+    csv_path: str,
+    *,
+    tenant_slug: str,
+    drive_root: str,
+) -> dict[str, Any]:
+    rows = load_csv_rows(csv_path, required_headers=("email", "password"))
+    successes: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+
+    for index, row in enumerate(rows, start=2):
+        try:
+            validate_existing_tenant_csv_row(row, index)
+            namespace = build_namespace(row, drive_root)
+            namespace.tenant_slug = tenant_slug
+            result = create_account_for_existing_tenant(client, namespace)
+            successes.append(
+                {
+                    "row": index,
+                    "user_id": result.user_id,
+                    "email": result.email,
+                    "tenant_id": result.tenant_id,
+                    "tenant_name": result.tenant_name,
+                    "tenant_slug": result.tenant_slug,
+                    "role": result.role,
+                    "google_drive_folder": f"{result.drive_root}/{result.folder_name}",
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            failures.append(
+                {
+                    "row": index,
+                    "email": row.get("email", ""),
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "csv_path": csv_path,
+        "tenant_slug": tenant_slug,
         "processed": len(rows),
         "created": len(successes),
         "failed": len(failures),
@@ -781,6 +1024,27 @@ def main(argv: Optional[list[str]] = None) -> int:
                 print(f"Drive workspace folder: {payload['drive_workspace_folder']}")
         return 0
 
+    if args.command == "ensure-platform-admin":
+        result = ensure_platform_admin(client, args)
+        payload = {
+            "user_id": result.user_id,
+            "email": result.email,
+            "created_user": result.created_user,
+            "password_updated": result.password_updated,
+            "platform_admin_added": result.platform_admin_added,
+            "note": result.note,
+        }
+        if args.json:
+            print(compact_json(payload))
+        else:
+            print("Platform admin ready.")
+            print(f"Email: {result.email}")
+            print(f"User id: {result.user_id}")
+            print(f"Auth user: {'created' if result.created_user else 'already existed'}")
+            print(f"Password: {'updated' if result.password_updated else 'set'}")
+            print(f"Platform admin grant: {'added' if result.platform_admin_added else 'already existed'}")
+        return 0
+
     if args.command == "create-tenant-account":
         result = create_tenant_account(client, args)
         payload = {
@@ -867,6 +1131,38 @@ def main(argv: Optional[list[str]] = None) -> int:
                 for failure in payload["failures"]:
                     print(
                         f"  row {failure['row']}: {failure['tenant_name'] or failure['email'] or 'unknown'} "
+                        f"- {failure['error']}"
+                    )
+        return 0 if payload["failed"] == 0 else 2
+
+    if args.command == "bulk-add-users-to-tenant-from-csv":
+        payload = bulk_add_users_to_tenant_from_csv(
+            client,
+            args.csv_path,
+            tenant_slug=args.tenant_slug,
+            drive_root=args.drive_root,
+        )
+        if args.json:
+            print(compact_json(payload))
+        else:
+            print(f"Tenant slug: {payload['tenant_slug']}")
+            print(f"Processed:   {payload['processed']}")
+            print(f"Created:     {payload['created']}")
+            print(f"Failed:      {payload['failed']}")
+            if payload["results"]:
+                print("")
+                print("Added users:")
+                for result in payload["results"]:
+                    print(
+                        f"  row {result['row']}: {result['email']} "
+                        f"-> {result['tenant_name']} ({result['tenant_slug']}) as {result['role']}"
+                    )
+            if payload["failures"]:
+                print("")
+                print("Failures:")
+                for failure in payload["failures"]:
+                    print(
+                        f"  row {failure['row']}: {failure['email'] or 'unknown'} "
                         f"- {failure['error']}"
                     )
         return 0 if payload["failed"] == 0 else 2

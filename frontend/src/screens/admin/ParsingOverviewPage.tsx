@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileText, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, FileText, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { EmptyState, PageIntro, Panel, ScorePill, StatCard, Tag } from "@/components/ui";
 import { parsingOverview as fallbackParsingOverview } from "@/data/mockData";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/cn";
 import type { ParsingOverview } from "@/lib/contracts";
 import { platformApi } from "@/lib/platformApi";
 
@@ -34,11 +35,16 @@ function toneForQualityBand(band: ParsingOverview["items"][number]["qualityBand"
   return "warning" as const;
 }
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
 export function ParsingOverviewPage() {
   const { adminMemberships, enabled, isAdmin, loading } = useAuth();
   const [overview, setOverview] = useState<ParsingOverview>(fallbackParsingOverview);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reviewFilter, setReviewFilter] = useState<"all" | "needsReview">("all");
+  const [pageSize, setPageSize] = useState(25);
+  const [pageIndex, setPageIndex] = useState(0);
   const adminTenantIds = useMemo(() => adminMemberships.map((membership) => membership.id), [adminMemberships]);
   const workspaceNameById = useMemo(
     () => new Map(adminMemberships.map((membership) => [membership.id, membership.name])),
@@ -80,6 +86,27 @@ export function ParsingOverviewPage() {
     };
   }, [adminTenantIds, enabled, isAdmin, loading]);
 
+  const filteredItems = useMemo(
+    () => (reviewFilter === "needsReview" ? overview.items.filter((item) => item.needsAttention) : overview.items),
+    [overview.items, reviewFilter],
+  );
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const safePageIndex = Math.min(pageIndex, totalPages - 1);
+  const paginatedItems = useMemo(
+    () => filteredItems.slice(safePageIndex * pageSize, safePageIndex * pageSize + pageSize),
+    [filteredItems, pageSize, safePageIndex],
+  );
+  const pageStart = filteredItems.length ? safePageIndex * pageSize + 1 : 0;
+  const pageEnd = Math.min(filteredItems.length, safePageIndex * pageSize + pageSize);
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [pageSize, reviewFilter, overview.items]);
+
+  useEffect(() => {
+    setPageIndex((current) => Math.min(current, totalPages - 1));
+  }, [totalPages]);
+
   if (enabled && !loading && !isAdmin) {
     return (
       <div className="page-stack">
@@ -100,6 +127,7 @@ export function ParsingOverviewPage() {
   const missingContact = overview.items.filter((item) => item.missingFields.includes("email") || item.missingFields.includes("phone")).length;
   const lowCoverage = overview.items.filter((item) => item.parsedPercentage < 70).length;
   const reviewQueue = overview.items.filter((item) => item.needsAttention).slice(0, 5);
+  const filteredLabel = reviewFilter === "needsReview" ? "needs review" : "documents";
 
   return (
     <div className="page-stack">
@@ -149,63 +177,139 @@ export function ParsingOverviewPage() {
                     <h3>Document diagnostics</h3>
                     <p>Documents are ordered by lowest parse coverage first so operators can inspect weak parses immediately.</p>
                   </div>
-                  <Tag tone="primary">{overview.documentsCount} total</Tag>
+                  <div className="skill-list">
+                    <Tag tone="primary">{overview.documentsCount} total</Tag>
+                    {reviewFilter === "needsReview" ? <Tag tone="warning">{filteredItems.length} need review</Tag> : null}
+                  </div>
                 </div>
 
-                <div className="parsing-table">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Workspace</th>
-                        <th>Document</th>
-                        <th>Candidate</th>
-                        <th>Parse</th>
-                        <th>Confidence</th>
-                        <th>Status</th>
-                        <th>Warnings</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {overview.items.map((item) => (
-                        <tr key={item.documentId}>
-                          <td>{workspaceNameById.get(item.tenantId) ?? "Unknown workspace"}</td>
-                          <td>
-                            <div className="parsing-table__file">
-                              <strong>{item.originalFilename}</strong>
-                              <span>{item.mimeType} · {formatUploadedAt(item.uploadedAt)}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <div className="parsing-table__candidate">
-                              <strong>{item.candidateName}</strong>
-                              <span>{item.currentTitle}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <div className="parsing-table__score">
-                              <strong>{item.parsedPercentage}%</strong>
-                              <span>{item.rawTextLength.toLocaleString()} chars</span>
-                            </div>
-                          </td>
-                          <td>{item.extractionConfidence}%</td>
-                          <td>
-                            <div className="skill-list">
-                              <Tag tone={toneForQualityBand(item.qualityBand)}>{item.qualityBand}</Tag>
-                              <Tag>{item.status}</Tag>
-                            </div>
-                          </td>
-                          <td>{item.warnings.length}</td>
-                          <td className="parsing-table__actions">
-                            <Link className="button button--secondary" to={`/admin/parsing/${item.documentId}`}>
-                              Inspect
-                            </Link>
-                          </td>
-                        </tr>
+                <div className="parsing-table-controls">
+                  <div className="simulator-view-switch" role="tablist" aria-label="Parsing document filter">
+                    <button
+                      className={cn("simulator-view-button", reviewFilter === "all" && "simulator-view-button--active")}
+                      type="button"
+                      onClick={() => setReviewFilter("all")}
+                    >
+                      All
+                    </button>
+                    <button
+                      className={cn("simulator-view-button", reviewFilter === "needsReview" && "simulator-view-button--active")}
+                      type="button"
+                      onClick={() => setReviewFilter("needsReview")}
+                    >
+                      Needs review
+                    </button>
+                  </div>
+
+                  <label className="parsing-page-size">
+                    <span>Rows</span>
+                    <select className="form-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+                      {PAGE_SIZE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
                       ))}
-                    </tbody>
-                  </table>
+                    </select>
+                  </label>
                 </div>
+
+                {filteredItems.length ? (
+                  <>
+                    <div className="parsing-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Workspace</th>
+                            <th>Document</th>
+                            <th>Candidate</th>
+                            <th>Parse</th>
+                            <th>Confidence</th>
+                            <th>Status</th>
+                            <th>Warnings</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paginatedItems.map((item) => (
+                            <tr key={item.documentId}>
+                              <td>{workspaceNameById.get(item.tenantId) ?? "Unknown workspace"}</td>
+                              <td>
+                                <div className="parsing-table__file">
+                                  <strong>{item.originalFilename}</strong>
+                                  <span>{item.mimeType} · {formatUploadedAt(item.uploadedAt)}</span>
+                                </div>
+                              </td>
+                              <td>
+                                <div className="parsing-table__candidate">
+                                  <strong>{item.candidateName}</strong>
+                                  <span>{item.currentTitle}</span>
+                                </div>
+                              </td>
+                              <td>
+                                <div className="parsing-table__score">
+                                  <strong>{item.parsedPercentage}%</strong>
+                                  <span>{item.rawTextLength.toLocaleString()} chars</span>
+                                </div>
+                              </td>
+                              <td>{item.extractionConfidence}%</td>
+                              <td>
+                                <div className="skill-list">
+                                  <Tag tone={toneForQualityBand(item.qualityBand)}>{item.qualityBand}</Tag>
+                                  <Tag>{item.status}</Tag>
+                                </div>
+                              </td>
+                              <td>{item.warnings.length}</td>
+                              <td className="parsing-table__actions">
+                                <Link className="button button--secondary" to={`/admin/parsing/${item.documentId}`}>
+                                  Inspect
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="parsing-pagination">
+                      <span>
+                        Showing {pageStart}-{pageEnd} of {filteredItems.length} {filteredLabel}
+                      </span>
+                      <div className="pagination-actions">
+                        <button
+                          className="button button--secondary"
+                          type="button"
+                          onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+                          disabled={safePageIndex === 0}
+                        >
+                          <ChevronLeft size={14} />
+                          Previous
+                        </button>
+                        <Tag>
+                          Page {safePageIndex + 1} of {totalPages}
+                        </Tag>
+                        <button
+                          className="button button--secondary"
+                          type="button"
+                          onClick={() => setPageIndex((current) => Math.min(totalPages - 1, current + 1))}
+                          disabled={safePageIndex >= totalPages - 1}
+                        >
+                          Next
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <EmptyState
+                    title="No documents need review"
+                    detail="The current filter has no matching documents."
+                    action={
+                      <button className="button button--secondary" type="button" onClick={() => setReviewFilter("all")}>
+                        Show all documents
+                      </button>
+                    }
+                  />
+                )}
               </div>
             </Panel>
 
@@ -246,14 +350,19 @@ export function ParsingOverviewPage() {
                     <h4>Review queue</h4>
                   </div>
                   {reviewQueue.length ? (
-                    reviewQueue.map((item) => (
-                      <Link key={item.documentId} to={`/admin/parsing/${item.documentId}`} className="inline-cta">
-                        <div>
-                          <strong>{item.originalFilename}</strong>
-                          <p>{workspaceNameById.get(item.tenantId) ?? "Unknown workspace"} · {item.keyFindings.join(" · ")}</p>
-                        </div>
-                      </Link>
-                    ))
+                    <>
+                      {reviewQueue.map((item) => (
+                        <Link key={item.documentId} to={`/admin/parsing/${item.documentId}`} className="inline-cta">
+                          <div>
+                            <strong>{item.originalFilename}</strong>
+                            <p>{workspaceNameById.get(item.tenantId) ?? "Unknown workspace"} · {item.keyFindings.join(" · ")}</p>
+                          </div>
+                        </Link>
+                      ))}
+                      <button className="button button--secondary" type="button" onClick={() => setReviewFilter("needsReview")}>
+                        Show all review docs
+                      </button>
+                    </>
                   ) : (
                     <div className="evidence-card">
                       <div className="skill-list">

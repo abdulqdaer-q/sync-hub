@@ -1528,6 +1528,31 @@ button {
   overflow: auto;
 }
 
+.parsing-table-controls,
+.parsing-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.parsing-page-size {
+  min-width: 124px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.parsing-page-size span,
+.parsing-pagination > span {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-family: var(--font-sans);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .table-card table {
   width: 100%;
   border-collapse: collapse;

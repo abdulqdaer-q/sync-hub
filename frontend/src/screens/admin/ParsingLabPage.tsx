@@ -43,7 +43,7 @@ function createDefaultProfile(seed?: ParserProfile | null): ParserProfileInput {
     embeddingVersion: seed?.embeddingVersion ?? "gemini-embedding-001-768-v1",
     chunkingProfile: seed?.chunkingProfile ?? "section-first",
     ocrEnabled: seed?.ocrEnabled ?? false,
-    allowHeuristicFallback: seed?.allowHeuristicFallback ?? true,
+    allowHeuristicFallback: false,
     promptTemplate:
       seed?.promptTemplate ??
       [
@@ -554,13 +554,13 @@ export function ParsingLabPage() {
               <label className="parser-toggle">
                 <input
                   type="checkbox"
-                  checked={form.allowHeuristicFallback}
-                  onChange={(event) => setForm((current) => ({ ...current, allowHeuristicFallback: event.target.checked }))}
-                  disabled={!canEdit}
+                  checked={false}
+                  onChange={() => setForm((current) => ({ ...current, allowHeuristicFallback: false }))}
+                  disabled
                 />
                 <div>
-                  <strong>Allow heuristic fallback</strong>
-                  <p>Keep deterministic extraction as a safety net when the model path fails.</p>
+                  <strong>Heuristic fallback disabled</strong>
+                  <p>Model extraction failures retry and then fail the run instead of writing deterministic output.</p>
                 </div>
               </label>
             </div>

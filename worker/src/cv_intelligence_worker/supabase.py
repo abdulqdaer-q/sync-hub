@@ -9,11 +9,15 @@ from typing import Any
 
 from .config import WorkerConfig
 from .schema import ArtifactBundle, ComparisonArtifact, dataclass_to_dict
-from .utils import slugify, stable_uuid
+from .utils import normalize_email, slugify, stable_uuid, strip_nul_bytes, urlopen
 
 
 def _vector_literal(values: list[float]) -> str:
     return "[" + ",".join(f"{value:.8f}" for value in values) + "]"
+
+
+def _is_jwt(value: str) -> bool:
+    return value.count(".") == 2
 
 
 class SupabaseClient:
@@ -22,12 +26,15 @@ class SupabaseClient:
         self.base_url = config.supabase_url.rstrip("/")
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        api_key = self.config.supabase_api_key()
+        bearer_token = self.config.supabase_bearer_token()
         headers = {
-            "Authorization": f"Bearer {self.config.auth_token()}",
-            "apikey": self.config.auth_token() or self.config.supabase_anon_key,
+            "apikey": api_key,
             "Content-Type": "application/json",
             "User-Agent": self.config.user_agent,
         }
+        if _is_jwt(bearer_token):
+            headers["Authorization"] = f"Bearer {bearer_token}"
         if extra:
             headers.update(extra)
         return headers
@@ -35,15 +42,19 @@ class SupabaseClient:
     def _request(self, method: str, path: str, *, data: Any | None = None, headers: dict[str, str] | None = None) -> Any:
         body = None
         if data is not None:
-            body = json.dumps(data).encode("utf-8")
+            body = json.dumps(strip_nul_bytes(data)).encode("utf-8")
         request = urllib.request.Request(
             f"{self.base_url}{path}",
             data=body,
             headers=self._headers(headers),
             method=method,
         )
-        with urllib.request.urlopen(request, timeout=self.config.request_timeout_seconds) as response:
-            content = response.read().decode("utf-8")
+        try:
+            with urlopen(request, timeout=self.config.request_timeout_seconds) as response:
+                content = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            content = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Supabase {method} {path} failed ({exc.code}): {content or exc.reason}") from exc
         return json.loads(content) if content else None
 
     def upsert(self, table: str, rows: list[dict[str, Any]], on_conflict: str) -> Any:
@@ -55,14 +66,66 @@ class SupabaseClient:
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
         )
 
+    def resolve_source_document_id(self, tenant_id: str, document_sha256: str, fallback_id: str) -> str:
+        query = urllib.parse.urlencode(
+            {
+                "tenant_id": f"eq.{tenant_id}",
+                "document_sha256": f"eq.{document_sha256}",
+                "select": "id",
+                "limit": "1",
+            }
+        )
+        result = self._request("GET", f"/rest/v1/source_documents?{query}")
+        if isinstance(result, list) and result:
+            existing_id = str(result[0].get("id") or "")
+            if existing_id:
+                return existing_id
+        return fallback_id
+
+    def resolve_candidate_id(self, tenant_id: str, email: str, source_document_id: str, fallback_id: str) -> str:
+        normalized_email = normalize_email(email)
+        if normalized_email:
+            query = urllib.parse.urlencode(
+                {
+                    "tenant_id": f"eq.{tenant_id}",
+                    "email": f"eq.{normalized_email}",
+                    "select": "id",
+                    "order": "created_at.asc",
+                    "limit": "1",
+                }
+            )
+            result = self._request("GET", f"/rest/v1/candidates?{query}")
+            if isinstance(result, list) and result:
+                existing_id = str(result[0].get("id") or "")
+                if existing_id:
+                    return existing_id
+
+        query = urllib.parse.urlencode(
+            {
+                "tenant_id": f"eq.{tenant_id}",
+                "id": f"eq.{source_document_id}",
+                "select": "candidate_id",
+                "limit": "1",
+            }
+        )
+        result = self._request("GET", f"/rest/v1/source_documents?{query}")
+        if isinstance(result, list) and result:
+            existing_id = str(result[0].get("candidate_id") or "")
+            if existing_id:
+                return existing_id
+        return fallback_id
+
     def upload_file(self, bucket: str, object_path: str, file_path: str, content_type: str) -> None:
         data = Path(file_path).read_bytes()
+        api_key = self.config.supabase_api_key()
+        bearer_token = self.config.supabase_bearer_token()
         headers = {
-            "Authorization": f"Bearer {self.config.auth_token()}",
-            "apikey": self.config.auth_token() or self.config.supabase_anon_key,
+            "apikey": api_key,
             "Content-Type": content_type,
             "x-upsert": "true",
         }
+        if _is_jwt(bearer_token):
+            headers["Authorization"] = f"Bearer {bearer_token}"
         request = urllib.request.Request(
             f"{self.base_url}/storage/v1/object/{bucket}/{urllib.parse.quote(object_path)}",
             data=data,
@@ -70,26 +133,46 @@ class SupabaseClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.config.request_timeout_seconds):
+            with urlopen(request, timeout=self.config.request_timeout_seconds):
                 return
         except urllib.error.HTTPError as exc:
             if exc.code == 409:
                 return
-            raise
+            content = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Supabase storage upload failed ({exc.code}): {content or exc.reason}") from exc
 
     def sync_bundle(self, bundle: ArtifactBundle) -> None:
-        source_storage_path = f"{bundle.source.tenant_id}/{bundle.source.document_id}/{bundle.source.original_filename}"
-        self.upload_file(
-            self.config.supabase_storage_bucket,
-            source_storage_path,
-            bundle.source.source_path,
-            bundle.source.mime_type,
+        source_document_id = self.resolve_source_document_id(
+            bundle.source.tenant_id,
+            bundle.source.document_sha256,
+            bundle.source.document_id,
         )
+        candidate_id = self.resolve_candidate_id(
+            bundle.profile.tenant_id,
+            bundle.profile.email,
+            source_document_id,
+            bundle.profile.candidate_id,
+        )
+        candidate_email = normalize_email(bundle.profile.email)
+        source_storage_path = None
+        if self.config.sync_originals_to_storage:
+            source_storage_path = f"{bundle.source.tenant_id}/{source_document_id}/{bundle.source.original_filename}"
+            self.upload_file(
+                self.config.supabase_storage_bucket,
+                source_storage_path,
+                bundle.source.source_path,
+                bundle.source.mime_type,
+            )
+
+        profile_payload = dataclass_to_dict(bundle.profile)
+        profile_payload["candidate_id"] = candidate_id
+        profile_payload["source_document_id"] = source_document_id
+        profile_payload["email"] = candidate_email
 
         source_document = {
-            "id": bundle.source.document_id,
+            "id": source_document_id,
             "tenant_id": bundle.source.tenant_id,
-            "candidate_id": bundle.profile.candidate_id,
+            "candidate_id": candidate_id,
             "source_type": bundle.source.source_type,
             "original_filename": bundle.source.original_filename,
             "mime_type": bundle.source.mime_type,
@@ -100,7 +183,7 @@ class SupabaseClient:
             "metadata_json": dataclass_to_dict(bundle.source.metadata),
         }
         candidate = {
-            "id": bundle.profile.candidate_id,
+            "id": candidate_id,
             "tenant_id": bundle.profile.tenant_id,
             "name": bundle.profile.name,
             "headline": bundle.profile.headline,
@@ -110,10 +193,10 @@ class SupabaseClient:
             "seniority": bundle.profile.seniority,
             "primary_role": bundle.profile.role_tags[0] if bundle.profile.role_tags else None,
             "top_skills": bundle.profile.skills,
-            "email": bundle.profile.email,
+            "email": candidate_email,
             "phone": bundle.profile.phone,
             "links": bundle.profile.links,
-            "latest_document_id": bundle.source.document_id,
+            "latest_document_id": source_document_id,
             "summary_short": bundle.summary.short_summary,
             "status": "completed",
             "metadata_json": bundle.profile.metadata,
@@ -123,10 +206,10 @@ class SupabaseClient:
             "artifact_version": bundle.summary.artifact_version,
         }
         profile = {
-            "candidate_id": bundle.profile.candidate_id,
+            "candidate_id": candidate_id,
             "tenant_id": bundle.profile.tenant_id,
-            "source_document_id": bundle.source.document_id,
-            "profile_json": dataclass_to_dict(bundle.profile),
+            "source_document_id": source_document_id,
+            "profile_json": profile_payload,
             "timeline_json": dataclass_to_dict(bundle.profile.experience),
             "skill_matrix_json": {
                 "skills": [{"skill": skill, "aliases": bundle.profile.skill_aliases.get(skill, []), "confidence": bundle.profile.confidence} for skill in bundle.profile.skills]
@@ -137,7 +220,7 @@ class SupabaseClient:
             "parse_warnings": bundle.profile.parse_warnings,
         }
         summary = {
-            "candidate_id": bundle.profile.candidate_id,
+            "candidate_id": candidate_id,
             "tenant_id": bundle.profile.tenant_id,
             "short_summary": bundle.summary.short_summary,
             "long_summary": bundle.summary.long_summary,
@@ -157,9 +240,9 @@ class SupabaseClient:
             seen_skill_slugs.add(skill_slug)
             skill_rows.append(
                 {
-                    "id": stable_uuid(bundle.profile.tenant_id, bundle.profile.candidate_id, skill),
+                    "id": stable_uuid(bundle.profile.tenant_id, candidate_id, skill),
                     "tenant_id": bundle.profile.tenant_id,
-                    "candidate_id": bundle.profile.candidate_id,
+                    "candidate_id": candidate_id,
                     "skill_slug": skill_slug,
                     "canonical_skill": skill,
                     "evidence": {"aliases": bundle.profile.skill_aliases.get(skill, [])},
@@ -169,10 +252,10 @@ class SupabaseClient:
         for chunk, embedding in zip(bundle.chunks, bundle.embeddings):
             chunk_rows.append(
                 {
-                    "id": chunk.chunk_id,
+                    "id": stable_uuid(candidate_id, chunk.chunk_type, str(chunk.chunk_index), chunk.text[:120]),
                     "tenant_id": chunk.tenant_id,
-                    "candidate_id": chunk.candidate_id,
-                    "source_document_id": bundle.source.document_id,
+                    "candidate_id": candidate_id,
+                    "source_document_id": source_document_id,
                     "chunk_type": chunk.chunk_type,
                     "section_name": chunk.section_name,
                     "chunk_index": chunk.chunk_index,
@@ -189,10 +272,10 @@ class SupabaseClient:
                 }
             )
         processing_run = {
-            "id": stable_uuid(bundle.processing_run.tenant_id, bundle.processing_run.ingestion_run_id, bundle.source.document_id),
+            "id": stable_uuid(bundle.processing_run.tenant_id, bundle.processing_run.ingestion_run_id, source_document_id),
             "tenant_id": bundle.processing_run.tenant_id,
-            "candidate_id": bundle.profile.candidate_id,
-            "source_document_id": bundle.source.document_id,
+            "candidate_id": candidate_id,
+            "source_document_id": source_document_id,
             "ingestion_run_id": bundle.processing_run.ingestion_run_id,
             "status": bundle.processing_run.status,
             "input_hash": bundle.processing_run.input_hash,

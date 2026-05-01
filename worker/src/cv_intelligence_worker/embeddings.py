@@ -6,6 +6,7 @@ import urllib.request
 
 from .config import WorkerConfig
 from .schema import ChunkRecord, EmbeddingRecord
+from .utils import urlopen
 
 
 def _stable_token_hash(token: str) -> int:
@@ -68,7 +69,7 @@ class OpenAICompatibleEmbedder:
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=self.config.request_timeout_seconds) as response:
+        with urlopen(request, timeout=self.config.request_timeout_seconds) as response:
             body = json.loads(response.read().decode("utf-8"))
         data = body.get("data", [])
         records: list[EmbeddingRecord] = []
@@ -106,7 +107,7 @@ class OllamaEmbedder:
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=self.config.request_timeout_seconds) as response:
+        with urlopen(request, timeout=self.config.request_timeout_seconds) as response:
             body = json.loads(response.read().decode("utf-8"))
         vectors = body.get("embeddings", [])
         records: list[EmbeddingRecord] = []

@@ -63,15 +63,14 @@ def _default_embedding_version() -> str:
 
 
 def _default_model_version() -> str:
-    if _has_gemini_key():
-        return "gemini-2.5-flash-v1"
-    return "heuristic-1.0.0"
+    extraction_model = _env_any("CV_EXTRACTION_MODEL", "CVI_EXTRACTION_MODEL", default=_default_extraction_model())
+    if extraction_model:
+        return f"{extraction_model}-v1"
+    return "llm-unconfigured-v1"
 
 
 def _default_prompt_version() -> str:
-    if _has_gemini_key():
-        return "openai-json-v1"
-    return "heuristic-1.0.0"
+    return "openai-json-v1"
 
 
 @dataclass(frozen=True)
@@ -83,7 +82,9 @@ class WorkerConfig:
     supabase_anon_key: str = field(default_factory=lambda: _env_any("SUPABASE_ANON_KEY"))
     supabase_access_token: str = field(default_factory=lambda: _env_any("SUPABASE_ACCESS_TOKEN", "CVI_SUPABASE_ACCESS_TOKEN"))
     supabase_service_key: str = field(default_factory=lambda: _env_any("SUPABASE_SERVICE_ROLE_KEY"))
+    supabase_authorization_token: str = field(default_factory=lambda: _env_any("SUPABASE_AUTHORIZATION_TOKEN", "SUPABASE_SERVICE_ROLE_JWT"))
     supabase_storage_bucket: str = field(default_factory=lambda: _env_any("SUPABASE_STORAGE_BUCKET", "SUPABASE_BUCKET", default="cv-originals"))
+    sync_originals_to_storage: bool = field(default_factory=lambda: _bool_env("CV_SYNC_ORIGINALS_TO_STORAGE", "CVI_SYNC_ORIGINALS_TO_STORAGE", default=True))
     cache_dir: str = field(default_factory=lambda: _env_any("CV_WORKER_CACHE_DIR", "CVI_WORKER_CACHE_DIR", default=_default_cache_dir()))
     model_base_url: str = field(default_factory=lambda: _env_any("CV_MODEL_BASE_URL", "CVI_MODEL_BASE_URL", default=_default_model_base_url()))
     model_api_key: str = field(default_factory=lambda: _env_any("CV_MODEL_API_KEY", "CVI_MODEL_API_KEY", "GEMINI_API_KEY", default=_default_model_api_key()))
@@ -99,11 +100,12 @@ class WorkerConfig:
     embedding_version: str = field(default_factory=lambda: _env_any("CV_EMBEDDING_VERSION", "CVI_EMBEDDING_VERSION", default=_default_embedding_version()))
     artifact_version: str = field(default_factory=lambda: _env_any("CV_ARTIFACT_VERSION", "CVI_ARTIFACT_VERSION", default="1.0.0"))
     request_timeout_seconds: int = field(default_factory=lambda: int(_env_any("CV_REQUEST_TIMEOUT_SECONDS", "CVI_REQUEST_TIMEOUT_SECONDS", default="30")))
+    extraction_max_attempts: int = field(default_factory=lambda: int(_env_any("CV_EXTRACTION_MAX_ATTEMPTS", "CVI_EXTRACTION_MAX_ATTEMPTS", default="2")))
     batch_size: int = field(default_factory=lambda: int(_env_any("CV_BATCH_SIZE", "CVI_BATCH_SIZE", default="8")))
     embedding_batch_size: int = field(default_factory=lambda: int(_env_any("CV_EMBEDDING_BATCH_SIZE", "CVI_EMBEDDING_BATCH_SIZE", default="16")))
     user_agent: str = field(default_factory=lambda: _env_any("CVI_USER_AGENT", default="cv-intelligence-worker/0.1.0"))
     device_id: str = field(default_factory=lambda: _env_any("CVI_DEVICE_ID", "CV_WORKER_DEVICE_ID"))
-    allow_heuristic_fallback: bool = field(default_factory=lambda: _bool_env("CV_ALLOW_HEURISTIC_FALLBACK", "CVI_ALLOW_HEURISTIC_FALLBACK", default=True))
+    allow_heuristic_fallback: bool = field(default_factory=lambda: _bool_env("CV_ALLOW_HEURISTIC_FALLBACK", "CVI_ALLOW_HEURISTIC_FALLBACK", default=False))
     delete_synced_bundles: bool = field(default_factory=lambda: _bool_env("CV_DELETE_SYNCED_BUNDLES", "CVI_DELETE_SYNCED_BUNDLES", default=True))
 
     def cache_path(self) -> Path:
@@ -120,6 +122,26 @@ class WorkerConfig:
         return bool(
             self.supabase_url and (self.supabase_access_token or self.supabase_anon_key or self.supabase_service_key)
         )
+
+    def supabase_api_key(self) -> str:
+        if self.supabase_service_key:
+            return self.supabase_service_key
+        if self.supabase_anon_key:
+            return self.supabase_anon_key
+        return self.supabase_access_token
+
+    def supabase_bearer_token(self) -> str:
+        if self.supabase_access_token:
+            return self.supabase_access_token
+        if self.supabase_authorization_token:
+            return self.supabase_authorization_token
+        if self.supabase_service_key:
+            if self.supabase_service_key.count(".") == 2:
+                return self.supabase_service_key
+            return ""
+        if self.supabase_anon_key.count(".") == 2:
+            return self.supabase_anon_key
+        return ""
 
     def auth_token(self) -> str:
         if self.supabase_access_token:

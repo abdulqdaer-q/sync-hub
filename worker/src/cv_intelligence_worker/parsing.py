@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import tempfile
 import zipfile
@@ -40,13 +41,22 @@ LIGATURE_MAP = {
     "\ufb06": "st",
 }
 PARSER_VERSION = "2.0.0"
+OCR_DPI = "150"
+OCR_TIMEOUT_SECONDS = 120
 
 
 def normalize_text(value: str) -> str:
     value = value.replace("\f", "\n")
     for src, dst in LIGATURE_MAP.items():
         value = value.replace(src, dst)
-    value = value.replace("\u00a0", " ").replace("\t", " ")
+    value = (
+        value.replace("\u00a0", " ")
+        .replace("\u200b", "")
+        .replace("\u200c", "")
+        .replace("\u200d", "")
+        .replace("\ufeff", "")
+        .replace("\t", " ")
+    )
     lines = []
     for raw_line in value.replace("\r", "\n").split("\n"):
         line = " ".join(raw_line.split()).strip(" |")
@@ -73,6 +83,20 @@ def extract_pdf_text_from_bytes(data: bytes) -> str:
     return normalize_text("\n".join(parts))
 
 
+def _is_probably_text(value: str) -> bool:
+    normalized = normalize_text(value)
+    if not normalized:
+        return False
+    if "\ufffd" in normalized:
+        return False
+    characters = [char for char in normalized if not char.isspace()]
+    if not characters:
+        return False
+    printable = sum(1 for char in characters if char.isprintable())
+    controls = sum(1 for char in normalized if ord(char) < 32 and char not in "\n\r\t")
+    return printable / len(characters) >= 0.98 and controls == 0
+
+
 def _run_pdftotext(path: Path, mode: str) -> str:
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "output.txt"
@@ -86,6 +110,35 @@ def _run_pdftotext(path: Path, mode: str) -> str:
         command.extend([str(path), str(output_path)])
         subprocess.run(command, check=True, capture_output=True)
         return output_path.read_text(encoding="utf-8", errors="ignore") if output_path.exists() else ""
+
+
+def _run_pdf_ocr(path: Path) -> str:
+    if not shutil.which("pdftoppm") or not shutil.which("tesseract"):
+        raise FileNotFoundError("pdftoppm and tesseract are required for OCR fallback")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        prefix = tmp_path / "page"
+        subprocess.run(
+            ["pdftoppm", "-r", OCR_DPI, "-png", str(path), str(prefix)],
+            check=True,
+            capture_output=True,
+            timeout=OCR_TIMEOUT_SECONDS,
+        )
+        page_paths = sorted(tmp_path.glob("page-*.png"))
+        if not page_paths:
+            return ""
+        pages: List[str] = []
+        for page_path in page_paths:
+            completed = subprocess.run(
+                ["tesseract", str(page_path), "stdout", "--psm", "6"],
+                check=True,
+                capture_output=True,
+                timeout=OCR_TIMEOUT_SECONDS,
+            )
+            page_text = completed.stdout.decode("utf-8", errors="replace")
+            if page_text.strip():
+                pages.append(page_text)
+        return normalize_text("\n\n".join(pages))
 
 
 def _score_pdf_text_candidate(text: str) -> float:
@@ -126,7 +179,10 @@ def extract_pdf_text(path: Path) -> DocumentText:
             candidate_text = _run_pdftotext(path, mode)
             if candidate_text.strip():
                 normalized = normalize_text(candidate_text)
-                candidates.append((_score_pdf_text_candidate(normalized), f"pdftotext-{mode}", normalized))
+                if _is_probably_text(normalized):
+                    candidates.append((_score_pdf_text_candidate(normalized), f"pdftotext-{mode}", normalized))
+                else:
+                    warnings.append(f"pdftotext-{mode} output looked like non-text bytes and was discarded")
     except FileNotFoundError:
         warnings.append("pdftotext not available, using embedded text parser")
     except subprocess.CalledProcessError as exc:
@@ -137,7 +193,23 @@ def extract_pdf_text(path: Path) -> DocumentText:
         _, parser_name, raw_text = candidates[0]
 
     if not raw_text.strip():
-        raw_text = extract_pdf_text_from_bytes(pdf_bytes)
+        try:
+            raw_text = _run_pdf_ocr(path)
+            if raw_text.strip():
+                parser_name = "tesseract-ocr"
+                warnings.append("PDF text layer was empty; used OCR fallback")
+        except FileNotFoundError as exc:
+            warnings.append(str(exc))
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            warnings.append(f"OCR fallback failed: {exc}")
+
+    if not raw_text.strip():
+        fallback_text = extract_pdf_text_from_bytes(pdf_bytes)
+        if _is_probably_text(fallback_text):
+            raw_text = fallback_text
+            parser_name = "pdf-embedded"
+        elif fallback_text.strip():
+            warnings.append("Embedded PDF parser produced non-text bytes and was discarded")
     if not raw_text.strip():
         warnings.append("No extractable text found in PDF")
     return DocumentText(

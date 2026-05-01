@@ -28,6 +28,10 @@ That is why this repo did not previously contain “the Docker files” for the 
   - not intended as a drop-in production deployment without hardening
 - `.env.selfhost.example`
   - placeholder environment values for the self-hosting example
+- `cloudflare/sync-dev.example.yml`
+  - named Cloudflare Tunnel template for exposing the local frontend and Supabase gateway
+- `cloudflare/README.md`
+  - setup notes for the `sync-dev` tunnel name used in local sharing
 
 ## Recommended local workflow
 
@@ -47,6 +51,23 @@ supabase functions serve --no-verify-jwt
 cd frontend
 npm run dev --host 0.0.0.0 --port 5175
 ```
+
+### Cloudflare local sharing
+
+If you want stable public URLs instead of temporary `trycloudflare.com` links, use the named
+Cloudflare tunnel scaffold under `infra/cloudflare/`.
+
+This repo standardizes on:
+
+- tunnel name: `sync-dev`
+- frontend origin: `http://127.0.0.1:5173`
+- backend origin: `http://127.0.0.1:54321`
+
+The named tunnel still requires:
+
+- a Cloudflare account
+- a domain managed in Cloudflare
+- one-time `cloudflared tunnel login`
 
 ### Ollama
 

@@ -195,12 +195,15 @@ IMPLICIT_COUNTRY_BY_CITY = {
 }
 BLOCKED_LOCATION_TOKENS = {
     "agency",
+    "adobe",
     "ai",
     "api",
     "apis",
     "app",
     "application",
     "applications",
+    "amos",
+    "aws",
     "backend",
     "bank",
     "company",
@@ -213,18 +216,22 @@ BLOCKED_LOCATION_TOKENS = {
     "department",
     "developer",
     "devops",
+    "docker",
     "engineer",
     "erp",
     "figma",
+    "first",
     "foundation",
     "frontend",
     "full",
     "github",
+    "groups",
     "growth",
     "hacker",
     "html",
     "hybrid",
     "javascript",
+    "kubernetes",
     "lab",
     "labs",
     "laravel",
@@ -232,35 +239,43 @@ BLOCKED_LOCATION_TOKENS = {
     "linkedin",
     "manager",
     "marketing",
+    "nationality",
     "node",
     "onsite",
     "on",
     "php",
     "platform",
+    "pressure",
     "project",
     "projects",
+    "evacuation",
     "python",
     "qa",
+    "aid",
     "react",
     "remote",
     "sales",
     "seo",
     "software",
+    "spss",
     "specialist",
     "sql",
     "stack",
     "suite",
+    "sketch",
     "system",
     "systems",
     "team",
     "technical",
     "technology",
     "technologies",
+    "tools",
     "university",
     "ux",
     "ui",
     "web",
     "wordpress",
+    "work",
 }
 BLOCKED_LOCATION_PHRASES = {
     "full-time",
@@ -732,7 +747,37 @@ def choose_current_title(profile: CandidateProfile) -> str:
         return experience_titles[0]
     if _is_title_like(headline, allow_long=True):
         return headline
-    return current_title or (experience_titles[0] if experience_titles else "")
+    student_title = _student_title_from_education(profile)
+    return current_title or student_title or (experience_titles[0] if experience_titles else "")
+
+
+def _student_title_from_education(profile: CandidateProfile) -> str:
+    for education in profile.education:
+        end_date = compact_whitespace(education.end_date or "").lower()
+        description = compact_whitespace(education.description).lower()
+        text = " ".join(
+            compact_whitespace(part)
+            for part in (education.degree, education.field, education.institution, education.description)
+            if compact_whitespace(part)
+        ).lower()
+        is_active = end_date in {"present", "current", "now"} or "5th year" in description or "final year" in description
+        if not is_active:
+            continue
+        if "software engineering" in text:
+            return "Software Engineering Student"
+        if "computer engineering" in text:
+            return "Computer Engineering Student"
+        if "information technology" in text:
+            return "Information Technology Student"
+    raw_text = compact_whitespace(profile.raw_text).lower()
+    if ("present" in raw_text or "5th year" in raw_text or "final year" in raw_text) and "bachelor" in raw_text:
+        if "software engineering" in raw_text:
+            return "Software Engineering Student"
+        if "computer engineering" in raw_text:
+            return "Computer Engineering Student"
+        if "information technology" in raw_text:
+            return "Information Technology Student"
+    return ""
 
 
 def normalize_profile(profile: CandidateProfile) -> CandidateProfile:

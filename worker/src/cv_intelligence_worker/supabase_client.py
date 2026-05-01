@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from .schema import ArtifactBundle, dataclass_to_dict
+from .utils import strip_nul_bytes, urlopen
 
 
 @dataclass
@@ -50,7 +51,7 @@ class SupabaseSyncClient:
         return headers
 
     def _request(self, method: str, path: str, body: Optional[Any] = None, headers: Optional[Dict[str, str]] = None) -> SupabaseResponse:
-        payload = None if body is None else json.dumps(body).encode("utf-8")
+        payload = None if body is None else json.dumps(strip_nul_bytes(body)).encode("utf-8")
         request = Request(
             f"{self.supabase_url}{path}",
             data=payload,
