@@ -9,6 +9,7 @@ import type {
   DataConnector,
   IndexingJob,
   IndexingWorkbench,
+  OpsAlert,
   ParsingDocumentDetail,
   ParsingOverview,
   ParserProfile,
@@ -356,6 +357,46 @@ export const systemHealth: SystemHealth = {
     { level: "warn", message: "OCR fallback exceeded expected threshold on ingestion shard 3", timestamp: "12:34:03" },
   ],
 };
+
+export const opsAlerts: OpsAlert[] = [
+  {
+    dedupeKey: "candidate_search_cache_stale:demo",
+    severity: "P1",
+    component: "search",
+    tenantId: "demo",
+    alertKey: "candidate_search_cache_stale",
+    status: "firing",
+    message: "Candidate search cache is missing 4 candidates.",
+    currentValue: 4,
+    threshold: 0,
+    runbookUrl: "/runbooks/candidate-search-cache-stale",
+    firstSeenAt: new Date(Date.now() - 19 * 60 * 1000).toISOString(),
+    lastSeenAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+    context: {
+      candidate_count: 128,
+      cache_count: 124,
+      latest_candidate_at: new Date(Date.now() - 24 * 60 * 1000).toISOString(),
+    },
+  },
+  {
+    dedupeKey: "parse_review_rate:demo",
+    severity: "P2",
+    component: "data_quality",
+    tenantId: "demo",
+    alertKey: "parse_review_rate",
+    status: "acknowledged",
+    message: "Parse review rate is 14.2% over the most recent profiles.",
+    currentValue: 14.2,
+    threshold: 10,
+    runbookUrl: "/runbooks/parser-quality-review",
+    firstSeenAt: new Date(Date.now() - 62 * 60 * 1000).toISOString(),
+    lastSeenAt: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+    context: {
+      total_profiles: 100,
+      review_profiles: 14,
+    },
+  },
+];
 
 export const dataConnectors: DataConnector[] = [
   { name: "LinkedIn Recruiter Export", status: "active", records: "24,592 profiles", freshness: "Synced 14 min ago", owner: "Talent Ops" },

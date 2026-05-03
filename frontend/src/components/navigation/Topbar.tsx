@@ -29,6 +29,11 @@ const routeMeta: Array<{ test: (path: string) => boolean; title: string; subtitl
     subtitle: "Cross-workspace admin view for corpus volume, tenant coverage, and parser rollout health",
   },
   {
+    test: (path) => path === "/admin/alerts",
+    title: "Alerts",
+    subtitle: "Active Supabase health findings and acknowledgement state",
+  },
+  {
     test: (path) => path === "/admin/search-simulator",
     title: "Search Simulator",
     subtitle: "Live search-debug trace with exact request payloads, intent resolution, embeddings, and raw ranked rows",

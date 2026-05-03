@@ -9,6 +9,7 @@ import type {
   ComparisonResponse,
   DataConnector,
   IndexingWorkbench,
+  OpsAlert,
   ParsingDocumentDetail,
   ParsingOverview,
   ParserProfile,
@@ -34,6 +35,7 @@ import {
   getParsingDocument,
   getWorkspaceStats as getMockWorkspaceStats,
   indexingWorkbench,
+  opsAlerts,
   parsingOverview,
   publishParserProfile,
   saveParserProfile,
@@ -82,6 +84,8 @@ type PlatformApi = {
   publishParserProfile: (profileId: string, tenantId?: string) => Promise<ParserProfile>;
   getAnalytics: () => Promise<AnalyticsSnapshot>;
   getSystemHealth: () => Promise<SystemHealth>;
+  getOpsAlerts: (tenantIds?: string[]) => Promise<OpsAlert[]>;
+  acknowledgeOpsAlert: (dedupeKey: string) => Promise<OpsAlert | null>;
   getDataConnectors: () => Promise<DataConnector[]>;
   getIndexingWorkbench: () => Promise<IndexingWorkbench>;
   getAccessRoster: () => Promise<AccessRoster>;
@@ -1239,6 +1243,33 @@ function mapRemoteShortlistItem(row: CandidateShortlistRow): CandidateShortlistI
   };
 }
 
+function normalizeOpsSeverity(value: unknown): OpsAlert["severity"] {
+  return value === "P0" || value === "P1" || value === "P2" || value === "P3" ? value : "P3";
+}
+
+function normalizeOpsStatus(value: unknown): OpsAlert["status"] {
+  return value === "firing" || value === "acknowledged" || value === "resolved" ? value : "firing";
+}
+
+function mapRemoteOpsAlert(row: unknown): OpsAlert {
+  const record = asRecord(row);
+  return {
+    dedupeKey: String(record.dedupe_key ?? record.dedupeKey ?? ""),
+    severity: normalizeOpsSeverity(record.severity),
+    component: String(record.component ?? "system"),
+    tenantId: typeof record.tenant_id === "string" ? record.tenant_id : typeof record.tenantId === "string" ? record.tenantId : null,
+    alertKey: String(record.alert_key ?? record.alertKey ?? "alert"),
+    status: normalizeOpsStatus(record.status),
+    message: String(record.message ?? ""),
+    currentValue: record.current_value === null || record.current_value === undefined ? null : toNumber(record.current_value, 0),
+    threshold: record.threshold === null || record.threshold === undefined ? null : toNumber(record.threshold, 0),
+    runbookUrl: typeof record.runbook_url === "string" ? record.runbook_url : typeof record.runbookUrl === "string" ? record.runbookUrl : null,
+    firstSeenAt: String(record.first_seen_at ?? record.firstSeenAt ?? new Date().toISOString()),
+    lastSeenAt: String(record.last_seen_at ?? record.lastSeenAt ?? new Date().toISOString()),
+    context: asRecord(record.context_json ?? record.context),
+  };
+}
+
 function shortlistInputPayload(item: CandidateShortlistInput) {
   return {
     tenant_id: item.tenantId,
@@ -1577,6 +1608,15 @@ function createMockApi(): PlatformApi {
       await wait(80);
       return systemHealth;
     },
+    async getOpsAlerts() {
+      await wait(80);
+      return opsAlerts;
+    },
+    async acknowledgeOpsAlert(dedupeKey) {
+      await wait(80);
+      const alert = opsAlerts.find((item) => item.dedupeKey === dedupeKey);
+      return alert ? { ...alert, status: "acknowledged" } : null;
+    },
     async getDataConnectors() {
       await wait(80);
       return dataConnectors;
@@ -1825,7 +1865,27 @@ function createRemoteApi(): PlatformApi {
       return mock.getAnalytics();
     },
     async getSystemHealth() {
-      return mock.getSystemHealth();
+      try {
+        return await invokePlatform<SystemHealth>("system_health");
+      } catch {
+        return mock.getSystemHealth();
+      }
+    },
+    async getOpsAlerts(tenantIds) {
+      try {
+        const rows = await invokePlatform<unknown[]>("ops_alerts", { tenant_ids: tenantIds ?? [] });
+        return (rows ?? []).map(mapRemoteOpsAlert);
+      } catch {
+        return mock.getOpsAlerts();
+      }
+    },
+    async acknowledgeOpsAlert(dedupeKey) {
+      try {
+        const row = await invokePlatform<unknown>("ops_ack_alert", { dedupe_key: dedupeKey });
+        return row ? mapRemoteOpsAlert(row) : null;
+      } catch {
+        return null;
+      }
     },
     async getDataConnectors() {
       return mock.getDataConnectors();

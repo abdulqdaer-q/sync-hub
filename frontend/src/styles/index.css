@@ -2621,6 +2621,10 @@ button {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.ops-alerts-table table {
+  min-width: 960px;
+}
+
 .parsing-table__file,
 .parsing-table__candidate,
 .parsing-table__score,

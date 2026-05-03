@@ -95,6 +95,240 @@ async function getWorkspaceStats(supabase: ReturnType<typeof createAuthedClient>
   return Array.isArray(data) ? data[0] ?? { document_count: 0, candidate_count: 0, company_count: 0 } : data;
 }
 
+type OpsHealthRow = {
+  severity: string;
+  component: string;
+  tenant_id: string | null;
+  alert_key: string;
+  message: string;
+  current_value: number | null;
+  threshold: number | null;
+  last_seen_at: string;
+  dedupe_key: string;
+  context_json: JsonRecord | null;
+};
+
+function severityRank(severity: string) {
+  switch (severity) {
+    case "P0":
+      return 0;
+    case "P1":
+      return 1;
+    case "P2":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+function statusForAlerts(alerts: OpsHealthRow[]) {
+  if (alerts.some((alert) => alert.severity === "P0" || alert.severity === "P1")) {
+    return "degraded";
+  }
+  if (alerts.some((alert) => alert.severity === "P2")) {
+    return "warning";
+  }
+  return "healthy";
+}
+
+function overallStatus(alerts: OpsHealthRow[]) {
+  if (alerts.some((alert) => alert.severity === "P0")) {
+    return "Critical";
+  }
+  if (alerts.some((alert) => alert.severity === "P1")) {
+    return "Degraded";
+  }
+  if (alerts.some((alert) => alert.severity === "P2")) {
+    return "Warning";
+  }
+  return "Healthy";
+}
+
+function percentile(values: number[], percentileValue: number) {
+  if (!values.length) {
+    return 0;
+  }
+  const sorted = values.slice().sort((left, right) => left - right);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((percentileValue / 100) * sorted.length) - 1));
+  return Math.round(sorted[index]);
+}
+
+function formatHeartbeatAge(value: unknown) {
+  const timestamp = asString(value);
+  if (!timestamp) {
+    return "no heartbeat";
+  }
+  const ageSeconds = Math.max(0, Math.round((Date.now() - new Date(timestamp).getTime()) / 1000));
+  if (ageSeconds < 60) {
+    return `${ageSeconds}s ago`;
+  }
+  const ageMinutes = Math.round(ageSeconds / 60);
+  return `${ageMinutes}m ago`;
+}
+
+async function getSystemHealth(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+  const [snapshotResult, eventsResult, workersResult] = await Promise.all([
+    supabase.rpc("ops_health_snapshot_v1", {
+      p_tenant_ids: tenantIds.length ? tenantIds : null,
+    }),
+    (() => {
+      let query = supabase
+        .from("analytics_events")
+        .select("event_name, payload, created_at")
+        .like("event_name", "edge.%.request");
+      if (tenantIds.length) {
+        query = query.in("tenant_id", tenantIds);
+      }
+      return query.order("created_at", { ascending: false }).limit(100);
+    })(),
+    (() => {
+      let query = supabase
+        .from("worker_devices")
+        .select("tenant_id, device_name, status, last_seen_at, metadata_json")
+        .eq("status", "active");
+      if (tenantIds.length) {
+        query = query.in("tenant_id", tenantIds);
+      }
+      return query.order("last_seen_at", { ascending: false }).limit(12);
+    })(),
+  ]);
+
+  if (snapshotResult.error) {
+    throw snapshotResult.error;
+  }
+  if (eventsResult.error) {
+    throw eventsResult.error;
+  }
+  if (workersResult.error) {
+    throw workersResult.error;
+  }
+
+  const alerts = ((snapshotResult.data ?? []) as OpsHealthRow[]).sort((left, right) => severityRank(left.severity) - severityRank(right.severity));
+  const recentEvents = (eventsResult.data ?? []) as Array<{ event_name: string; payload: unknown; created_at: string }>;
+  const durations = recentEvents
+    .map((event) => asNumber(asRecord(event.payload).duration_ms))
+    .filter((value): value is number => value !== null && value >= 0);
+  const latencyMs = percentile(durations, 95);
+  const eventsWithFailures = recentEvents.filter((event) => {
+    const statusCode = asNumber(asRecord(event.payload).status_code);
+    return statusCode !== null && statusCode >= 500;
+  }).length;
+  const capacityAlerts = alerts.filter((alert) => alert.component === "capacity");
+  const capacityUsage = Math.max(0, ...capacityAlerts.map((alert) => Number(alert.current_value ?? 0)));
+  const workerRows = (workersResult.data ?? []) as Array<{
+    tenant_id: string;
+    device_name: string;
+    status: string;
+    last_seen_at: string | null;
+    metadata_json: unknown;
+  }>;
+
+  const searchAlerts = alerts.filter((alert) => alert.component === "search" || alert.alert_key.includes("search"));
+  const edgeAlerts = alerts.filter((alert) => alert.component === "edge_function");
+  const workerAlerts = alerts.filter((alert) => alert.component === "worker");
+  const ingestionAlerts = alerts.filter((alert) => alert.component === "ingestion");
+  const dataQualityAlerts = alerts.filter((alert) => alert.component === "data_quality");
+
+  const services = [
+    {
+      name: "Edge Functions",
+      status: statusForAlerts(edgeAlerts),
+      latency: latencyMs ? `${latencyMs} ms p95` : "no samples",
+      detail: edgeAlerts[0]?.message ?? `${recentEvents.length} recent requests, ${eventsWithFailures} server errors.`,
+    },
+    {
+      name: "Search",
+      status: statusForAlerts(searchAlerts),
+      latency: latencyMs ? `${latencyMs} ms p95` : "no samples",
+      detail: searchAlerts[0]?.message ?? "Search alerts are clear from the Supabase health snapshot.",
+    },
+    {
+      name: "Offline worker fleet",
+      status: statusForAlerts(workerAlerts),
+      latency: workerRows.length ? `${workerRows.length} registered` : "idle",
+      detail: workerAlerts[0]?.message ?? (workerRows.length ? "Active worker devices are sending heartbeats." : "No worker devices registered; worker monitoring is idle."),
+    },
+    {
+      name: "Ingestion",
+      status: statusForAlerts(ingestionAlerts),
+      latency: ingestionAlerts[0]?.current_value !== null && ingestionAlerts[0]?.current_value !== undefined ? `${ingestionAlerts[0].current_value}` : "clear",
+      detail: ingestionAlerts[0]?.message ?? "No stuck or failing ingestion runs in the current alert window.",
+    },
+    {
+      name: "Data quality",
+      status: statusForAlerts(dataQualityAlerts),
+      latency: dataQualityAlerts[0]?.current_value !== null && dataQualityAlerts[0]?.current_value !== undefined ? `${dataQualityAlerts[0].current_value}%` : "clear",
+      detail: dataQualityAlerts[0]?.message ?? "Recent parsing quality is within configured thresholds.",
+    },
+    {
+      name: "Supabase capacity",
+      status: statusForAlerts(capacityAlerts),
+      latency: capacityUsage ? `${Math.round(capacityUsage)}%` : "within limits",
+      detail: capacityAlerts[0]?.message ?? "Database and storage capacity alerts are clear.",
+    },
+  ];
+
+  const workerFleet = workerRows.map((worker) => {
+    const metadata = asRecord(worker.metadata_json);
+    const metrics = asRecord(metadata.last_metrics);
+    const queueDepth = asNumber(metrics.queue_depth) ?? asNumber(metrics.pending) ?? asNumber(metrics.failures) ?? 0;
+    const throughput = asNumber(metrics.documents_per_minute) ?? asNumber(metrics.processed_per_minute);
+    return {
+      name: worker.device_name,
+      region: formatHeartbeatAge(worker.last_seen_at),
+      queueDepth,
+      throughput: throughput === null ? "heartbeat only" : `${throughput}/min`,
+    };
+  });
+
+  const alertLogs = alerts.slice(0, 6).map((alert) => ({
+    level: alert.severity === "P0" || alert.severity === "P1" ? "warn" : "info",
+    message: alert.message,
+    timestamp: new Date(alert.last_seen_at).toLocaleTimeString("en-US", { hour12: false }),
+  }));
+
+  return {
+    overallStatus: overallStatus(alerts),
+    latencyMs,
+    uptime: alerts.some((alert) => alert.severity === "P0") ? "incident" : "live",
+    memory: Math.round(capacityUsage),
+    services,
+    workerFleet,
+    logs: alertLogs.length
+      ? alertLogs
+      : [
+          {
+            level: "ok",
+            message: "Supabase monitoring snapshot is clear.",
+            timestamp: new Date().toLocaleTimeString("en-US", { hour12: false }),
+          },
+        ],
+  };
+}
+
+async function getOpsAlerts(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+  const { data, error } = await supabase.rpc("ops_evaluate_alerts_v1", {
+    p_tenant_ids: tenantIds.length ? tenantIds : null,
+  });
+  if (error) {
+    throw error;
+  }
+  return data ?? [];
+}
+
+async function acknowledgeOpsAlert(supabase: ReturnType<typeof createAuthedClient>, dedupeKey: string) {
+  if (!dedupeKey) {
+    throw new Error("dedupe_key is required");
+  }
+  const { data, error } = await supabase.rpc("ops_ack_alert_v1", {
+    p_dedupe_key: dedupeKey,
+  });
+  if (error) {
+    throw error;
+  }
+  return data;
+}
+
 async function getAuthContext(supabase: ReturnType<typeof createAuthedClient>) {
   const {
     data: { user },
@@ -608,6 +842,12 @@ Deno.serve(async (req) => {
         return jsonResponse(200, await getSearchFilterOptions(supabase, tenantIds));
       case "workspace_stats":
         return jsonResponse(200, await getWorkspaceStats(supabase, tenantIds));
+      case "system_health":
+        return jsonResponse(200, await getSystemHealth(supabase, tenantIds));
+      case "ops_alerts":
+        return jsonResponse(200, await getOpsAlerts(supabase, tenantIds));
+      case "ops_ack_alert":
+        return jsonResponse(200, await acknowledgeOpsAlert(supabase, asString(body.dedupe_key) ?? ""));
       case "candidate_detail":
         return jsonResponse(200, await getCandidateDetail(supabase, asString(body.candidate_id) ?? ""));
       case "parsing_overview":

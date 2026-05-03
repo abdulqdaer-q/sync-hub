@@ -1,6 +1,7 @@
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { createAuthedClient } from "../_shared/client.ts";
 import { generateStructuredObject } from "../_shared/llm.ts";
+import { createTraceId, recordEdgeRequest, withTraceHeader } from "../_shared/ops.ts";
 import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
 import { buildSearchIntentConfig, resolveSearchFilters, type SearchIntentFacetOptions, type SearchIntentPayload } from "../_shared/searchIntent.ts";
 import { normalizeLocationValue, normalizeSeniorityValue, normalizeSkillList } from "../_shared/searchTaxonomy.ts";
@@ -695,19 +696,43 @@ async function runFastProfileSearch(
 }
 
 Deno.serve(async (req) => {
+  const traceId = createTraceId();
+  const startedAt = performance.now();
+
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return withTraceHeader(new Response("ok", { headers: corsHeaders }), traceId);
   }
 
   if (req.method !== "POST") {
-    return jsonResponse(405, { error: "method_not_allowed" });
+    return withTraceHeader(jsonResponse(405, { error: "method_not_allowed" }), traceId);
   }
+
+  let supabase: ReturnType<typeof createAuthedClient> | null = null;
+  let tenantIds: string[] = [];
+
+  const respond = async (status: number, payload: Record<string, unknown>, telemetry: Record<string, unknown> = {}) => {
+    if (supabase) {
+      await recordEdgeRequest(supabase, {
+        component: "search",
+        tenantIds,
+        traceId,
+        startedAt,
+        statusCode: status,
+        payload: {
+          error_code: typeof payload.error === "string" ? payload.error : null,
+          result_count: Array.isArray(payload.results) ? payload.results.length : null,
+          ...telemetry,
+        },
+      });
+    }
+    return withTraceHeader(jsonResponse(status, payload), traceId);
+  };
 
   try {
     const body = await req.json();
-    const supabase = createAuthedClient(req);
+    supabase = createAuthedClient(req);
     const query = String(body.q ?? "");
-    const tenantIds = asStringArray(body.tenant_ids);
+    tenantIds = asStringArray(body.tenant_ids);
     const requestFilters = normalizeExplicitFilters((body.filters ?? {}) as Record<string, unknown>);
     let intentSource: "llm" | "explicit" = "explicit";
     const requiresIntentExtraction = query.trim().length > 0;
@@ -735,14 +760,14 @@ Deno.serve(async (req) => {
     try {
       [llmIntent, intentFacets] = await Promise.all([llmIntentPromise, intentFacetsPromise]);
     } catch (error) {
-      return jsonResponse(503, {
+      return await respond(503, {
         error: "intent_extraction_failed",
         details: describeError(error),
       });
     }
 
     if (requiresIntentExtraction && !llmIntent) {
-      return jsonResponse(503, {
+      return await respond(503, {
         error: "intent_llm_unavailable",
         details: "LLM intent extraction is required for natural-language search.",
       });
@@ -779,7 +804,7 @@ Deno.serve(async (req) => {
         queryEmbeddingPayload.embeddingVersion,
       ));
 
-      return jsonResponse(200, {
+      return await respond(200, {
         results,
         next_cursor: results.length < limit ? null : offset + limit,
         meta: {
@@ -793,6 +818,10 @@ Deno.serve(async (req) => {
           embedding_version: queryEmbeddingPayload.embeddingVersion,
           search_engine: queryEmbeddingPayload.embedding ? "edge-profile-semantic-rerank" : "edge-profile-fast-path",
         },
+      }, {
+        search_engine: queryEmbeddingPayload.embedding ? "edge-profile-semantic-rerank" : "edge-profile-fast-path",
+        embedding_provider: queryEmbeddingPayload.provider,
+        embedding_version: queryEmbeddingPayload.embeddingVersion,
       });
     }
 
@@ -825,12 +854,12 @@ Deno.serve(async (req) => {
     }
 
     if (error) {
-      return jsonResponse(400, { error: "search_failed", details: error.message });
+      return await respond(400, { error: "search_failed", details: error.message });
     }
 
     const results = attachMatchRates(data ?? []);
 
-    return jsonResponse(200, {
+    return await respond(200, {
       results,
       next_cursor: results.length < limit ? null : offset + limit,
       meta: {
@@ -843,8 +872,12 @@ Deno.serve(async (req) => {
         embedding_provider: queryEmbeddingPayload.provider,
         embedding_version: queryEmbeddingPayload.embeddingVersion,
       },
+    }, {
+      search_engine: "rpc",
+      embedding_provider: queryEmbeddingPayload.provider,
+      embedding_version: queryEmbeddingPayload.embeddingVersion,
     });
   } catch (error) {
-    return jsonResponse(500, { error: "unexpected_error", details: describeError(error) });
+    return await respond(500, { error: "unexpected_error", details: describeError(error) });
   }
 });

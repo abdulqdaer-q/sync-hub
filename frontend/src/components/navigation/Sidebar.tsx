@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Bot,
+  Bell,
   ChevronDown,
   X,
   FlaskConical,
@@ -24,6 +25,7 @@ const productRoutes = [
 
 const operationsRoutes = [
   { to: "/admin", label: "Platform Dashboard", icon: LayoutDashboard },
+  { to: "/admin/alerts", label: "Alerts", icon: Bell },
   { to: "/admin/search-simulator", label: "Search Simulator", icon: SlidersHorizontal },
   { to: "/admin/parsing", label: "Parsing Quality", icon: FileText },
   { to: "/admin/parsing/lab", label: "Parsing Lab", icon: FlaskConical },
@@ -95,6 +97,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 const active =
                   route.to === "/admin"
                     ? location.pathname === route.to || location.pathname === "/admin/dashboard"
+                    : route.to === "/admin/alerts"
+                    ? location.pathname === route.to
                     : route.to === "/admin/search-simulator"
                     ? location.pathname === route.to
                     : route.to === "/admin/parsing/lab"

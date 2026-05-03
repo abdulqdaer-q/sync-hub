@@ -456,6 +456,22 @@ export type SystemHealth = {
   }>;
 };
 
+export type OpsAlert = {
+  dedupeKey: string;
+  severity: "P0" | "P1" | "P2" | "P3";
+  component: string;
+  tenantId: string | null;
+  alertKey: string;
+  status: "firing" | "acknowledged" | "resolved";
+  message: string;
+  currentValue: number | null;
+  threshold: number | null;
+  runbookUrl: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  context: Record<string, unknown>;
+};
+
 export type DataConnector = {
   name: string;
   status: "active" | "warning" | "paused";
