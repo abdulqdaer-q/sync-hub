@@ -138,7 +138,9 @@ Current worker behavior:
 - It accepts any file/folder path passed to `discover` or `ingest`.
 - If you pass a directory, it recursively scans supported files under that directory.
 - There is no hard per-run CV limit today. One run processes every supported file discovered under the provided inputs.
-- `CV_BATCH_SIZE` exists in config, but the current ingestion loop still processes discovered documents sequentially; it is not a run cap.
+- `CV_INGEST_CONCURRENCY` controls how many CVs are parsed, extracted, and embedded in parallel.
+- `CV_BATCH_SIZE` controls how many completed bundles are flushed to Supabase at a time; it is not a run cap.
+- `CV_SUPABASE_BATCH_SIZE` controls the maximum row count per Supabase upsert request.
 
 ### Tenant admin utility
 
@@ -320,6 +322,21 @@ PYTHONPATH=worker/src python3 -m cv_intelligence_worker ingest \
 
 The copied PDFs under `workspaces/demo/` are ignored by git.
 
+For a large hosted demo sync, prefer the LLM-only Gemini worker profile, keep original-file storage disabled unless you explicitly need it, and raise concurrency to match the quota you are comfortable spending:
+
+```bash
+set -a
+source .env.local
+set +a
+PYTHONPATH=worker/src python3 -m cv_intelligence_worker ingest ./workspaces/demo \
+  --tenant-id "$CV_WORKER_TENANT_ID" \
+  --concurrency 16 \
+  --sync-batch-size 32 \
+  --supabase-row-batch-size 50
+```
+
+The worker refuses to extract without `CV_EXTRACTION_MODEL`, so ingestion does not fall back to the legacy heuristic extractor. Supabase capacity warnings are emitted on stderr and in the final JSON payload when usage approaches `CV_SUPABASE_LIMIT_WARNING_THRESHOLD` of the configured database or storage limit. The capacity RPC is created by `supabase/migrations/20260503010000_ingestion_capacity_snapshot_v1.sql`; without it, the worker falls back to table counts and warns that exact byte usage is unavailable.
+
 ### Default Gemini worker profile
 
 The default worker profile now targets Gemini Flash extraction plus Gemini 768-dimension embeddings. Set a Gemini API key in your shell and the worker will use these defaults automatically.
@@ -335,6 +352,12 @@ CV_EMBEDDING_PROVIDER=openai
 CV_EMBEDDING_MODEL=gemini-embedding-001
 CV_EMBEDDING_DIMENSION=768
 CV_EMBEDDING_VERSION=gemini-embedding-001-768-v1
+CV_ALLOW_HEURISTIC_FALLBACK=false
+CV_INGEST_CONCURRENCY=8
+CV_SUPABASE_BATCH_SIZE=50
+CV_SUPABASE_LIMIT_WARNING_THRESHOLD=0.85
+CV_SYNC_ORIGINALS_TO_STORAGE=false
+CV_DEDUPE_SOURCE_DOCUMENTS=true
 CV_WORKER_CACHE_DIR=./tmp/cv_intelligence_worker
 CV_DELETE_SYNCED_BUNDLES=true
 ```

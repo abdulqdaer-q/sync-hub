@@ -10,6 +10,12 @@ from pathlib import Path
 from unittest import mock
 
 from cv_intelligence_worker.cli import main
+from cv_intelligence_worker.extraction import heuristic_extract_profile
+from cv_intelligence_worker.supabase import SupabaseSyncStats
+
+
+def _test_extract_profile(source, document_text, config):
+    return heuristic_extract_profile(source, document_text)
 
 
 class CliTests(unittest.TestCase):
@@ -22,8 +28,9 @@ class CliTests(unittest.TestCase):
             )
             buffer = io.StringIO()
             with mock.patch.dict(os.environ, {"CV_WORKER_CACHE_DIR": str(Path(tmpdir) / "cache")}):
-                with redirect_stdout(buffer):
-                    exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1", "--no-sync"])
+                with mock.patch("cv_intelligence_worker.pipeline.extract_candidate_profile", side_effect=_test_extract_profile):
+                    with redirect_stdout(buffer):
+                        exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1", "--no-sync"])
             self.assertEqual(0, exit_code)
             output = buffer.getvalue()
             self.assertIn("ingestion_run_id", output)
@@ -39,8 +46,9 @@ class CliTests(unittest.TestCase):
             )
             ingest_buffer = io.StringIO()
             with mock.patch.dict(os.environ, {"CV_WORKER_CACHE_DIR": str(Path(tmpdir) / "cache")}):
-                with redirect_stdout(ingest_buffer):
-                    exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1", "--no-sync"])
+                with mock.patch("cv_intelligence_worker.pipeline.extract_candidate_profile", side_effect=_test_extract_profile):
+                    with redirect_stdout(ingest_buffer):
+                        exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1", "--no-sync"])
             self.assertEqual(0, exit_code)
             candidate_id = json.loads(ingest_buffer.getvalue())["candidate_ids"][0]
 
@@ -81,13 +89,15 @@ class CliTests(unittest.TestCase):
             }
             with mock.patch.dict(os.environ, env):
                 with mock.patch("cv_intelligence_worker.pipeline.SupabaseClient") as supabase_client_cls:
-                    with redirect_stdout(buffer):
-                        exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1"])
+                    supabase_client_cls.return_value.sync_bundles.return_value = SupabaseSyncStats(bundles=1)
+                    with mock.patch("cv_intelligence_worker.pipeline.extract_candidate_profile", side_effect=_test_extract_profile):
+                        with redirect_stdout(buffer):
+                            exit_code = main(["ingest", str(path), "--tenant-id", "tenant-1"])
             self.assertEqual(0, exit_code)
             candidate_id = json.loads(buffer.getvalue())["candidate_ids"][0]
             bundle_path = cache_dir / "tenants" / "tenant-1" / "bundles" / f"{candidate_id}.json"
             self.assertFalse(bundle_path.exists())
-            supabase_client_cls.return_value.sync_bundle.assert_called_once()
+            supabase_client_cls.return_value.sync_bundles.assert_called_once()
 
 
 if __name__ == "__main__":

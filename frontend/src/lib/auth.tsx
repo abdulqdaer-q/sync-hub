@@ -49,6 +49,11 @@ type PlatformAdminRow = {
   user_id: string;
 };
 
+type AuthContextPayload = {
+  memberships?: TenantMembership[];
+  is_platform_admin?: boolean;
+};
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 function slugify(value: string) {
@@ -100,6 +105,24 @@ function dedupeTenantMemberships(memberships: TenantMembership[]) {
   return Array.from(membershipByTenantId.values());
 }
 
+async function invokePlatform<T>(action: string, body: Record<string, unknown> = {}): Promise<T> {
+  if (!supabase) {
+    throw new Error("Missing Supabase browser client configuration.");
+  }
+  const { data, error } = await supabase.functions.invoke("platform", {
+    body: { action, ...body },
+  });
+  if (error) {
+    const response = typeof error === "object" && error !== null && "context" in error ? (error as { context?: Response }).context : null;
+    if (response instanceof Response) {
+      const payload = await response.clone().json().catch(() => null) as { details?: string; error?: string } | null;
+      throw new Error(payload?.details || payload?.error || response.statusText);
+    }
+    throw error;
+  }
+  return data as T;
+}
+
 export function AuthProvider({ children }: PropsWithChildren) {
   const [loading, setLoading] = useState(hasSupabaseConfig);
   const [session, setSession] = useState<Session | null>(null);
@@ -141,41 +164,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
       return;
     }
 
-    const [membershipResult, platformAdminResult] = await Promise.all([
-      supabase
-        .from("tenant_memberships")
-        .select("tenant_id, role, status")
-        .eq("user_id", nextSession.user.id)
-        .eq("status", "active"),
-      supabase
-        .from("platform_admins")
-        .select("user_id")
-        .eq("user_id", nextSession.user.id)
-        .maybeSingle(),
-    ]);
-
-    if (membershipResult.error) {
-      setAuthError(membershipResult.error.message);
-      setLoading(false);
-      return;
-    }
-    const platformAdminQueryFailed =
-      platformAdminResult.error &&
-      !/platform_admins/i.test(platformAdminResult.error.message) &&
-      platformAdminResult.error.code !== "PGRST205";
-
-    if (platformAdminQueryFailed) {
-      setAuthError(platformAdminResult.error.message);
+    const authContext = await invokePlatform<AuthContextPayload>("auth_context").catch((error) => {
+      setAuthError(error instanceof Error ? error.message : "Unable to load tenant access.");
+      return null;
+    });
+    if (!authContext) {
       setLoading(false);
       return;
     }
 
-    const membershipRows = (membershipResult.data ?? []) as MembershipRow[];
-    const platformAdminRow = platformAdminResult.error ? null : (platformAdminResult.data as PlatformAdminRow | null);
-    const nextIsPlatformAdmin = Boolean(platformAdminRow?.user_id);
+    const nextIsPlatformAdmin = Boolean(authContext.is_platform_admin);
     setIsPlatformAdmin(nextIsPlatformAdmin);
+    const merged = dedupeTenantMemberships(authContext.memberships ?? [])
+      .sort((left, right) => left.name.localeCompare(right.name));
 
-    if (!membershipRows.length && !nextIsPlatformAdmin) {
+    if (!merged.length && !nextIsPlatformAdmin) {
       setMemberships([]);
       setCurrentTenant(null);
       setAuthError(null);
@@ -183,52 +186,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoading(false);
       return;
     }
-
-    const tenantResult = nextIsPlatformAdmin
-      ? await supabase.from("tenants").select("id, slug, name, icon_url").order("name")
-      : await supabase.from("tenants").select("id, slug, name, icon_url").in("id", membershipRows.map((membership) => membership.tenant_id));
-
-    if (tenantResult.error) {
-      setAuthError(tenantResult.error.message);
-      setLoading(false);
-      return;
-    }
-
-    const tenantRows = (tenantResult.data ?? []) as TenantRow[];
-    const tenantMap = new Map(tenantRows.map((tenant) => [tenant.id, tenant]));
-    const mergedMemberships = membershipRows
-      .map((membership) => {
-        const tenant = tenantMap.get(membership.tenant_id);
-        if (!tenant) {
-          return null;
-        }
-
-        return {
-          id: tenant.id,
-          slug: tenant.slug,
-          name: tenant.name,
-          iconUrl: tenant.icon_url,
-          role: membership.role,
-          status: membership.status,
-        } satisfies TenantMembership;
-      })
-      .filter((membership): membership is TenantMembership => Boolean(membership));
-
-    const merged = dedupeTenantMemberships(nextIsPlatformAdmin
-      ? [
-          ...mergedMemberships,
-          ...tenantRows
-            .filter((tenant) => !mergedMemberships.some((membership) => membership.id === tenant.id))
-            .map((tenant) => ({
-              id: tenant.id,
-              slug: tenant.slug,
-              name: tenant.name,
-              iconUrl: tenant.icon_url,
-              role: "platform-admin",
-              status: "active",
-            }) satisfies TenantMembership),
-        ]
-      : mergedMemberships).sort((left, right) => left.name.localeCompare(right.name));
 
     const nextTenant = resolveCurrentTenant(merged);
     setMemberships(merged);
@@ -329,14 +286,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
         throw new Error("Tenant name is required.");
       }
 
-      const { error } = await supabase.rpc("bootstrap_tenant_v1", {
-        p_name: normalizedName,
-        p_slug: normalizedSlug,
+      await invokePlatform("bootstrap_tenant", {
+        name: normalizedName,
+        slug: normalizedSlug,
       });
-
-      if (error) {
-        throw error;
-      }
 
       await refreshTenantState();
     },

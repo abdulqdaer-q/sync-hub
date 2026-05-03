@@ -119,6 +119,18 @@ type CandidateSearchFacetRow = {
   location: string | null;
 };
 
+type CandidateSearchRow = CandidateSearchFacetRow & {
+  tenant_id: string;
+  candidate_id: string;
+  name: string | null;
+  headline: string | null;
+  current_title: string | null;
+  years_experience: number | null;
+  primary_role: string | null;
+  summary_short: string | null;
+  stored_short_summary: string | null;
+};
+
 type CandidateTimelineRow = {
   timeline_json: unknown;
 };
@@ -160,6 +172,10 @@ type ParserProfileRow = {
 };
 
 const STORAGE_BUCKET = "cv-originals";
+const SEARCH_FACET_CACHE_TTL_MS = 60_000;
+const SEARCH_REST_PAGE_SIZE = 1000;
+
+const searchFacetRowsCache = new Map<string, { expiresAt: number; promise: Promise<CandidateSearchFacetRow[]> }>();
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -185,7 +201,219 @@ function toNumber(value: unknown, fallback = 0) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error && typeof error === "object") {
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
+function isTimeoutError(error: unknown) {
+  const message = errorMessage(error).toLowerCase();
+  return message.includes("statement timeout") || message.includes("57014") || message.includes("canceling statement");
+}
+
+function tenantCacheKey(tenantIds?: string[]) {
+  return (tenantIds ?? []).slice().sort().join("|") || "all";
+}
+
+async function fetchSearchFacetRows(tenantIds?: string[]) {
+  const key = tenantCacheKey(tenantIds);
+  const cached = searchFacetRowsCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.promise;
+  }
+
+  const promise = (async () => {
+    const payload = await invokePlatform<JsonRecord>("search_filter_options", { tenant_ids: tenantIds ?? [] });
+    return [
+      {
+        seniority: null,
+        skills: toStringArray(payload.skills),
+        companies: toStringArray(payload.companies),
+        location: null,
+      },
+      ...toStringArray(payload.seniority).map((seniority) => ({
+        seniority,
+        skills: [],
+        companies: [],
+        location: null,
+      })),
+      ...toStringArray(payload.locations).map((location) => ({
+        seniority: null,
+        skills: [],
+        companies: [],
+        location,
+      })),
+    ] satisfies CandidateSearchFacetRow[];
+  })();
+
+  searchFacetRowsCache.set(key, { expiresAt: Date.now() + SEARCH_FACET_CACHE_TTL_MS, promise });
+  try {
+    return await promise;
+  } catch (error) {
+    searchFacetRowsCache.delete(key);
+    throw error;
+  }
+}
+
+async function fetchWorkspaceStatsRpc(tenantIds?: string[]) {
+  const row = await invokePlatform<JsonRecord>("workspace_stats", { tenant_ids: tenantIds ?? [] });
+  return {
+    documentCount: toNumber(row.document_count),
+    candidateCount: toNumber(row.candidate_count),
+    companyCount: toNumber(row.company_count),
+  } satisfies WorkspaceStats;
+}
+
+async function fetchParsingOverviewSnapshotRpc(tenantIds: string[]): Promise<ParsingRemoteSnapshot> {
+  const payload = await invokePlatform<JsonRecord>("parsing_overview", { tenant_ids: tenantIds });
+  return {
+    documents: asArray(payload.documents) as ParsingSourceDocumentRow[],
+    candidates: asArray(payload.candidates) as ParsingCandidateRow[],
+    profiles: asArray(payload.profiles) as ParsingProfileRow[],
+    runs: asArray(payload.runs) as ParsingProcessingRunRow[],
+  };
+}
+
+function normalizeSearchText(value: unknown) {
+  return String(value ?? "").toLowerCase().trim();
+}
+
+function tokenizeQuery(query: string) {
+  return normalizeSearchText(query)
+    .split(/[^a-z0-9+#.]+/i)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+    .slice(0, 12);
+}
+
+function includesAllNeedles(haystack: string, needles: string[]) {
+  return needles.every((needle) => haystack.includes(normalizeSearchText(needle)));
+}
+
+function rowMatchesFastFilters(row: CandidateSearchRow, filters: ReturnType<typeof normalizeSearchFilters>) {
+  const skills = toStringArray(row.skills).map(normalizeSearchText);
+  const companies = toStringArray(row.companies).map(normalizeSearchText);
+  const roleText = normalizeSearchText(`${row.primary_role ?? ""} ${row.current_title ?? ""} ${row.headline ?? ""}`);
+  const location = normalizeSearchText(row.location);
+
+  if (filters.role && !roleText.includes(normalizeSearchText(filters.role))) {
+    return false;
+  }
+  if (filters.seniority && normalizeSearchText(row.seniority) !== normalizeSearchText(filters.seniority)) {
+    return false;
+  }
+  if (filters.min_years_experience !== null && toNumber(row.years_experience) < filters.min_years_experience) {
+    return false;
+  }
+  if (filters.location && !location.includes(normalizeSearchText(filters.location))) {
+    return false;
+  }
+  if (filters.skills.length && !filters.skills.every((skill) => skills.includes(normalizeSearchText(skill)))) {
+    return false;
+  }
+  if (filters.companies.length && !filters.companies.some((company) => companies.includes(normalizeSearchText(company)))) {
+    return false;
+  }
+  return true;
+}
+
+function fastRowScore(row: CandidateSearchRow, query: string, filters: ReturnType<typeof normalizeSearchFilters>) {
+  const tokens = tokenizeQuery(query);
+  const name = normalizeSearchText(row.name);
+  const title = normalizeSearchText(`${row.current_title ?? ""} ${row.headline ?? ""} ${row.primary_role ?? ""}`);
+  const skills = toStringArray(row.skills).join(" ");
+  const companies = toStringArray(row.companies).join(" ");
+  const summary = normalizeSearchText(`${row.summary_short ?? ""} ${row.stored_short_summary ?? ""}`);
+  const haystack = normalizeSearchText(`${name} ${title} ${skills} ${companies} ${summary} ${row.location ?? ""}`);
+
+  if (tokens.length && !includesAllNeedles(haystack, tokens)) {
+    return 0;
+  }
+
+  let score = tokens.length ? 0.08 : 0.25;
+  for (const token of tokens) {
+    if (name.includes(token)) {
+      score += 0.34;
+    }
+    if (title.includes(token)) {
+      score += 0.22;
+    }
+    if (normalizeSearchText(skills).includes(token)) {
+      score += 0.16;
+    }
+    if (normalizeSearchText(companies).includes(token)) {
+      score += 0.12;
+    }
+    if (summary.includes(token)) {
+      score += 0.06;
+    }
+  }
+
+  if (filters.role && title.includes(normalizeSearchText(filters.role))) {
+    score += 0.14;
+  }
+  if (filters.skills.length) {
+    const skillSet = new Set(toStringArray(row.skills).map(normalizeSearchText));
+    score += 0.18 * (filters.skills.filter((skill) => skillSet.has(normalizeSearchText(skill))).length / filters.skills.length);
+  }
+  if (filters.min_years_experience !== null) {
+    score += 0.08 * Math.min(1, toNumber(row.years_experience) / Math.max(1, filters.min_years_experience));
+  }
+
+  return Math.min(0.99, score);
+}
+
+function mapFastSearchRow(row: CandidateSearchRow, score: number): SearchResponse["results"][number] {
+  const matchRate = Math.round(Math.max(1, Math.min(99, score * 100)));
+  const summary = String(row.summary_short ?? row.stored_short_summary ?? "");
+  return {
+    tenantId: row.tenant_id,
+    candidateId: row.candidate_id,
+    name: String(row.name ?? "Unknown candidate"),
+    currentTitle: String(row.current_title ?? "Candidate"),
+    headline: summary || String(row.headline ?? row.current_title ?? "Candidate"),
+    location: String(row.location ?? "Unknown"),
+    yearsExperience: toNumber(row.years_experience),
+    seniority: String(row.seniority ?? "unknown"),
+    primaryRole: String(row.primary_role ?? "generalist"),
+    topSkills: toStringArray(row.skills).slice(0, 8),
+    matchScore: matchRate,
+    backendMatchRate: matchRate,
+    backendScoreRaw: score,
+    matchSignals: {
+      semantic: 0,
+      skill: 0,
+      experience: 0,
+    },
+    shortSummary: summary,
+    strengths: [],
+    risks: [],
+    recommendedRoles: [],
+    stage: "Retrieved",
+    avatarHue: hueFromId(row.candidate_id),
+    matchNarrative: summary || "Fast fallback result from candidate profile fields.",
+  };
+}
+
+async function runFastRestSearch(
+  query: string,
+  filters: ReturnType<typeof normalizeSearchFilters>,
+  options?: SearchQueryOptions,
+  tenantIds?: string[],
+): Promise<SearchResponse> {
+  void query;
+  void filters;
+  void options;
+  void tenantIds;
+  throw new Error("Backend search fallback is unavailable; use the search Edge Function.");
 }
 
 function hueFromId(seed: string) {
@@ -273,31 +501,11 @@ async function runDirectSearchRpc(
   options?: SearchQueryOptions,
   tenantIds?: string[],
 ) {
-  if (!supabase) {
-    throw new Error("Missing Supabase browser client configuration.");
-  }
-
-  const rpcPayload = buildSearchRpcPayload(query, filters, options, tenantIds);
-  let { data, error } = await supabase.rpc("search_candidates_with_rate_v1", rpcPayload);
-
-  if (error && `${error.message}`.includes("search_candidates_with_rate_v1")) {
-    const fallback = await supabase.rpc("search_candidates_v1", rpcPayload);
-    data = fallback.data;
-    error = fallback.error;
-  }
-
-  if (error) {
-    throw error;
-  }
-
-  return {
-    rpcPayload,
-    rows: asArray(data),
-    nextCursor:
-      asArray(data).length < rpcPayload.p_limit
-        ? null
-        : rpcPayload.p_offset + rpcPayload.p_limit,
-  };
+  void query;
+  void filters;
+  void options;
+  void tenantIds;
+  throw new Error("Direct Supabase search RPC fallback has been disabled; use the search Edge Function.");
 }
 
 async function runDirectSearchDebugRpc(
@@ -306,52 +514,11 @@ async function runDirectSearchDebugRpc(
   options?: SearchQueryOptions,
   tenantIds?: string[],
 ) {
-  const { rpcPayload, rows, nextCursor } = await runDirectSearchRpc(query, filters, options, tenantIds);
-  const strictFilters = Object.entries(filters)
-    .filter(([, value]) => (Array.isArray(value) ? value.length > 0 : value !== null && value !== ""))
-    .map(([key]) => key);
-
-  return {
-    request: {
-      query,
-      limit: rpcPayload.p_limit,
-      offset: rpcPayload.p_offset,
-      tenant_ids: tenantIds ?? [],
-      explicit_filters: filters,
-    },
-    analysis: {
-      intent_source: "rule_based",
-      llm_intent: null,
-      resolved_intent: filters,
-      embedding: {
-        provider: "none",
-        version: null,
-        dimensions: 0,
-        preview: [],
-      },
-      rpc_payload: rpcPayload,
-      uses_lexical: Boolean(query.trim()),
-      uses_semantic: false,
-      uses_name_boost: Boolean(query.trim()),
-      strict_filters: strictFilters,
-    },
-    results: rows,
-    next_cursor: nextCursor,
-    meta: {
-      count: rows.length,
-      rank_version: String(rpcPayload.p_rank_version),
-      source: "remote",
-    },
-    raw_response: {
-      results: rows,
-      next_cursor: nextCursor,
-      meta: {
-        count: rows.length,
-        rank_version: String(rpcPayload.p_rank_version),
-        source: "remote",
-      },
-    },
-  } satisfies JsonRecord;
+  void query;
+  void filters;
+  void options;
+  void tenantIds;
+  throw new Error("Direct Supabase search debug RPC fallback has been disabled; use the search-debug Edge Function.");
 }
 
 function normalizeBackendMatchScore(rawScore: unknown) {
@@ -436,6 +603,10 @@ async function invokeFunction<T>(name: string, body: JsonRecord): Promise<T> {
   return data as T;
 }
 
+async function invokePlatform<T>(action: string, body: JsonRecord = {}): Promise<T> {
+  return invokeFunction<T>("platform", { action, ...body });
+}
+
 async function fetchParsingSnapshot(tenantIds: string[]): Promise<ParsingRemoteSnapshot> {
   if (!supabase) {
     throw new Error("Missing Supabase browser client configuration.");
@@ -450,49 +621,19 @@ async function fetchParsingSnapshot(tenantIds: string[]): Promise<ParsingRemoteS
     };
   }
 
-  const [documentsResult, candidatesResult, profilesResult, runsResult] = await Promise.all([
-    supabase
-      .from("source_documents")
-      .select("id, tenant_id, candidate_id, source_type, original_filename, mime_type, source_uri, storage_path, created_at, updated_at")
-      .in("tenant_id", tenantIds)
-      .order("created_at", { ascending: false })
-      .limit(10000),
-    supabase
-      .from("candidates")
-      .select("id, tenant_id, name, headline, current_title, location, years_experience, seniority, primary_role, top_skills, email, phone, links, summary_short, status")
-      .in("tenant_id", tenantIds)
-      .limit(10000),
-    supabase
-      .from("candidate_profiles")
-      .select("tenant_id, candidate_id, source_document_id, profile_json, timeline_json, skill_matrix_json, raw_text, confidence, missing_fields, parse_warnings, created_at, updated_at")
-      .in("tenant_id", tenantIds)
-      .limit(10000),
-    supabase
-      .from("processing_runs")
-      .select("tenant_id, source_document_id, status, parser_version, model_version, prompt_version, chunk_version, embedding_version, warnings, error_code, error_message, created_at, updated_at, metadata_json")
-      .in("tenant_id", tenantIds)
-      .order("created_at", { ascending: false })
-      .limit(20000),
-  ]);
+  return fetchParsingOverviewSnapshotRpc(tenantIds);
+}
 
-  if (documentsResult.error) {
-    throw documentsResult.error;
-  }
-  if (candidatesResult.error) {
-    throw candidatesResult.error;
-  }
-  if (profilesResult.error) {
-    throw profilesResult.error;
-  }
-  if (runsResult.error) {
-    throw runsResult.error;
-  }
-
+async function fetchParsingDocumentSnapshot(documentId: string, tenantIds: string[]): Promise<ParsingRemoteSnapshot> {
+  const payload = await invokePlatform<JsonRecord>("parsing_document", {
+    document_id: documentId,
+    tenant_ids: tenantIds,
+  });
   return {
-    documents: (documentsResult.data ?? []) as ParsingSourceDocumentRow[],
-    candidates: (candidatesResult.data ?? []) as ParsingCandidateRow[],
-    profiles: (profilesResult.data ?? []) as ParsingProfileRow[],
-    runs: (runsResult.data ?? []) as ParsingProcessingRunRow[],
+    documents: asArray(payload.documents) as ParsingSourceDocumentRow[],
+    candidates: asArray(payload.candidates) as ParsingCandidateRow[],
+    profiles: asArray(payload.profiles) as ParsingProfileRow[],
+    runs: asArray(payload.runs) as ParsingProcessingRunRow[],
   };
 }
 
@@ -1073,22 +1214,7 @@ function createRemoteApi(): PlatformApi {
         });
         return mapRemoteSearch(payload);
       } catch (functionError) {
-        try {
-          const fallbackPayload = await runDirectSearchRpc(query, explicitFilters, options, tenantIds);
-          return mapRemoteSearch({
-            results: fallbackPayload.rows,
-            next_cursor: fallbackPayload.nextCursor,
-            meta: {
-              count: fallbackPayload.rows.length,
-              rank_version: String(fallbackPayload.rpcPayload.p_rank_version),
-              source: "remote",
-            },
-          });
-        } catch (rpcError) {
-          throw new Error(
-            `Live search failed. Edge Function error: ${errorMessage(functionError)}. Direct Supabase RPC error: ${errorMessage(rpcError)}.`,
-          );
-        }
+        throw new Error(`Live search failed. Edge Function error: ${errorMessage(functionError)}.`);
       }
     },
     async searchDebug(query, filters, options, tenantIds) {
@@ -1106,14 +1232,7 @@ function createRemoteApi(): PlatformApi {
         });
         return mapRemoteSearchDebug(payload);
       } catch (functionError) {
-        try {
-          const fallbackPayload = await runDirectSearchDebugRpc(query, explicitFilters, options, tenantIds);
-          return mapRemoteSearchDebug(fallbackPayload);
-        } catch (rpcError) {
-          throw new Error(
-            `Live search debug failed. Edge Function error: ${errorMessage(functionError)}. Direct Supabase RPC error: ${errorMessage(rpcError)}.`,
-          );
-        }
+        throw new Error(`Live search debug failed. Edge Function error: ${errorMessage(functionError)}.`);
       }
     },
     async getSearchFilterOptions(tenantIds) {
@@ -1122,22 +1241,7 @@ function createRemoteApi(): PlatformApi {
       }
 
       try {
-        let query = supabase
-          .from("candidate_search_rows")
-          .select("seniority, skills, companies, location")
-          .limit(10000);
-
-        if (tenantIds?.length) {
-          query = query.in("tenant_id", tenantIds);
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
-          throw error;
-        }
-
-        return mapSearchFilterOptions((data ?? []) as CandidateSearchFacetRow[]);
+        return mapSearchFilterOptions(await fetchSearchFacetRows(tenantIds));
       } catch {
         return createEmptySearchFilterOptions();
       }
@@ -1148,27 +1252,7 @@ function createRemoteApi(): PlatformApi {
       }
 
       try {
-        const [documentsResult, candidatesResult, timelineResult] = await Promise.all([
-          supabase.from("source_documents").select("id", { count: "exact", head: true }).in("tenant_id", tenantIds),
-          supabase.from("candidates").select("id", { count: "exact", head: true }).in("tenant_id", tenantIds),
-          supabase.from("candidate_profiles").select("timeline_json").in("tenant_id", tenantIds).limit(10000),
-        ]);
-
-        if (documentsResult.error) {
-          throw documentsResult.error;
-        }
-        if (candidatesResult.error) {
-          throw candidatesResult.error;
-        }
-        if (timelineResult.error) {
-          throw timelineResult.error;
-        }
-
-        return {
-          documentCount: documentsResult.count ?? 0,
-          candidateCount: candidatesResult.count ?? 0,
-          companyCount: countDistinctEmployers((timelineResult.data ?? []) as CandidateTimelineRow[]),
-        };
+        return await fetchWorkspaceStatsRpc(tenantIds);
       } catch {
         return createEmptyWorkspaceStats();
       }
@@ -1179,34 +1263,8 @@ function createRemoteApi(): PlatformApi {
       }
 
       try {
-        const [dossier, chunks] = await Promise.all([
-          supabase
-            .from("candidate_dossier_v1")
-            .select(
-              "candidate_id, name, headline, current_title, location, years_experience, seniority, primary_role, top_skills, email, phone, links, summary_short, short_summary, long_summary, strengths, risks, recommended_roles, timeline_json, profile_json, original_filename, mime_type, storage_path, source_uri, confidence",
-            )
-            .eq("candidate_id", candidateId)
-            .maybeSingle(),
-          supabase
-            .from("candidate_chunks")
-            .select("id, chunk_type, text")
-            .eq("candidate_id", candidateId)
-            .eq("is_active", true)
-            .order("chunk_index", { ascending: true })
-            .limit(6),
-        ]);
-
-        if (dossier.error) {
-          throw dossier.error;
-        }
-        if (!dossier.data) {
-          throw new Error(`Candidate ${candidateId} was not found.`);
-        }
-        if (chunks.error) {
-          throw chunks.error;
-        }
-
-        return mapRemoteCandidate(dossier.data as CandidateDossierRow, (chunks.data ?? []) as CandidateChunkRow[]);
+        const payload = await invokePlatform<JsonRecord>("candidate_detail", { candidate_id: candidateId });
+        return mapRemoteCandidate(asRecord(payload.dossier) as CandidateDossierRow, asArray(payload.chunks) as CandidateChunkRow[]);
       } catch {
         return mock.getCandidate(candidateId);
       }
@@ -1267,8 +1325,8 @@ function createRemoteApi(): PlatformApi {
       try {
         const snapshot = await fetchParsingSnapshot(tenantIds);
         return buildParsingOverview(snapshot.documents, snapshot.candidates, snapshot.profiles, snapshot.runs);
-      } catch {
-        return mock.getParsingOverview();
+      } catch (error) {
+        throw new Error(`Unable to load live parsing diagnostics: ${errorMessage(error)}`);
       }
     },
     async getParsingDocument(documentId, tenantIds) {
@@ -1277,14 +1335,14 @@ function createRemoteApi(): PlatformApi {
       }
 
       try {
-        const snapshot = await fetchParsingSnapshot(tenantIds);
+        const snapshot = await fetchParsingDocumentSnapshot(documentId, tenantIds);
         const detail = buildParsingDocumentDetail(documentId, snapshot.documents, snapshot.candidates, snapshot.profiles, snapshot.runs);
         if (!detail) {
           throw new Error(`Document ${documentId} was not found.`);
         }
         return detail;
-      } catch {
-        return mock.getParsingDocument(documentId);
+      } catch (error) {
+        throw new Error(`Unable to load live parsing document ${documentId}: ${errorMessage(error)}`);
       }
     },
     async getParserProfiles(tenantIds) {
@@ -1293,20 +1351,8 @@ function createRemoteApi(): PlatformApi {
       }
 
       try {
-        const { data, error } = await supabase
-          .from("parser_profiles")
-          .select(
-            "id, tenant_id, name, slug, description, status, extraction_provider, extraction_model, parser_version, model_version, prompt_version, chunk_version, embedding_provider, embedding_model, embedding_version, chunking_profile, ocr_enabled, allow_heuristic_fallback, prompt_template, notes, last_evaluated_at, avg_parse_percentage, avg_confidence, documents_evaluated, created_at, updated_at",
-          )
-          .in("tenant_id", tenantIds)
-          .order("status", { ascending: true })
-          .order("updated_at", { ascending: false });
-
-        if (error) {
-          throw error;
-        }
-
-        return ((data ?? []) as ParserProfileRow[]).map(mapRemoteParserProfile);
+        const data = await invokePlatform<ParserProfileRow[]>("parser_profiles", { tenant_ids: tenantIds });
+        return (data ?? []).map(mapRemoteParserProfile);
       } catch {
         return mock.getParserProfiles();
       }
@@ -1317,42 +1363,10 @@ function createRemoteApi(): PlatformApi {
       }
 
       try {
-        const payload = {
-          id: profile.id ?? undefined,
+        const data = await invokePlatform<ParserProfileRow>("save_parser_profile", {
           tenant_id: tenantId,
-          name: profile.name.trim(),
-          slug: profile.slug.trim().toLowerCase(),
-          description: profile.description,
-          extraction_provider: profile.extractionProvider,
-          extraction_model: profile.extractionModel,
-          parser_version: profile.parserVersion,
-          model_version: profile.modelVersion,
-          prompt_version: profile.promptVersion,
-          chunk_version: profile.chunkVersion,
-          embedding_provider: profile.embeddingProvider,
-          embedding_model: profile.embeddingModel,
-          embedding_version: profile.embeddingVersion,
-          chunking_profile: profile.chunkingProfile,
-          ocr_enabled: profile.ocrEnabled,
-          allow_heuristic_fallback: false,
-          prompt_template: profile.promptTemplate,
-          notes: profile.notes,
-        };
-
-        const mutation = profile.id
-          ? supabase.from("parser_profiles").update(payload).eq("id", profile.id).select(
-              "id, tenant_id, name, slug, description, status, extraction_provider, extraction_model, parser_version, model_version, prompt_version, chunk_version, embedding_provider, embedding_model, embedding_version, chunking_profile, ocr_enabled, allow_heuristic_fallback, prompt_template, notes, last_evaluated_at, avg_parse_percentage, avg_confidence, documents_evaluated, created_at, updated_at",
-            ).single()
-          : supabase.from("parser_profiles").insert(payload).select(
-              "id, tenant_id, name, slug, description, status, extraction_provider, extraction_model, parser_version, model_version, prompt_version, chunk_version, embedding_provider, embedding_model, embedding_version, chunking_profile, ocr_enabled, allow_heuristic_fallback, prompt_template, notes, last_evaluated_at, avg_parse_percentage, avg_confidence, documents_evaluated, created_at, updated_at",
-            ).single();
-
-        const { data, error } = await mutation;
-
-        if (error) {
-          throw error;
-        }
-
+          profile,
+        });
         return mapRemoteParserProfile(data as ParserProfileRow);
       } catch {
         return mock.saveParserProfile(profile);
@@ -1364,10 +1378,7 @@ function createRemoteApi(): PlatformApi {
       }
 
       try {
-        const { data, error } = await supabase.rpc("publish_parser_profile_v1", { p_profile_id: profileId });
-        if (error) {
-          throw error;
-        }
+        const data = await invokePlatform<ParserProfileRow>("publish_parser_profile", { profile_id: profileId });
         return mapRemoteParserProfile(data as ParserProfileRow);
       } catch {
         return mock.publishParserProfile(profileId);

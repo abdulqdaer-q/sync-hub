@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .config import WorkerConfig
 from .schema import ArtifactBundle, ComparisonArtifact, dataclass_to_dict
@@ -18,6 +20,73 @@ def _vector_literal(values: list[float]) -> str:
 
 def _is_jwt(value: str) -> bool:
     return value.count(".") == 2
+
+
+def _chunks(values: list[Any], size: int) -> Iterable[list[Any]]:
+    size = max(1, size)
+    for index in range(0, len(values), size):
+        yield values[index : index + size]
+
+
+def _json_payload_size(value: Any) -> int:
+    return len(json.dumps(strip_nul_bytes(value), separators=(",", ":"), ensure_ascii=True).encode("utf-8"))
+
+
+def _dedupe_rows(rows: list[dict[str, Any]], key_fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    keyed: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for row in rows:
+        key = tuple(row.get(field) for field in key_fields)
+        keyed[key] = row
+    return list(keyed.values())
+
+
+def _format_bytes(value: int) -> str:
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    size = float(max(0, value))
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+        size /= 1024
+    return f"{value} B"
+
+
+def _bounded_years_experience(value: Any) -> float:
+    try:
+        years = float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(max(0.0, min(80.0, years)), 2)
+
+
+def _is_retryable_supabase_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return any(
+        marker in message
+        for marker in (
+            "57014",
+            "statement timeout",
+            "timeout",
+            "temporarily unavailable",
+            "connection reset",
+        )
+    )
+
+
+@dataclass(frozen=True)
+class SupabaseCapacitySnapshot:
+    database_bytes: int = 0
+    storage_bytes: int = 0
+    table_counts: dict[str, int] = field(default_factory=dict)
+    source: str = "unavailable"
+
+
+@dataclass(frozen=True)
+class SupabaseSyncStats:
+    bundles: int = 0
+    table_rows: dict[str, int] = field(default_factory=dict)
+    storage_bytes: int = 0
+    estimated_database_bytes: int = 0
+    warnings: list[str] = field(default_factory=list)
 
 
 class SupabaseClient:
@@ -39,7 +108,7 @@ class SupabaseClient:
             headers.update(extra)
         return headers
 
-    def _request(self, method: str, path: str, *, data: Any | None = None, headers: dict[str, str] | None = None) -> Any:
+    def _request_with_headers(self, method: str, path: str, *, data: Any | None = None, headers: dict[str, str] | None = None) -> tuple[Any, dict[str, str]]:
         body = None
         if data is not None:
             body = json.dumps(strip_nul_bytes(data)).encode("utf-8")
@@ -52,12 +121,19 @@ class SupabaseClient:
         try:
             with urlopen(request, timeout=self.config.request_timeout_seconds) as response:
                 content = response.read().decode("utf-8")
+                response_headers = dict(response.headers.items())
         except urllib.error.HTTPError as exc:
             content = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"Supabase {method} {path} failed ({exc.code}): {content or exc.reason}") from exc
-        return json.loads(content) if content else None
+        return (json.loads(content) if content else None), response_headers
+
+    def _request(self, method: str, path: str, *, data: Any | None = None, headers: dict[str, str] | None = None) -> Any:
+        result, _headers = self._request_with_headers(method, path, data=data, headers=headers)
+        return result
 
     def upsert(self, table: str, rows: list[dict[str, Any]], on_conflict: str) -> Any:
+        if not rows:
+            return None
         query = urllib.parse.urlencode({"on_conflict": on_conflict})
         return self._request(
             "POST",
@@ -65,6 +141,112 @@ class SupabaseClient:
             data=rows,
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
         )
+
+    def _upsert_batch_with_retry(self, table: str, rows: list[dict[str, Any]], on_conflict: str, attempt: int = 1) -> None:
+        try:
+            self.upsert(table, rows, on_conflict)
+            return
+        except RuntimeError as exc:
+            if not _is_retryable_supabase_error(exc):
+                raise
+            if len(rows) > 1:
+                midpoint = max(1, len(rows) // 2)
+                self._upsert_batch_with_retry(table, rows[:midpoint], on_conflict, attempt=attempt)
+                self._upsert_batch_with_retry(table, rows[midpoint:], on_conflict, attempt=attempt)
+                return
+            if attempt >= 3:
+                raise
+            time.sleep(0.5 * attempt)
+            self._upsert_batch_with_retry(table, rows, on_conflict, attempt=attempt + 1)
+
+    def upsert_many(self, table: str, rows: list[dict[str, Any]], on_conflict: str, batch_size: int | None = None) -> int:
+        for batch in _chunks(rows, batch_size or self.config.supabase_batch_size):
+            self._upsert_batch_with_retry(table, batch, on_conflict)
+        return len(rows)
+
+    def _select_in(self, table: str, tenant_id: str, column: str, values: list[str], select: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        unique_values = sorted({value for value in values if value})
+        for batch in _chunks(unique_values, 100):
+            query = urllib.parse.urlencode(
+                {
+                    "tenant_id": f"eq.{tenant_id}",
+                    column: f"in.({','.join(batch)})",
+                    "select": select,
+                }
+            )
+            result = self._request("GET", f"/rest/v1/{table}?{query}")
+            if isinstance(result, list):
+                rows.extend(item for item in result if isinstance(item, dict))
+        return rows
+
+    def _count_table(self, table: str, tenant_id: str | None = None) -> int:
+        query_args = {"select": "id", "limit": "1"}
+        if tenant_id:
+            query_args["tenant_id"] = f"eq.{tenant_id}"
+        query = urllib.parse.urlencode(query_args)
+        _result, headers = self._request_with_headers(
+            "GET",
+            f"/rest/v1/{table}?{query}",
+            headers={"Prefer": "count=exact", "Range": "0-0"},
+        )
+        content_range = headers.get("Content-Range") or headers.get("content-range") or ""
+        if "/" not in content_range:
+            return 0
+        total = content_range.rsplit("/", 1)[-1]
+        return int(total) if total.isdigit() else 0
+
+    def capacity_snapshot(self, tenant_id: str | None = None) -> SupabaseCapacitySnapshot:
+        try:
+            payload = {"p_tenant_id": tenant_id, "p_storage_bucket": self.config.supabase_storage_bucket} if tenant_id else {"p_storage_bucket": self.config.supabase_storage_bucket}
+            result = self._request("POST", "/rest/v1/rpc/ingestion_capacity_snapshot_v1", data=payload)
+            row = result[0] if isinstance(result, list) and result else result if isinstance(result, dict) else {}
+            if isinstance(row, dict):
+                table_counts = row.get("table_counts")
+                return SupabaseCapacitySnapshot(
+                    database_bytes=int(row.get("database_bytes") or 0),
+                    storage_bytes=int(row.get("storage_bytes") or 0),
+                    table_counts=dict(table_counts) if isinstance(table_counts, dict) else {},
+                    source="rpc",
+                )
+        except RuntimeError:
+            pass
+
+        tables = ["source_documents", "candidates", "candidate_profiles", "candidate_summaries", "candidate_skill_map", "candidate_chunks", "processing_runs"]
+        counts: dict[str, int] = {}
+        for table in tables:
+            try:
+                counts[table] = self._count_table(table, tenant_id=tenant_id)
+            except RuntimeError:
+                counts[table] = 0
+        return SupabaseCapacitySnapshot(table_counts=counts, source="rest-counts")
+
+    def capacity_warnings(self, tenant_id: str, estimated_database_bytes: int = 0, estimated_storage_bytes: int = 0) -> list[str]:
+        warnings: list[str] = []
+        threshold = max(0.0, min(1.0, self.config.supabase_limit_warning_threshold))
+        snapshot = self.capacity_snapshot(tenant_id)
+        if self.config.supabase_database_limit_bytes and snapshot.database_bytes:
+            projected_database_bytes = snapshot.database_bytes + int(estimated_database_bytes * max(1.0, self.config.supabase_database_expansion_factor))
+            ratio = projected_database_bytes / self.config.supabase_database_limit_bytes
+            if ratio >= threshold:
+                warnings.append(
+                    "Supabase database usage is near the configured limit: "
+                    f"projected {_format_bytes(projected_database_bytes)} of {_format_bytes(self.config.supabase_database_limit_bytes)} "
+                    f"({ratio:.1%}, source={snapshot.source})."
+                )
+        if self.config.supabase_storage_limit_bytes:
+            projected_storage_bytes = snapshot.storage_bytes + estimated_storage_bytes
+            if projected_storage_bytes:
+                ratio = projected_storage_bytes / self.config.supabase_storage_limit_bytes
+                if ratio >= threshold:
+                    warnings.append(
+                        "Supabase storage usage is near the configured limit: "
+                        f"projected {_format_bytes(projected_storage_bytes)} of {_format_bytes(self.config.supabase_storage_limit_bytes)} "
+                        f"({ratio:.1%}, source={snapshot.source})."
+                    )
+        if snapshot.source == "rest-counts":
+            warnings.append("Supabase capacity RPC is not available; limit checks used table counts only and cannot read exact database or storage size.")
+        return warnings
 
     def resolve_source_document_id(self, tenant_id: str, document_sha256: str, fallback_id: str) -> str:
         query = urllib.parse.urlencode(
@@ -115,46 +297,73 @@ class SupabaseClient:
                 return existing_id
         return fallback_id
 
-    def upload_file(self, bucket: str, object_path: str, file_path: str, content_type: str) -> None:
-        data = Path(file_path).read_bytes()
-        api_key = self.config.supabase_api_key()
-        bearer_token = self.config.supabase_bearer_token()
-        headers = {
-            "apikey": api_key,
-            "Content-Type": content_type,
-            "x-upsert": "true",
-        }
-        if _is_jwt(bearer_token):
-            headers["Authorization"] = f"Bearer {bearer_token}"
-        request = urllib.request.Request(
-            f"{self.base_url}/storage/v1/object/{bucket}/{urllib.parse.quote(object_path)}",
-            data=data,
-            headers=headers,
-            method="POST",
-        )
-        try:
-            with urlopen(request, timeout=self.config.request_timeout_seconds):
-                return
-        except urllib.error.HTTPError as exc:
-            if exc.code == 409:
-                return
-            content = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Supabase storage upload failed ({exc.code}): {content or exc.reason}") from exc
+    def _resolve_bundle_identities(self, bundles: list[ArtifactBundle]) -> list[tuple[str, str]]:
+        identities: list[tuple[str, str]] = []
+        by_tenant: dict[str, list[ArtifactBundle]] = {}
+        for bundle in bundles:
+            by_tenant.setdefault(bundle.source.tenant_id, []).append(bundle)
 
-    def sync_bundle(self, bundle: ArtifactBundle) -> None:
-        source_document_id = self.resolve_source_document_id(
-            bundle.source.tenant_id,
-            bundle.source.document_sha256,
-            bundle.source.document_id,
-        )
-        candidate_id = self.resolve_candidate_id(
-            bundle.profile.tenant_id,
-            bundle.profile.email,
-            source_document_id,
-            bundle.profile.candidate_id,
-        )
+        identity_by_bundle_index: dict[int, tuple[str, str]] = {}
+        for tenant_id, tenant_bundles in by_tenant.items():
+            source_rows = self._select_in(
+                "source_documents",
+                tenant_id,
+                "document_sha256",
+                [bundle.source.document_sha256 for bundle in tenant_bundles],
+                "id,document_sha256,candidate_id",
+            )
+            source_id_by_sha = {
+                str(row.get("document_sha256")): str(row.get("id"))
+                for row in source_rows
+                if row.get("document_sha256") and row.get("id")
+            }
+            candidate_id_by_source_id = {
+                str(row.get("id")): str(row.get("candidate_id"))
+                for row in source_rows
+                if row.get("id") and row.get("candidate_id")
+            }
+            for bundle in tenant_bundles:
+                source_id_by_sha.setdefault(bundle.source.document_sha256, bundle.source.document_id)
+
+            email_rows = self._select_in(
+                "candidates",
+                tenant_id,
+                "email",
+                [normalize_email(bundle.profile.email) for bundle in tenant_bundles],
+                "id,email,created_at",
+            )
+            candidate_id_by_email: dict[str, str] = {}
+            for row in email_rows:
+                email = normalize_email(str(row.get("email") or ""))
+                candidate_id = str(row.get("id") or "")
+                if email and candidate_id and email not in candidate_id_by_email:
+                    candidate_id_by_email[email] = candidate_id
+
+            local_candidate_id_by_source_id: dict[str, str] = {}
+            for bundle in tenant_bundles:
+                source_document_id = source_id_by_sha[bundle.source.document_sha256]
+                local_candidate_id_by_source_id.setdefault(source_document_id, bundle.profile.candidate_id)
+
+            for index, bundle in enumerate(bundles):
+                if bundle.source.tenant_id != tenant_id:
+                    continue
+                source_document_id = source_id_by_sha[bundle.source.document_sha256]
+                email = normalize_email(bundle.profile.email)
+                candidate_id = (
+                    candidate_id_by_email.get(email)
+                    or candidate_id_by_source_id.get(source_document_id)
+                    or local_candidate_id_by_source_id[source_document_id]
+                )
+                identity_by_bundle_index[index] = (source_document_id, candidate_id)
+
+        for index in range(len(bundles)):
+            identities.append(identity_by_bundle_index[index])
+        return identities
+
+    def _rows_for_bundle(self, bundle: ArtifactBundle, source_document_id: str, candidate_id: str) -> tuple[dict[str, list[dict[str, Any]]], int]:
         candidate_email = normalize_email(bundle.profile.email)
         source_storage_path = None
+        storage_bytes = 0
         if self.config.sync_originals_to_storage:
             source_storage_path = f"{bundle.source.tenant_id}/{source_document_id}/{bundle.source.original_filename}"
             self.upload_file(
@@ -163,11 +372,17 @@ class SupabaseClient:
                 bundle.source.source_path,
                 bundle.source.mime_type,
             )
+            try:
+                storage_bytes = Path(bundle.source.source_path).stat().st_size
+            except OSError:
+                storage_bytes = 0
 
         profile_payload = dataclass_to_dict(bundle.profile)
         profile_payload["candidate_id"] = candidate_id
         profile_payload["source_document_id"] = source_document_id
         profile_payload["email"] = candidate_email
+        profile_payload["years_experience"] = _bounded_years_experience(profile_payload.get("years_experience"))
+        profile_payload.pop("raw_text", None)
 
         source_document = {
             "id": source_document_id,
@@ -189,7 +404,7 @@ class SupabaseClient:
             "headline": bundle.profile.headline,
             "current_title": bundle.profile.current_title,
             "location": bundle.profile.location,
-            "years_experience": bundle.profile.years_experience,
+            "years_experience": _bounded_years_experience(bundle.profile.years_experience),
             "seniority": bundle.profile.seniority,
             "primary_role": bundle.profile.role_tags[0] if bundle.profile.role_tags else None,
             "top_skills": bundle.profile.skills,
@@ -252,7 +467,7 @@ class SupabaseClient:
         for chunk, embedding in zip(bundle.chunks, bundle.embeddings):
             chunk_rows.append(
                 {
-                    "id": stable_uuid(candidate_id, chunk.chunk_type, str(chunk.chunk_index), chunk.text[:120]),
+                    "id": stable_uuid(candidate_id, source_document_id, chunk.chunk_type, str(chunk.chunk_index), chunk.text[:120]),
                     "tenant_id": chunk.tenant_id,
                     "candidate_id": candidate_id,
                     "source_document_id": source_document_id,
@@ -291,15 +506,105 @@ class SupabaseClient:
             "error_message": bundle.processing_run.error_message,
             "metadata_json": bundle.processing_run.metadata,
         }
-        self.upsert("source_documents", [source_document], "tenant_id,document_sha256")
-        self.upsert("candidates", [candidate], "id")
-        self.upsert("candidate_profiles", [profile], "candidate_id")
-        self.upsert("candidate_summaries", [summary], "candidate_id")
-        if skill_rows:
-            self.upsert("candidate_skill_map", skill_rows, "tenant_id,candidate_id,skill_slug")
-        if chunk_rows:
-            self.upsert("candidate_chunks", chunk_rows, "id")
-        self.upsert("processing_runs", [processing_run], "tenant_id,input_hash")
+        return {
+            "source_documents": [source_document],
+            "candidates": [candidate],
+            "candidate_profiles": [profile],
+            "candidate_summaries": [summary],
+            "candidate_skill_map": skill_rows,
+            "candidate_chunks": chunk_rows,
+            "processing_runs": [processing_run],
+        }, storage_bytes
+
+    def upload_file(self, bucket: str, object_path: str, file_path: str, content_type: str) -> None:
+        data = Path(file_path).read_bytes()
+        api_key = self.config.supabase_api_key()
+        bearer_token = self.config.supabase_bearer_token()
+        headers = {
+            "apikey": api_key,
+            "Content-Type": content_type,
+            "x-upsert": "true",
+        }
+        if _is_jwt(bearer_token):
+            headers["Authorization"] = f"Bearer {bearer_token}"
+        request = urllib.request.Request(
+            f"{self.base_url}/storage/v1/object/{bucket}/{urllib.parse.quote(object_path)}",
+            data=data,
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=self.config.request_timeout_seconds):
+                return
+        except urllib.error.HTTPError as exc:
+            if exc.code == 409:
+                return
+            content = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Supabase storage upload failed ({exc.code}): {content or exc.reason}") from exc
+
+    def sync_bundle(self, bundle: ArtifactBundle) -> None:
+        self.sync_bundles([bundle])
+
+    def refresh_candidate_search_cache(self) -> int:
+        result = self._request("POST", "/rest/v1/rpc/refresh_candidate_search_cache_v1", data={})
+        try:
+            return int(result)
+        except (TypeError, ValueError):
+            return 0
+
+    def sync_bundles(self, bundles: list[ArtifactBundle]) -> SupabaseSyncStats:
+        if not bundles:
+            return SupabaseSyncStats()
+
+        rows_by_table: dict[str, list[dict[str, Any]]] = {
+            "source_documents": [],
+            "candidates": [],
+            "candidate_profiles": [],
+            "candidate_summaries": [],
+            "candidate_skill_map": [],
+            "candidate_chunks": [],
+            "processing_runs": [],
+        }
+        storage_bytes = 0
+        for bundle, (source_document_id, candidate_id) in zip(bundles, self._resolve_bundle_identities(bundles)):
+            bundle_rows, bundle_storage_bytes = self._rows_for_bundle(bundle, source_document_id, candidate_id)
+            storage_bytes += bundle_storage_bytes
+            for table, rows in bundle_rows.items():
+                rows_by_table[table].extend(rows)
+
+        conflict_keys = {
+            "source_documents": ("tenant_id", "document_sha256"),
+            "candidates": ("id",),
+            "candidate_profiles": ("candidate_id",),
+            "candidate_summaries": ("candidate_id",),
+            "candidate_skill_map": ("tenant_id", "candidate_id", "skill_slug"),
+            "candidate_chunks": ("id",),
+            "processing_runs": ("tenant_id", "input_hash"),
+        }
+        rows_by_table = {
+            table: _dedupe_rows(rows, conflict_keys[table])
+            for table, rows in rows_by_table.items()
+        }
+
+        estimated_database_bytes = sum(_json_payload_size(rows) for rows in rows_by_table.values() if rows)
+        tenant_id = bundles[0].source.tenant_id
+        warnings = self.capacity_warnings(tenant_id, estimated_database_bytes=estimated_database_bytes, estimated_storage_bytes=storage_bytes)
+
+        self.upsert_many("source_documents", rows_by_table["source_documents"], "tenant_id,document_sha256")
+        self.upsert_many("candidates", rows_by_table["candidates"], "id")
+        self.upsert_many("candidate_profiles", rows_by_table["candidate_profiles"], "candidate_id")
+        self.upsert_many("candidate_summaries", rows_by_table["candidate_summaries"], "candidate_id")
+        self.upsert_many("candidate_skill_map", rows_by_table["candidate_skill_map"], "tenant_id,candidate_id,skill_slug")
+        self.upsert_many("candidate_chunks", rows_by_table["candidate_chunks"], "id")
+        self.upsert_many("processing_runs", rows_by_table["processing_runs"], "tenant_id,input_hash")
+
+        return SupabaseSyncStats(
+            bundles=len(bundles),
+            table_rows={table: len(rows) for table, rows in rows_by_table.items()},
+            storage_bytes=storage_bytes,
+            estimated_database_bytes=estimated_database_bytes,
+            warnings=warnings,
+        )
 
     def sync_comparison_artifact(self, artifact: ComparisonArtifact, artifact_key: str, query: str = "") -> None:
         query_fingerprint = f"{query.lower().strip()}|{'|'.join(sorted(artifact.candidate_ids))}"

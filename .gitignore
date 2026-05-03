@@ -38,3 +38,6 @@ supabase/.temp/
 tmp/cv_intelligence_worker/
 tmp/
 temp/
+
+tenants.csv
+tenants-ic.csv

@@ -7,6 +7,7 @@ from cv_intelligence_worker.config import WorkerConfig
 from cv_intelligence_worker.extraction import (
     _extractor_system_prompt,
     _merge_extracted_profile,
+    _parse_json_content,
     _structured_prompt,
     extract_candidate_profile,
     heuristic_extract_profile,
@@ -173,6 +174,51 @@ Python, Node.js, GraphQL, PostgreSQL, Docker
                 extract_candidate_profile(source, document, config)
 
         heuristic_mock.assert_not_called()
+
+    def test_llm_profile_can_be_accepted_without_contact_details(self) -> None:
+        source = self._source("doc-no-contact")
+        document = DocumentText(
+            source=source,
+            raw_text="Jane Doe\nSenior Backend Engineer\nBuilt Python APIs and PostgreSQL systems.",
+            parser_name="plain-text",
+            parser_version="2.0.0",
+        )
+        profile = _merge_extracted_profile(
+            source,
+            document,
+            {
+                "name": "Jane Doe",
+                "current_title": "Senior Backend Engineer",
+                "headline": "Senior Backend Engineer",
+                "location": None,
+                "email": None,
+                "phone": None,
+                "links": [],
+                "years_experience": 8,
+                "seniority": "senior",
+                "role_tags": ["backend"],
+                "skills": ["Python", "PostgreSQL", "APIs"],
+                "experience": [],
+                "education": [],
+                "projects": [],
+                "languages": [],
+                "certifications": [],
+                "summary": "Senior backend engineer building Python APIs and PostgreSQL systems.",
+            },
+        )
+
+        self.assertEqual(profile.name, "Jane Doe")
+        self.assertIn("contact", profile.missing_fields)
+
+    def test_parse_json_content_repairs_trailing_commas(self) -> None:
+        payload = """```json
+        {
+          "name": "Jane Doe",
+          "skills": ["Python", "PostgreSQL",],
+        }
+        ```"""
+
+        self.assertEqual(_parse_json_content(payload), {"name": "Jane Doe", "skills": ["Python", "PostgreSQL"]})
 
     def test_heuristic_extractor_handles_two_column_pdf_style_text(self) -> None:
         source = DocumentSource(

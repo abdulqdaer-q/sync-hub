@@ -334,11 +334,15 @@ def _extractor_system_prompt() -> str:
         "- Preserve meaning and keep extracted descriptions concise but faithful to the source.\n"
         "- Remove duplicates and trim whitespace.\n\n"
         "Extraction rules:\n"
+        "- Use the document header and first visible lines for identity, title, email, phone, links, and location.\n"
+        "- Contact details may appear on the same line as the candidate name or title.\n"
         "- Treat labeled sections such as EXPERIENCE, EDUCATION, PROJECTS, CERTIFICATIONS, SKILLS, and LANGUAGES as the primary source of truth.\n"
         "- When section labels are present, prefer them over inference.\n"
-        "- Do not mix data across sections.\n"
+        "- If the CV has no explicit EXPERIENCE label, extract work history from clear role/company/date blocks anywhere in the document.\n"
+        "- If the CV has no explicit SKILLS label, extract skills only from explicit skill lists, tool lists, technologies, or repeated concrete capabilities in role descriptions.\n"
+        "- Do not mix data across clearly labeled sections.\n"
         "- Do not use education, certifications, training, or course dates as work experience dates.\n"
-        "- Populate experience only from the EXPERIENCE section.\n"
+        "- Populate experience from the EXPERIENCE section when present; otherwise use clearly structured employment blocks.\n"
         "- Use PRE_EXPERIENCE_DATE_HINTS only if it appears immediately before the EXPERIENCE section.\n"
         "- Keep training, internships, courses, and degrees under education unless they are explicitly presented as employment or work experience.\n"
         "- Do not split one role into multiple jobs because of subheadings such as Project Leadership, Client Engagement, Responsibilities, Achievements, or similar labels.\n"
@@ -896,7 +900,16 @@ def _parse_json_content(content: Any) -> dict[str, Any]:
     if content.startswith("```"):
         content = re.sub(r"^```(?:json)?", "", content).strip()
         content = re.sub(r"```$", "", content).strip()
-    parsed = json.loads(content)
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise
+        repaired = content[start : end + 1]
+        repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+        parsed = json.loads(repaired)
     if not isinstance(parsed, dict):
         raise ValueError("structured extractor returned a non-object payload")
     return parsed
@@ -998,8 +1011,6 @@ def _validate_llm_profile(profile: CandidateProfile) -> None:
     missing_core = []
     if not profile.name:
         missing_core.append("name")
-    if not (profile.email or profile.phone or profile.links):
-        missing_core.append("contact")
     if not (profile.current_title or profile.experience or profile.skills):
         missing_core.append("professional_profile")
     if missing_core:

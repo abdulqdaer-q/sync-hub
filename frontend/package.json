@@ -11,6 +11,7 @@
     "build": "npm run check && tsc --noEmit -p tsconfig.node.json && vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit -p tsconfig.app.json",
+    "check:parsing-overview": "node scripts/check-parsing-overview.mjs",
     "tunnel:sync-dev": "cloudflared tunnel --config ../infra/cloudflare/sync-dev.yml run",
     "tunnel:sync-dev:token": "cloudflared tunnel run --token \"$CLOUDFLARED_TOKEN\""
   },

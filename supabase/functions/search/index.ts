@@ -27,6 +27,42 @@ function toFiniteNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function describeError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error && typeof error === "object") {
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
+function normalizeSearchText(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9+#.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeQuery(query: string) {
+  return normalizeSearchText(query)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+    .slice(0, 12);
+}
+
+function toStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
+    : [];
+}
+
 function calibratedMatchRate(row: Record<string, unknown>) {
   const subscores = row.subscores && typeof row.subscores === "object" && !Array.isArray(row.subscores)
     ? row.subscores as Record<string, unknown>
@@ -91,6 +127,279 @@ async function extractIntentWithLlm(query: string, filters: Record<string, unkno
   return result?.object ?? null;
 }
 
+type CandidateSearchRow = {
+  tenant_id: string;
+  candidate_id: string;
+  name: string | null;
+  headline: string | null;
+  current_title: string | null;
+  location: string | null;
+  years_experience: number | null;
+  seniority: string | null;
+  primary_role: string | null;
+  role_tags: string[] | null;
+  skills: string[] | null;
+  companies: string[] | null;
+  summary_short: string | null;
+  stored_short_summary: string | null;
+};
+
+const SEARCH_REST_PAGE_SIZE = 1000;
+
+function roleSearchAliases(role: string | null | undefined) {
+  switch (role) {
+    case "frontend":
+      return ["frontend", "front end", "front-end", "react", "angular", "vue", "ui", "web"];
+    case "backend":
+      return ["backend", "back end", "back-end", "api", "server", "node", "django", "flask", ".net"];
+    case "full-stack":
+      return ["full-stack", "full stack", "fullstack"];
+    case "mobile":
+      return ["mobile", "android", "ios", "flutter", "react native"];
+    case "devops":
+      return ["devops", "sre", "kubernetes", "terraform", "platform"];
+    case "data":
+      return ["data", "analytics", "etl", "bi"];
+    case "ml":
+      return ["ml", "ai", "machine learning", "llm"];
+    case "qa":
+      return ["qa", "quality", "test", "automation"];
+    case "security":
+      return ["security", "cybersecurity", "soc"];
+    default:
+      return role ? [role] : [];
+  }
+}
+
+function roleMatchScore(row: CandidateSearchRow, role: string | null | undefined) {
+  const aliases = roleSearchAliases(role).map(normalizeSearchText).filter(Boolean);
+  if (!aliases.length) {
+    return 0;
+  }
+  const text = normalizeSearchText(`${row.primary_role ?? ""} ${row.current_title ?? ""} ${row.headline ?? ""} ${toStringArray(row.role_tags).join(" ")}`);
+  return aliases.some((alias) => text.includes(alias)) ? 1 : 0;
+}
+
+function skillMatchScore(row: CandidateSearchRow, skills: string[]) {
+  if (!skills.length) {
+    return 0;
+  }
+  const rowSkills = new Set(toStringArray(row.skills).map(normalizeSearchText));
+  return skills.filter((skill) => rowSkills.has(normalizeSearchText(skill))).length / skills.length;
+}
+
+function companyMatchScore(row: CandidateSearchRow, companies: string[]) {
+  if (!companies.length) {
+    return 0;
+  }
+  const rowCompanies = toStringArray(row.companies).map(normalizeSearchText);
+  return companies.some((company) => rowCompanies.includes(normalizeSearchText(company))) ? 1 : 0;
+}
+
+function rowPassesExplicitFilters(row: CandidateSearchRow, filters: SearchIntentPayload) {
+  if (filters.role && roleMatchScore(row, filters.role) <= 0) {
+    return false;
+  }
+  if (filters.seniority && normalizeSearchText(row.seniority) !== normalizeSearchText(filters.seniority)) {
+    return false;
+  }
+  if (filters.min_years_experience !== null && toFiniteNumber(row.years_experience) < filters.min_years_experience) {
+    return false;
+  }
+  if (filters.location && !normalizeSearchText(row.location).includes(normalizeSearchText(filters.location))) {
+    return false;
+  }
+  if (filters.skills.length && skillMatchScore(row, filters.skills) < 1) {
+    return false;
+  }
+  if (filters.companies.length && companyMatchScore(row, filters.companies) < 1) {
+    return false;
+  }
+  return true;
+}
+
+function fastProfileScore(row: CandidateSearchRow, query: string, filters: SearchIntentPayload) {
+  const tokens = tokenizeQuery(query);
+  const name = normalizeSearchText(row.name);
+  const title = normalizeSearchText(`${row.current_title ?? ""} ${row.headline ?? ""} ${row.primary_role ?? ""} ${toStringArray(row.role_tags).join(" ")}`);
+  const skillsText = normalizeSearchText(toStringArray(row.skills).join(" "));
+  const companiesText = normalizeSearchText(toStringArray(row.companies).join(" "));
+  const summary = normalizeSearchText(`${row.summary_short ?? ""} ${row.stored_short_summary ?? ""}`);
+  const haystack = `${name} ${title} ${skillsText} ${companiesText} ${summary} ${normalizeSearchText(row.location)}`;
+  const tokenHits = tokens.filter((token) => haystack.includes(token)).length;
+  const roleScore = roleMatchScore(row, filters.role);
+  const skillScore = skillMatchScore(row, filters.skills);
+  const companyScore = companyMatchScore(row, filters.companies);
+  const seniorityScore = filters.seniority && normalizeSearchText(row.seniority) === normalizeSearchText(filters.seniority) ? 1 : 0;
+  const yearsScore = filters.min_years_experience !== null
+    ? Math.min(1, toFiniteNumber(row.years_experience) / Math.max(1, filters.min_years_experience))
+    : 0;
+  const locationScore = filters.location && normalizeSearchText(row.location).includes(normalizeSearchText(filters.location)) ? 1 : 0;
+
+  let tokenScore = tokens.length ? tokenHits / tokens.length : 0.15;
+  for (const token of tokens) {
+    if (name.includes(token)) tokenScore += 0.2;
+    if (title.includes(token)) tokenScore += 0.15;
+    if (skillsText.includes(token)) tokenScore += 0.1;
+  }
+
+  const weighted = Math.max(
+    tokenScore * 0.42,
+    roleScore * 0.55,
+    skillScore * 0.62,
+    companyScore * 0.5,
+  )
+    + seniorityScore * 0.08
+    + yearsScore * 0.07
+    + locationScore * 0.06
+    + Math.min(0.08, toFiniteNumber(row.years_experience) / 200);
+
+  return Math.min(0.99, weighted);
+}
+
+async function fetchCandidateSearchRows(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
+  const rows: CandidateSearchRow[] = [];
+  for (let offset = 0; ; offset += SEARCH_REST_PAGE_SIZE) {
+    let request = supabase
+      .from("candidate_search_cache")
+      .select("tenant_id, candidate_id, name, headline, current_title, location, years_experience, seniority, primary_role, role_tags, skills, companies, summary_short, stored_short_summary")
+      .range(offset, offset + SEARCH_REST_PAGE_SIZE - 1);
+
+    if (tenantIds.length) {
+      request = request.in("tenant_id", tenantIds);
+    }
+
+    const { data, error } = await request;
+    if (error) {
+      throw error;
+    }
+    const page = (data ?? []) as CandidateSearchRow[];
+    rows.push(...page);
+    if (page.length < SEARCH_REST_PAGE_SIZE) {
+      break;
+    }
+  }
+  return rows;
+}
+
+function mapFastProfileResult(row: CandidateSearchRow, score: number, filters: SearchIntentPayload, rankVersion: string) {
+  const requiredSkills = filters.skills.map(normalizeSearchText);
+  const requiredCompanies = filters.companies.map(normalizeSearchText);
+  const matchedSkills = filters.skills.length
+    ? toStringArray(row.skills).filter((skill) => requiredSkills.includes(normalizeSearchText(skill)))
+    : toStringArray(row.skills).slice(0, 8);
+  const matchedCompanies = filters.companies.length
+    ? toStringArray(row.companies).filter((company) => requiredCompanies.includes(normalizeSearchText(company)))
+    : [];
+  const subscores = {
+    name_match: 0,
+    company_match: companyMatchScore(row, filters.companies),
+    semantic_similarity: 0,
+    role_match: roleMatchScore(row, filters.role),
+    seniority_match: filters.seniority && normalizeSearchText(row.seniority) === normalizeSearchText(filters.seniority) ? 1 : 0,
+    skill_match: skillMatchScore(row, filters.skills),
+    experience_match: filters.min_years_experience !== null
+      ? Math.min(1, toFiniteNumber(row.years_experience) / Math.max(1, filters.min_years_experience))
+      : 0,
+    max_chunk_rrf: 0,
+    avg_top3_chunk_rrf: 0,
+  };
+  return {
+    tenant_id: row.tenant_id,
+    candidate_id: row.candidate_id,
+    name: row.name ?? "Unknown candidate",
+    current_title: row.current_title ?? "Candidate",
+    location: row.location ?? "Unknown",
+    years_experience: row.years_experience ?? 0,
+    seniority: row.seniority ?? "unknown",
+    primary_role: row.primary_role ?? "generalist",
+    score,
+    score_raw: score,
+    match_rate: calibratedMatchRate({ score, subscores }),
+    subscores,
+    matched_filters: {
+      required_skills: filters.skills,
+      matched_skills: matchedSkills,
+      required_companies: filters.companies,
+      matched_companies: matchedCompanies,
+      role: filters.role,
+      seniority: filters.seniority,
+      min_years_experience: filters.min_years_experience,
+      location: filters.location,
+    },
+    summary_short: row.summary_short ?? row.stored_short_summary ?? "",
+    evidence: [],
+    meta: {
+      rank_version: rankVersion,
+      search_engine: "edge-profile-fast-path",
+    },
+  };
+}
+
+async function runFastProfileSearch(
+  supabase: ReturnType<typeof createAuthedClient>,
+  query: string,
+  filters: SearchIntentPayload,
+  explicitFilters: SearchIntentPayload,
+  tenantIds: string[],
+  limit: number,
+  offset: number,
+  rankVersion: string,
+  queryEmbedding: number[] | null,
+  embeddingVersion: string | null,
+) {
+  const rows = await fetchCandidateSearchRows(supabase, tenantIds);
+  let scored = rows
+    .filter((row) => rowPassesExplicitFilters(row, explicitFilters))
+    .map((row) => ({ row, score: fastProfileScore(row, query, filters) }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) =>
+      right.score - left.score
+      || toFiniteNumber(right.row.years_experience) - toFiniteNumber(left.row.years_experience)
+      || String(left.row.name ?? "").localeCompare(String(right.row.name ?? ""))
+    );
+
+  if (queryEmbedding) {
+    const candidateIds = scored.slice(0, 80).map((item) => item.row.candidate_id);
+    if (candidateIds.length) {
+      const { data, error } = await supabase.rpc("search_semantic_rerank_v1", {
+        p_query_embedding: queryEmbedding,
+        p_tenant_ids: tenantIds.length ? tenantIds : null,
+        p_candidate_ids: candidateIds,
+        p_embedding_version: embeddingVersion,
+        p_limit: Math.max(100, limit * 20),
+      });
+
+      if (!error) {
+        const semanticByCandidate = new Map(
+          ((data ?? []) as Array<{ candidate_id: string; best_similarity: number | null }>).map((item) => [
+            item.candidate_id,
+            toFiniteNumber(item.best_similarity),
+          ]),
+        );
+        scored = scored
+          .map((item) => {
+            const semanticScore = semanticByCandidate.get(item.row.candidate_id) ?? 0;
+            return {
+              ...item,
+              score: Math.min(0.99, Math.max(item.score, (item.score * 0.55) + (semanticScore * 0.45))),
+            };
+          })
+          .sort((left, right) =>
+            right.score - left.score
+            || toFiniteNumber(right.row.years_experience) - toFiniteNumber(left.row.years_experience)
+            || String(left.row.name ?? "").localeCompare(String(right.row.name ?? ""))
+          );
+      }
+    }
+  }
+
+  return scored.slice(offset, offset + limit).map((item) => mapFastProfileResult(item.row, item.score, filters, rankVersion));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -107,15 +416,25 @@ Deno.serve(async (req) => {
     const tenantIds = asStringArray(body.tenant_ids);
     const requestFilters = normalizeExplicitFilters((body.filters ?? {}) as Record<string, unknown>);
     let intentSource = "rule_based";
-    let llmIntent: SearchIntentPayload | null = null;
+    const useSemanticSearch = body.semantic !== false && (query.trim().length > 0 || Array.isArray(body.query_embedding));
+    const llmIntentPromise = extractIntentWithLlm(query, requestFilters).catch(() => null);
+    const queryEmbeddingPromise = !useSemanticSearch
+      ? Promise.resolve({
+          embedding: null,
+          embeddingVersion: null,
+          provider: "disabled",
+        })
+      : Array.isArray(body.query_embedding)
+      ? Promise.resolve({
+          embedding: body.query_embedding,
+          embeddingVersion: typeof body.embedding_version === "string" ? body.embedding_version : null,
+          provider: "client",
+        })
+      : buildQueryEmbedding(query);
 
-    try {
-      llmIntent = await extractIntentWithLlm(query, requestFilters);
-      if (llmIntent) {
-        intentSource = "llm";
-      }
-    } catch {
-      llmIntent = null;
+    const llmIntent = await llmIntentPromise;
+    if (llmIntent) {
+      intentSource = "llm";
     }
 
     const filters = resolveSearchFilters(query, {
@@ -126,25 +445,53 @@ Deno.serve(async (req) => {
       skills: requestFilters.skills,
       companies: requestFilters.companies,
     }, llmIntent);
-    const queryEmbeddingPayload = Array.isArray(body.query_embedding)
-      ? {
-          embedding: body.query_embedding,
-          embeddingVersion: typeof body.embedding_version === "string" ? body.embedding_version : null,
-          provider: "client",
-        }
-      : await buildQueryEmbedding(query);
+    const queryEmbeddingPayload = await queryEmbeddingPromise;
+    const limit = Math.max(1, Math.min(50, Math.trunc(Number(body.limit ?? 20))));
+    const offset = Math.max(0, Math.trunc(Number(body.offset ?? 0)));
+    const rankVersion = String(body.rank_version ?? "v2-rate");
+
+    if (!Array.isArray(body.query_embedding)) {
+      const results = attachMatchRates(await runFastProfileSearch(
+        supabase,
+        query,
+        filters,
+        requestFilters,
+        tenantIds,
+        limit,
+        offset,
+        rankVersion,
+        queryEmbeddingPayload.embedding,
+        queryEmbeddingPayload.embeddingVersion,
+      ));
+
+      return jsonResponse(200, {
+        results,
+        next_cursor: results.length < limit ? null : offset + limit,
+        meta: {
+          count: results.length,
+          rank_version: rankVersion,
+          intent_source: intentSource,
+          intent: filters,
+          explicit_filters: requestFilters,
+          tenant_ids: tenantIds,
+          embedding_provider: queryEmbeddingPayload.provider,
+          embedding_version: queryEmbeddingPayload.embeddingVersion,
+          search_engine: queryEmbeddingPayload.embedding ? "edge-profile-semantic-rerank" : "edge-profile-fast-path",
+        },
+      });
+    }
 
     const rpcPayload = {
       p_q: query,
       p_query_embedding: queryEmbeddingPayload.embedding,
-      p_limit: body.limit ?? 20,
-      p_offset: body.offset ?? 0,
+      p_limit: limit,
+      p_offset: offset,
       p_role: filters.role ?? null,
       p_seniority: filters.seniority ?? null,
       p_min_years: filters.min_years_experience ?? null,
       p_skills: filters.skills ?? [],
       p_embedding_version: queryEmbeddingPayload.embeddingVersion,
-      p_rank_version: body.rank_version ?? "v2-rate",
+      p_rank_version: rankVersion,
       p_tenant_ids: tenantIds.length ? tenantIds : null,
       p_filter_role: requestFilters.role ?? null,
       p_filter_seniority: requestFilters.seniority ?? null,
@@ -170,10 +517,10 @@ Deno.serve(async (req) => {
 
     return jsonResponse(200, {
       results,
-      next_cursor: results.length < (body.limit ?? 20) ? null : (body.offset ?? 0) + (body.limit ?? 20),
+      next_cursor: results.length < limit ? null : offset + limit,
       meta: {
         count: results.length,
-        rank_version: body.rank_version ?? "v2-rate",
+        rank_version: rankVersion,
         intent_source: intentSource,
         intent: filters,
         explicit_filters: requestFilters,
@@ -183,6 +530,6 @@ Deno.serve(async (req) => {
       },
     });
   } catch (error) {
-    return jsonResponse(500, { error: "unexpected_error", details: `${error}` });
+    return jsonResponse(500, { error: "unexpected_error", details: describeError(error) });
   }
 });

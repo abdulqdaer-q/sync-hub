@@ -134,6 +134,7 @@ DATE_RANGE_PATTERN = re.compile(
 )
 SENIOR_SIGNAL_RE = re.compile(r"\b(senior|principal|staff|lead|architect|head of)\b", re.IGNORECASE)
 JUNIOR_SIGNAL_RE = re.compile(r"\b(junior|intern|entry(?:\s|-)?level)\b", re.IGNORECASE)
+MAX_REASONABLE_YEARS_EXPERIENCE = 80.0
 GENERIC_EXPERIENCE_TITLE_RE = re.compile(
     r"\b(project leadership|client engagement|key achievements?|responsibilities|achievements?)\b",
     re.IGNORECASE,
@@ -631,7 +632,7 @@ def infer_years_experience(profile: CandidateProfile) -> float:
             tolerance = min(tolerance, 1.0)
         if reference == 0.0 or explicit_years <= reference + tolerance:
             candidates.append(explicit_years)
-    return max(candidates, default=0.0)
+    return min(MAX_REASONABLE_YEARS_EXPERIENCE, max(candidates, default=0.0))
 
 
 def infer_seniority(profile: CandidateProfile, years_experience: float) -> str:

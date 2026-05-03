@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from dataclasses import replace
 from typing import Sequence
 
 from .config import WorkerConfig
@@ -24,6 +26,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest = subparsers.add_parser("ingest", help="Parse and ingest CV files", parents=[common])
     ingest.add_argument("inputs", nargs="*", help="Files or directories to scan")
+    ingest.add_argument("--concurrency", type=int, default=None, help="Number of documents to process in parallel")
+    ingest.add_argument("--sync-batch-size", type=int, default=None, help="Number of completed bundles to sync per Supabase batch")
+    ingest.add_argument("--supabase-row-batch-size", type=int, default=None, help="Maximum rows per Supabase upsert request")
+    ingest.add_argument("--no-progress", action="store_true", help="Disable progress messages on stderr")
 
     compare = subparsers.add_parser("compare", help="Build a cached comparison artifact from local bundles", parents=[common])
     compare.add_argument("--candidate-id", dest="candidate_ids", action="append", required=True, help="Candidate ID to include; pass multiple times")
@@ -36,6 +42,17 @@ def _json_output(payload: object, pretty: bool) -> str:
     if pretty:
         return json.dumps(payload, indent=2, sort_keys=True)
     return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+
+
+def _config_with_ingest_overrides(config: WorkerConfig, args: argparse.Namespace) -> WorkerConfig:
+    updates = {}
+    if args.concurrency is not None:
+        updates["ingest_concurrency"] = args.concurrency
+    if args.sync_batch_size is not None:
+        updates["batch_size"] = args.sync_batch_size
+    if args.supabase_row_batch_size is not None:
+        updates["supabase_batch_size"] = args.supabase_row_batch_size
+    return replace(config, **updates) if updates else config
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -56,17 +73,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "ingest":
+        config = _config_with_ingest_overrides(config, args)
         pipeline = IngestionPipeline(config=config)
+        progress = None if args.no_progress else (lambda message: print(message, file=sys.stderr, flush=True))
         result = pipeline.ingest_paths(
             inputs=discovery_inputs,
             tenant_id=tenant_id,
             uploaded_by=args.uploaded_by,
             sync_to_supabase=not args.no_sync,
+            progress=progress,
         )
         payload = {
             "ingestion_run_id": result.ingestion_run_id,
+            "discovered": result.total_discovered,
             "processed": len(result.bundles),
             "failures": result.failures,
+            "warnings": result.warnings,
+            "sync_stats": result.sync_stats,
             "candidate_ids": [bundle.profile.candidate_id for bundle in result.bundles],
         }
         print(_json_output(payload, pretty=args.pretty))

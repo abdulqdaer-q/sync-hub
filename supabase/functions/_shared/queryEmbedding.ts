@@ -10,6 +10,19 @@ function isLocalRuntime() {
   return supabaseUrl.includes("127.0.0.1") || supabaseUrl.includes("localhost");
 }
 
+function envNumber(name: string, fallback: number) {
+  const value = envText(name);
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeGeminiModelName(model: string) {
+  return model.startsWith("models/") ? model : `models/${model}`;
+}
+
 export async function buildQueryEmbedding(query: string) {
   const normalized = query.trim();
   if (!normalized) {
@@ -18,6 +31,48 @@ export async function buildQueryEmbedding(query: string) {
       embeddingVersion: DETERMINISTIC_EMBEDDING_VERSION,
       provider: "none",
     };
+  }
+
+  const geminiApiKey = envText("GEMINI_API_KEY");
+  if (geminiApiKey) {
+    const geminiModel = envText("GEMINI_EMBEDDING_MODEL") ?? envText("CV_EMBEDDING_MODEL") ?? "gemini-embedding-001";
+    const outputDimensionality = envNumber("GEMINI_EMBEDDING_DIMENSION", envNumber("CV_EMBEDDING_DIMENSION", 768));
+    const normalizedModel = normalizeGeminiModelName(geminiModel);
+    try {
+      const geminiBaseUrl = envText("GEMINI_BASE_URL") ?? "https://generativelanguage.googleapis.com/v1beta";
+      const response = await fetch(`${geminiBaseUrl.replace(/\/$/, "")}/${normalizedModel}:embedContent?key=${geminiApiKey}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: normalizedModel,
+          content: {
+            parts: [{ text: normalized }],
+          },
+          taskType: "RETRIEVAL_QUERY",
+          outputDimensionality,
+        }),
+      });
+
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(`gemini_embed_error:${response.status}:${JSON.stringify(payload)}`);
+      }
+
+      const values = Array.isArray(payload?.embedding?.values) ? payload.embedding.values : null;
+      if (!values) {
+        throw new Error("gemini_embed_error:missing_embedding");
+      }
+
+      return {
+        embedding: values as number[],
+        embeddingVersion: envText("GEMINI_EMBEDDING_VERSION") ?? envText("CV_EMBEDDING_VERSION") ?? `${geminiModel}-${outputDimensionality}-v1`,
+        provider: "gemini",
+      };
+    } catch {
+      // Fall through to local/deterministic embedding so search still responds.
+    }
   }
 
   const ollamaModel = envText("OLLAMA_EMBEDDING_MODEL") ?? (isLocalRuntime() ? "nomic-embed-text" : null);
