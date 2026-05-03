@@ -800,7 +800,11 @@ as $$
 declare
   cutoff timestamptz;
 begin
-  if auth.role() <> 'service_role' and not public.is_platform_admin() then
+  if auth.role() <> 'service_role'
+    and current_user not in ('postgres', 'supabase_admin')
+    and session_user not in ('postgres', 'supabase_admin')
+    and not public.is_platform_admin()
+  then
     raise exception 'not authorized to prune ops telemetry';
   end if;
 
