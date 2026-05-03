@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useDropdownPlacement } from "@/lib/dropdownPlacement";
 
 type FilterMultiSelectProps = {
   options: string[];
@@ -29,6 +30,7 @@ export function FilterMultiSelect({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
+  const menuPlacement = useDropdownPlacement(rootRef, open, 320);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -123,7 +125,10 @@ export function FilterMultiSelect({
       </button>
 
       {open ? (
-        <div className="filter-multiselect__menu">
+        <div
+          className={cn("filter-multiselect__menu", menuPlacement.direction === "above" && "filter-multiselect__menu--above")}
+          style={{ maxHeight: menuPlacement.maxHeight }}
+        >
           <div className="filter-multiselect__search">
             <Search size={14} />
             <input
@@ -157,7 +162,7 @@ export function FilterMultiSelect({
               </button>
             ) : null}
 
-            {filteredOptions.slice(0, 10).map((option) => (
+            {filteredOptions.map((option) => (
               <button key={option} type="button" className="filter-multiselect__option" onClick={() => addValues([option])}>
                 {option}
               </button>

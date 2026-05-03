@@ -6,6 +6,7 @@ import type {
   ParsingOverview,
   TimelineEntry,
 } from "@/lib/contracts";
+import { formatYearsExperience } from "@/lib/experience";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -289,7 +290,7 @@ function buildCoverage(
       state: yearsExperience > 0 && seniority && primaryRole ? "parsed" : yearsExperience > 0 || seniority || primaryRole ? "partial" : "missing",
       detail:
         yearsExperience > 0 || seniority || primaryRole
-          ? `${yearsExperience > 0 ? `${yearsExperience} yrs` : "No years"} · ${seniority || "No seniority"} · ${primaryRole || "No primary role"}`
+          ? `${yearsExperience > 0 ? formatYearsExperience(yearsExperience, "yrs") : "No years"} · ${seniority || "No seniority"} · ${primaryRole || "No primary role"}`
           : "No derived recruiter-facing facets were populated.",
     },
   ];

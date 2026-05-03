@@ -4,6 +4,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { buildChatHref } from "@/lib/chatAgent";
 import type { CandidateDetail, MatchSignals } from "@/lib/contracts";
 import { useAuth } from "@/lib/auth";
+import { formatYearsExperience } from "@/lib/experience";
 import { platformApi } from "@/lib/platformApi";
 import { Avatar, EmptyState, PageIntro, Panel, ScorePill, Tag } from "@/components/ui";
 
@@ -173,7 +174,7 @@ export function CandidateDossierPage() {
                     {currentEmployer}
                   </span>
                 ) : null}
-                <span className="tag">{candidate.yearsExperience} years experience</span>
+                <span className="tag">{formatYearsExperience(candidate.yearsExperience)} experience</span>
               </div>
             </div>
           </div>

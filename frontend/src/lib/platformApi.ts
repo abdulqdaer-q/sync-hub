@@ -46,7 +46,7 @@ import {
   type ParsingProfileRow,
   type ParsingSourceDocumentRow,
 } from "@/lib/parsingQuality";
-import { formatSeniorityValue, normalizeSeniorityValue, normalizeSkillList, SEARCH_SENIORITY_TABLE, SEARCH_SKILL_TABLE } from "@/lib/searchTaxonomy";
+import { formatSeniorityValue, normalizeLocationValue, normalizeSeniorityValue, normalizeSkillList, SEARCH_SENIORITY_TABLE, SEARCH_SKILL_TABLE } from "@/lib/searchTaxonomy";
 import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
 
 type JsonRecord = Record<string, unknown>;
@@ -283,7 +283,11 @@ async function fetchParsingOverviewSnapshotRpc(tenantIds: string[]): Promise<Par
 }
 
 function normalizeSearchText(value: unknown) {
-  return String(value ?? "").toLowerCase().trim();
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9+#.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function tokenizeQuery(query: string) {
@@ -298,13 +302,161 @@ function includesAllNeedles(haystack: string, needles: string[]) {
   return needles.every((needle) => haystack.includes(normalizeSearchText(needle)));
 }
 
-function rowMatchesFastFilters(row: CandidateSearchRow, filters: ReturnType<typeof normalizeSearchFilters>) {
-  const skills = toStringArray(row.skills).map(normalizeSearchText);
-  const companies = toStringArray(row.companies).map(normalizeSearchText);
-  const roleText = normalizeSearchText(`${row.primary_role ?? ""} ${row.current_title ?? ""} ${row.headline ?? ""}`);
-  const location = normalizeSearchText(row.location);
+const GENERIC_TITLE_QUERY_TOKENS = new Set([
+  "candidate",
+  "developer",
+  "development",
+  "dev",
+  "engineer",
+  "engineering",
+  "expert",
+  "junior",
+  "lead",
+  "manager",
+  "mid",
+  "person",
+  "people",
+  "principal",
+  "role",
+  "senior",
+  "software",
+  "specialist",
+  "staff",
+]);
 
-  if (filters.role && !roleText.includes(normalizeSearchText(filters.role))) {
+function roleSearchAliases(role: string | null | undefined) {
+  switch (role) {
+    case "frontend":
+      return ["frontend", "front end", "front-end", "web developer", "web application engineer", "ui developer"];
+    case "backend":
+      return ["backend", "back end", "back-end", "api developer", "server developer", "server engineer"];
+    case "full-stack":
+      return ["full-stack", "full stack", "fullstack"];
+    case "mobile":
+      return ["mobile", "android", "ios", "flutter", "react native"];
+    case "devops":
+      return ["devops", "sre", "kubernetes", "terraform", "platform"];
+    case "data":
+      return ["data", "analytics", "etl", "bi"];
+    case "ml":
+      return ["ml", "ai", "machine learning", "llm"];
+    case "qa":
+      return ["qa", "quality", "test", "automation"];
+    case "security":
+      return ["security", "cybersecurity", "soc"];
+    default:
+      return role ? [role] : [];
+  }
+}
+
+function roleSkillAliases(role: string | null | undefined) {
+  switch (role) {
+    case "frontend":
+      return ["react", "angular", "vue", "next.js", "nextjs", "javascript", "typescript", "html", "css", "tailwind", "bootstrap"];
+    case "backend":
+      return ["node.js", "node", "django", "flask", ".net", "asp.net", "java", "php", "laravel", "api", "rest api", "postgresql", "mysql"];
+    case "full-stack":
+      return ["react", "angular", "vue", "node.js", "node", ".net", "django", "laravel", "javascript", "typescript"];
+    case "mobile":
+      return ["android", "ios", "flutter", "react native", "swift", "kotlin", "dart"];
+    case "devops":
+      return ["kubernetes", "terraform", "docker", "aws", "azure", "ci/cd"];
+    case "data":
+      return ["data analysis", "analytics", "etl", "bi", "sql", "python", "pandas"];
+    case "ml":
+      return ["machine learning", "ml", "ai", "llm", "tensorflow", "pytorch"];
+    case "qa":
+      return ["qa", "quality assurance", "testing", "automation testing", "selenium"];
+    case "security":
+      return ["security", "cybersecurity", "soc", "penetration testing"];
+    default:
+      return [];
+  }
+}
+
+function roleCompatibilityScore(row: CandidateSearchRow, role: string | null | undefined) {
+  const primaryRole = normalizeSearchText(row.primary_role);
+  if (!role || !primaryRole) {
+    return 0;
+  }
+  const normalizedRole = normalizeSearchText(role);
+  if (primaryRole === "full stack" && (normalizedRole === "frontend" || normalizedRole === "backend")) {
+    return 0.78;
+  }
+  if (normalizedRole === "full stack" && primaryRole === "full stack") {
+    return 0.78;
+  }
+  return 0;
+}
+
+function aliasHitCount(text: string, aliases: string[]) {
+  return new Set(aliases.map(normalizeSearchText).filter((alias) => alias && text.includes(alias))).size;
+}
+
+function genericEngineeringTitleScore(row: CandidateSearchRow, role: string | null | undefined) {
+  const title = normalizeSearchText(row.current_title);
+  if (!title || !role) {
+    return 0;
+  }
+  if (role === "frontend" && /\b(?:software|ui|front end|frontend)\b/.test(title)) {
+    return 0.66;
+  }
+  if (role === "backend" && /\b(?:software|backend|back end|api|server)\b/.test(title)) {
+    return 0.66;
+  }
+  return 0;
+}
+
+function roleMatchScore(row: CandidateSearchRow, role: string | null | undefined) {
+  const aliases = roleSearchAliases(role).map(normalizeSearchText).filter(Boolean);
+  if (!aliases.length) {
+    return 0;
+  }
+  const titleText = normalizeSearchText(row.current_title);
+  if (aliases.some((alias) => titleText.includes(alias))) {
+    return 1;
+  }
+
+  const skillHits = aliasHitCount(normalizeSearchText(toStringArray(row.skills).join(" ")), roleSkillAliases(role));
+  const supportScore = Math.max(genericEngineeringTitleScore(row, role), roleCompatibilityScore(row, role) * 0.86);
+  if (skillHits >= 2 && supportScore > 0) {
+    return Math.max(0.72, supportScore);
+  }
+  if (skillHits > 0 && supportScore > 0) {
+    return Math.max(supportScore, 0.58);
+  }
+  return 0;
+}
+
+function titleIntentScore(row: CandidateSearchRow, query: string, role: string | null | undefined) {
+  const title = normalizeSearchText(row.current_title);
+  const skillsText = normalizeSearchText(toStringArray(row.skills).join(" "));
+  const aliases = roleSearchAliases(role).map(normalizeSearchText).filter(Boolean);
+  const focusTokens = tokenizeQuery(query).filter((token) => !GENERIC_TITLE_QUERY_TOKENS.has(token));
+
+  if (aliases.some((alias) => title.includes(alias))) {
+    return 1;
+  }
+
+  const titleTokenScore = focusTokens.length
+    ? focusTokens.filter((token) => title.includes(token)).length / focusTokens.length
+    : 0;
+  const skillHits = aliasHitCount(skillsText, roleSkillAliases(role));
+  const skillAliasScore = skillHits >= 2 ? 0.72 : skillHits === 1 ? 0.58 : 0;
+  const skillTokenScore = focusTokens.length
+    ? 0.68 * (focusTokens.filter((token) => skillsText.includes(token)).length / focusTokens.length)
+    : 0;
+
+  return Math.max(titleTokenScore, skillAliasScore, skillTokenScore, genericEngineeringTitleScore(row, role));
+}
+
+function rowMatchesFastFilters(row: CandidateSearchRow, filters: ReturnType<typeof normalizeSearchFilters>) {
+  const skills = normalizeSkillList(toStringArray(row.skills)).map(normalizeSearchText);
+  const companies = toStringArray(row.companies).map(normalizeSearchText);
+  const location = normalizeSearchText(normalizeLocationValue(row.location) ?? row.location);
+  const filterLocation = normalizeSearchText(normalizeLocationValue(filters.location) ?? filters.location);
+
+  if (filters.role && roleMatchScore(row, filters.role) <= 0) {
     return false;
   }
   if (filters.seniority && normalizeSearchText(row.seniority) !== normalizeSearchText(filters.seniority)) {
@@ -313,7 +465,7 @@ function rowMatchesFastFilters(row: CandidateSearchRow, filters: ReturnType<type
   if (filters.min_years_experience !== null && toNumber(row.years_experience) < filters.min_years_experience) {
     return false;
   }
-  if (filters.location && !location.includes(normalizeSearchText(filters.location))) {
+  if (filters.location && !location.includes(filterLocation) && !normalizeSearchText(row.location).includes(normalizeSearchText(filters.location))) {
     return false;
   }
   if (filters.skills.length && !filters.skills.every((skill) => skills.includes(normalizeSearchText(skill)))) {
@@ -328,14 +480,18 @@ function rowMatchesFastFilters(row: CandidateSearchRow, filters: ReturnType<type
 function fastRowScore(row: CandidateSearchRow, query: string, filters: ReturnType<typeof normalizeSearchFilters>) {
   const tokens = tokenizeQuery(query);
   const name = normalizeSearchText(row.name);
-  const title = normalizeSearchText(`${row.current_title ?? ""} ${row.headline ?? ""} ${row.primary_role ?? ""}`);
-  const skills = toStringArray(row.skills).join(" ");
+  const title = normalizeSearchText(row.current_title);
+  const skills = normalizeSkillList(toStringArray(row.skills)).join(" ");
   const companies = toStringArray(row.companies).join(" ");
   const summary = normalizeSearchText(`${row.summary_short ?? ""} ${row.stored_short_summary ?? ""}`);
   const haystack = normalizeSearchText(`${name} ${title} ${skills} ${companies} ${summary} ${row.location ?? ""}`);
+  const titleScore = titleIntentScore(row, query, filters.role);
+  const roleScore = roleMatchScore(row, filters.role);
 
   if (tokens.length && !includesAllNeedles(haystack, tokens)) {
-    return 0;
+    if (!filters.role || titleScore < 0.5) {
+      return 0;
+    }
   }
 
   let score = tokens.length ? 0.08 : 0.25;
@@ -360,12 +516,21 @@ function fastRowScore(row: CandidateSearchRow, query: string, filters: ReturnTyp
   if (filters.role && title.includes(normalizeSearchText(filters.role))) {
     score += 0.14;
   }
+  score = Math.max(score, titleScore * 0.82, roleScore * 0.76);
   if (filters.skills.length) {
-    const skillSet = new Set(toStringArray(row.skills).map(normalizeSearchText));
+    const skillSet = new Set(normalizeSkillList(toStringArray(row.skills)).map(normalizeSearchText));
     score += 0.18 * (filters.skills.filter((skill) => skillSet.has(normalizeSearchText(skill))).length / filters.skills.length);
   }
   if (filters.min_years_experience !== null) {
     score += 0.08 * Math.min(1, toNumber(row.years_experience) / Math.max(1, filters.min_years_experience));
+  }
+
+  if (filters.role && roleScore <= 0 && titleScore < 0.5) {
+    score *= 0.35;
+  }
+
+  if (filters.role && titleScore >= 0.9) {
+    score += 0.06;
   }
 
   return Math.min(0.99, score);
@@ -442,7 +607,7 @@ function normalizeSearchFilters(filters: SearchFilters) {
       typeof filters.minYearsExperience === "number" && filters.minYearsExperience > 0
         ? filters.minYearsExperience
         : null,
-    location: filters.location?.trim() || null,
+    location: normalizeLocationValue(filters.location, { allowFallback: false }) ?? null,
     skills: normalizeSkillList(filters.skills ?? []),
     companies: dedupeSorted((filters.companies ?? []).map((company) => company.trim())),
   };
@@ -792,16 +957,14 @@ function mapSearchFilterOptions(rows: CandidateSearchFacetRow[]): SearchFilterOp
     label: formatSeniorityValue(value) || value,
   }));
 
-  const skills = dedupeSorted(
-    rows.flatMap((row) => row.skills ?? []),
-  );
+  const skills = dedupeSorted(normalizeSkillList(rows.flatMap((row) => row.skills ?? [])));
   const companies = dedupeSorted(
     rows.flatMap((row) => row.companies ?? []),
   );
   const locations = dedupeSorted(
     rows
-      .map((row) => row.location ?? "")
-      .filter(Boolean),
+      .map((row) => normalizeLocationValue(row.location))
+      .filter((value): value is string => Boolean(value)),
   );
 
   const fallback = createFallbackSearchFilterOptions();

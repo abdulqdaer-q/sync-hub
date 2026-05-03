@@ -30,12 +30,11 @@ const operationsRoutes = [
 ];
 
 type SidebarProps = {
-  mobileOpen: boolean;
-  isMobile: boolean;
+  open: boolean;
   onClose: () => void;
 };
 
-export function Sidebar({ mobileOpen, isMobile, onClose }: SidebarProps) {
+export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
   const { currentTenant, userEmail, isAdmin } = useAuth();
   const isAdminRoute = location.pathname === "/admin" || location.pathname.startsWith("/admin/");
@@ -48,14 +47,12 @@ export function Sidebar({ mobileOpen, isMobile, onClose }: SidebarProps) {
   }, [isAdminRoute]);
 
   return (
-    <aside className={cn("sidebar", mobileOpen && "sidebar--open")}>
+    <aside className={cn("sidebar", open && "sidebar--open")}>
       <div className="sidebar__header">
         <SyncBrand />
-        {isMobile ? (
-          <button className="icon-button sidebar__close" onClick={onClose} aria-label="Close navigation" type="button">
-            <X size={18} />
-          </button>
-        ) : null}
+        <button className="icon-button sidebar__close" onClick={onClose} aria-label="Close navigation" type="button">
+          <X size={18} />
+        </button>
       </div>
 
       <Link to="/search" className="button button--primary button--full" onClick={onClose}>

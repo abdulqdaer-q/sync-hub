@@ -35,6 +35,29 @@ def slugify(value: str) -> str:
     return NON_ALNUM_RE.sub("-", value.lower()).strip("-")
 
 
+def skill_slugify(value: str) -> str:
+    token = compact_whitespace(value).lower()
+    special = {
+        ".net": "dotnet",
+        "c#": "c-sharp",
+        "c++": "cpp",
+        "ci/cd": "ci-cd",
+        "ui/ux": "ui-ux",
+        "tcp/ip": "tcp-ip",
+        "r&d": "r-and-d",
+    }
+    if token in special:
+        return special[token]
+    token = token.replace("c#", "c sharp")
+    token = token.replace("c++", "c plus plus")
+    token = token.replace("#", " sharp ")
+    token = token.replace("&", " and ")
+    token = token.replace("+", " plus ")
+    token = NON_ALNUM_RE.sub("-", token).strip("-")
+    token = re.sub(r"-+", "-", token)
+    return special.get(token, token)
+
+
 def normalize_email(value: str) -> str:
     return compact_whitespace(value).strip(" <>.,;:").lower()
 

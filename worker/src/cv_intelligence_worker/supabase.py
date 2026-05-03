@@ -11,7 +11,7 @@ from typing import Any, Iterable
 
 from .config import WorkerConfig
 from .schema import ArtifactBundle, ComparisonArtifact, dataclass_to_dict
-from .utils import normalize_email, slugify, stable_uuid, strip_nul_bytes, urlopen
+from .utils import normalize_email, skill_slugify, slugify, stable_uuid, strip_nul_bytes, urlopen
 
 
 def _vector_literal(values: list[float]) -> str:
@@ -449,7 +449,7 @@ class SupabaseClient:
         skill_rows = []
         seen_skill_slugs: set[str] = set()
         for skill in bundle.profile.skills:
-            skill_slug = slugify(skill)
+            skill_slug = skill_slugify(skill)
             if not skill_slug or skill_slug in seen_skill_slugs:
                 continue
             seen_skill_slugs.add(skill_slug)

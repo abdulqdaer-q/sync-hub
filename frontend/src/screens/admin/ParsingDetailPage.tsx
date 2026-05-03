@@ -5,6 +5,7 @@ import { EmptyState, PageIntro, Panel, StatCard, Tag } from "@/components/ui";
 import { getParsingDocument as getFallbackParsingDocument } from "@/data/mockData";
 import { useAuth } from "@/lib/auth";
 import type { ParsingDocumentDetail } from "@/lib/contracts";
+import { formatYearsExperience } from "@/lib/experience";
 import { platformApi } from "@/lib/platformApi";
 
 function toneForField(state: ParsingDocumentDetail["fieldCoverage"][number]["state"]) {
@@ -243,7 +244,7 @@ export function ParsingDetailPage() {
                 <div className="skill-list">
                   <Tag tone="primary">{detail.seniority}</Tag>
                   <Tag>{detail.primaryRole}</Tag>
-                  <Tag>{detail.yearsExperience} yrs</Tag>
+                  <Tag>{formatYearsExperience(detail.yearsExperience, "yrs")}</Tag>
                 </div>
               </div>
 

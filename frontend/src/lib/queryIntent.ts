@@ -2,6 +2,7 @@ import type { SearchFilters } from "@/lib/contracts";
 import {
   extractSeniorityFromText,
   extractSkillsFromText,
+  normalizeLocationValue,
   normalizeSeniorityValue,
   normalizeSkillList,
   parseSkillInput,
@@ -12,6 +13,7 @@ type SearchFilterInputs = {
   seniority?: string;
   minYearsExperience?: number;
   skills?: string[];
+  companies?: string[];
   location?: string;
 };
 
@@ -66,9 +68,47 @@ function extractMinYears(query: string) {
   return Number.isFinite(value) ? value : undefined;
 }
 
+function canonicalizeCompanyName(value: string) {
+  const trimmed = value
+    .replace(/[.;,]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!trimmed) {
+    return "";
+  }
+  return /^[a-z\s&.'-]+$/.test(trimmed)
+    ? trimmed.replace(/\b\w/g, (match) => match.toUpperCase())
+    : trimmed;
+}
+
+function extractCompaniesFromQuery(query: string) {
+  const companies: string[] = [];
+  const patterns = [
+    /\b(?:worked|work|working|experience)\s+(?:with|at|for)\s+([a-z0-9&.'\-\s]{2,80})/gi,
+    /\b(?:from|at)\s+([a-z0-9&.'\-]{2,40})\s+(?:company|companies|team|teams)\b/gi,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of query.matchAll(pattern)) {
+      const raw = String(match[1] ?? "")
+        .split(/\b(?:with|using|who|that|where|having|knowledge|and then)\b/i)[0]
+        .trim();
+      for (const company of raw.split(/\s+(?:and|or)\s+|[,/;]/i)) {
+        const canonical = canonicalizeCompanyName(company);
+        if (canonical) {
+          companies.push(canonical);
+        }
+      }
+    }
+  }
+
+  return Array.from(new Set(companies));
+}
+
 export function deriveSearchFilters(query: string, filters: SearchFilterInputs): SearchFilters {
   const explicitSkills = normalizeSkillList(filters.skills ?? []);
   const inferredSkills = explicitSkills.length ? explicitSkills : extractSkillsFromQuery(query);
+  const explicitCompanies = Array.from(new Set((filters.companies ?? []).map((company) => company.trim()).filter(Boolean)));
   const derivedRole = filters.role || extractRole(query);
   const derivedSeniority = normalizeSeniorityValue(filters.seniority) ?? extractSeniority(query);
   const explicitMinYears =
@@ -81,7 +121,8 @@ export function deriveSearchFilters(query: string, filters: SearchFilterInputs):
     role: derivedRole || undefined,
     seniority: derivedSeniority || undefined,
     minYearsExperience: derivedMinYears ?? 0,
-    location: filters.location?.trim() || undefined,
+    location: normalizeLocationValue(filters.location) ?? normalizeLocationValue(query, { allowFallback: false }),
     skills: inferredSkills,
+    companies: explicitCompanies.length ? explicitCompanies : extractCompaniesFromQuery(query),
   };
 }

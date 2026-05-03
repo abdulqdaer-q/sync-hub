@@ -3,7 +3,7 @@ import { createAuthedClient } from "../_shared/client.ts";
 import { generateStructuredObject } from "../_shared/llm.ts";
 import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
 import { buildSearchIntentConfig, resolveSearchFilters, type SearchIntentPayload } from "../_shared/searchIntent.ts";
-import { normalizeSeniorityValue, normalizeSkillList } from "../_shared/searchTaxonomy.ts";
+import { normalizeLocationValue, normalizeSeniorityValue, normalizeSkillList } from "../_shared/searchTaxonomy.ts";
 
 function asString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -79,7 +79,7 @@ function normalizeExplicitFilters(filters: Record<string, unknown>) {
     role: asString(filters.role),
     seniority: normalizeSeniorityValue(asString(filters.seniority)) ?? null,
     min_years_experience: minYearsRaw !== null && minYearsRaw > 0 ? minYearsRaw : null,
-    location: asString(filters.location),
+    location: normalizeLocationValue(asString(filters.location), { allowFallback: false }) ?? null,
     skills: normalizeSkillList(asStringArray(filters.skills)),
     companies: asStringArray(filters.companies),
   };

@@ -4,36 +4,21 @@ import { Sidebar } from "@/components/navigation/Sidebar";
 import { Topbar } from "@/components/navigation/Topbar";
 
 export function AppShell() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(() => (typeof window !== "undefined" ? window.innerWidth <= 960 : false));
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const location = useLocation();
 
   useEffect(() => {
-    setMobileOpen(false);
+    setNavigationOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    function syncViewport() {
-      const nextIsMobile = window.innerWidth <= 960;
-      setIsMobile(nextIsMobile);
-      if (!nextIsMobile) {
-        setMobileOpen(false);
-      }
-    }
-
-    syncViewport();
-    window.addEventListener("resize", syncViewport);
-    return () => window.removeEventListener("resize", syncViewport);
-  }, []);
 
   return (
     <div className="app-shell">
       <div className="ambient ambient--one" />
       <div className="ambient ambient--two" />
-      <Sidebar mobileOpen={mobileOpen} isMobile={isMobile} onClose={() => setMobileOpen(false)} />
-      {isMobile && mobileOpen ? <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" type="button" /> : null}
+      <Sidebar open={navigationOpen} onClose={() => setNavigationOpen(false)} />
+      {navigationOpen ? <button className="sidebar-scrim" onClick={() => setNavigationOpen(false)} aria-label="Close navigation" type="button" /> : null}
       <div className="app-shell__main">
-        <Topbar showNavigationToggle={isMobile} onOpenNavigation={() => setMobileOpen(true)} />
+        <Topbar onOpenNavigation={() => setNavigationOpen(true)} />
         <main className="app-shell__content">
           <Outlet />
         </main>

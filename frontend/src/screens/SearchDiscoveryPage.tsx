@@ -1,5 +1,5 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUp, BriefcaseBusiness, Building2, CheckCircle2, FileText, MapPin, MessageSquareText, Search, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { ArrowRight, ArrowUp, BriefcaseBusiness, Building2, CheckCircle2, FileText, MapPin, MessageSquareText, Search, ShieldCheck, SlidersHorizontal, Sparkles, Users, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { PlatformScopeControl } from "@/components/PlatformScopeControl";
 import { FilterMultiSelect } from "@/components/FilterMultiSelect";
@@ -8,10 +8,11 @@ import { defaultSearchQuery } from "@/data/mockData";
 import { buildChatHref } from "@/lib/chatAgent";
 import type { SearchFilterOptions, SearchFilters, SearchResponse, WorkspaceStats } from "@/lib/contracts";
 import { useAuth } from "@/lib/auth";
+import { formatYearsExperience } from "@/lib/experience";
 import { platformApi } from "@/lib/platformApi";
 import { usePlatformScope } from "@/lib/platformScope";
-import { parseSkillText } from "@/lib/queryIntent";
-import { Avatar, EmptyState, PageIntro, Panel, ProgressBar, ScorePill, StatCard, Tag } from "@/components/ui";
+import { deriveSearchFilters, parseSkillText } from "@/lib/queryIntent";
+import { Avatar, EmptyState, PageIntro, Panel, ScorePill, StatCard, Tag } from "@/components/ui";
 
 type SearchRequest = {
   query: string;
@@ -28,6 +29,99 @@ type SearchSortOption =
   | "name-desc";
 
 const PAGE_SIZE = 8;
+
+const SEARCH_LOADING_STEPS = [
+  {
+    label: "Reading intent",
+    detail: "Extracting role, seniority, years, skills, companies, and location from the search.",
+  },
+  {
+    label: "Normalizing filters",
+    detail: "Cleaning aliases like .NET, Front-End, Damascus, and country-level location matches.",
+  },
+  {
+    label: "Scanning profiles",
+    detail: "Looking through indexed candidate titles, skills, summaries, and experience signals.",
+  },
+  {
+    label: "Ranking matches",
+    detail: "Balancing exact title evidence with semantic fit and calibrated match rate.",
+  },
+  {
+    label: "Preparing results",
+    detail: "Sorting the strongest profiles and packaging the first ranked candidates.",
+  },
+];
+
+const SEARCH_LOADING_PHRASES = [
+  "Asking the index better questions",
+  "Reading the recruiter intent",
+  "Separating title evidence from noise",
+  "Checking seniority and years of experience",
+  "Normalizing skills and locations",
+  "Comparing exact matches with semantic fit",
+  "Calibrating the match rate",
+  "Preparing the strongest candidates",
+];
+
+function pickSearchLoadingPhrase(previous?: string) {
+  const pool = SEARCH_LOADING_PHRASES.filter((phrase) => phrase !== previous);
+  return pool[Math.floor(Math.random() * pool.length)] ?? SEARCH_LOADING_PHRASES[0];
+}
+
+function SearchProcessingState() {
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
+  const [phrase, setPhrase] = useState(() => pickSearchLoadingPhrase());
+  const activeStep = SEARCH_LOADING_STEPS[activeStepIndex] ?? SEARCH_LOADING_STEPS[0];
+
+  useEffect(() => {
+    const stepTimer = window.setInterval(() => {
+      setActiveStepIndex((currentIndex) => (currentIndex + 1) % SEARCH_LOADING_STEPS.length);
+    }, 1100);
+    const phraseTimer = window.setInterval(() => {
+      setPhrase((currentPhrase) => pickSearchLoadingPhrase(currentPhrase));
+    }, 1450);
+
+    return () => {
+      window.clearInterval(stepTimer);
+      window.clearInterval(phraseTimer);
+    };
+  }, []);
+
+  return (
+    <Panel className="search-processing-panel" aria-busy="true" aria-label="Searching candidates">
+      <div className="search-processing-visual" aria-hidden="true">
+        <span className="search-processing-ring search-processing-ring--outer" />
+        <span className="search-processing-ring search-processing-ring--inner" />
+        <span className="search-processing-node search-processing-node--search">
+          <Search size={15} />
+        </span>
+        <span className="search-processing-node search-processing-node--talent">
+          <Users size={15} />
+        </span>
+        <div className="search-processing-core">
+          <Sparkles size={22} />
+        </div>
+      </div>
+      <div className="search-processing-copy">
+        <strong>AI search in progress</strong>
+        <span className="search-processing-phrase">{phrase}</span>
+        <p>{activeStep.detail}</p>
+      </div>
+      <div className="search-processing-steps">
+        {SEARCH_LOADING_STEPS.map((step, index) => (
+          <span
+            key={step.label}
+            className={index === activeStepIndex ? "search-processing-step search-processing-step--active" : "search-processing-step"}
+          >
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            {step.label}
+          </span>
+        ))}
+      </div>
+    </Panel>
+  );
+}
 
 export function SearchDiscoveryPage() {
   const { currentTenant } = useAuth();
@@ -249,6 +343,13 @@ export function SearchDiscoveryPage() {
       skills: selectedSkills,
       companies: selectedCompanies,
     };
+    const derivedFilters = deriveSearchFilters(normalizedQuery, explicitFilters);
+
+    setSeniority(derivedFilters.seniority ?? "");
+    setMinYears(derivedFilters.minYearsExperience ?? 0);
+    setLocation(derivedFilters.location ?? "");
+    setSelectedSkills(derivedFilters.skills ?? []);
+    setSelectedCompanies(derivedFilters.companies ?? []);
 
     setError(null);
     setResponse(null);
@@ -259,6 +360,21 @@ export function SearchDiscoveryPage() {
       offset: 0,
       limit: PAGE_SIZE,
     });
+  }
+
+  const activeFilterCount =
+    (seniority ? 1 : 0) +
+    (minYears > 0 ? 1 : 0) +
+    (location.trim() ? 1 : 0) +
+    selectedSkills.length +
+    selectedCompanies.length;
+
+  function handleClearFilters() {
+    setSeniority("");
+    setMinYears(0);
+    setLocation("");
+    setSelectedSkills([]);
+    setSelectedCompanies([]);
   }
 
   const topCompareHref =
@@ -275,17 +391,51 @@ export function SearchDiscoveryPage() {
           "Which candidate is the strongest overall fit and why?",
         )
       : null;
+  const workspaceStatsPanel = loadingWorkspaceStats ? (
+    <div className="stats-grid search-stats-grid" aria-busy="true" aria-label="Loading workspace statistics">
+      {["cv-pool", "candidate-profiles", "workspace"].map((item) => (
+        <Panel key={item} className="stat-card stat-card--loading">
+          <div className="stat-card__header">
+            <span className="stat-card__skeleton stat-card__skeleton--label" />
+            <span className="stat-card__skeleton stat-card__skeleton--icon" />
+          </div>
+          <div className="stat-card__value-row">
+            <span className="stat-card__skeleton stat-card__skeleton--value" />
+            <span className="stat-card__skeleton stat-card__skeleton--delta" />
+          </div>
+        </Panel>
+      ))}
+    </div>
+  ) : workspaceStats ? (
+    <div className="stats-grid search-stats-grid">
+      <StatCard
+        label="CV Pool"
+        value={workspaceStats.documentCount.toLocaleString()}
+        delta="indexed documents"
+        icon={<FileText size={16} />}
+      />
+      <StatCard
+        label="Candidate Profiles"
+        value={workspaceStats.candidateCount.toLocaleString()}
+        delta="searchable"
+        tone="secondary"
+        icon={<Users size={16} />}
+      />
+      <StatCard
+        label="Workspace"
+        value={isAllScope ? "All workspaces" : currentWorkspace?.name ?? currentTenant?.name ?? "Demo Workspace"}
+        delta={isAllScope ? `${workspaceOptions.length} workspaces` : currentWorkspace ? `${currentWorkspace.role} access` : "tenant-scoped pool"}
+        tone="tertiary"
+        icon={isAllScope ? <ShieldCheck size={16} /> : currentWorkspace ? <Building2 size={16} /> : <ShieldCheck size={16} />}
+      />
+    </div>
+  ) : null;
 
   return (
     <div className="page-stack">
       <PageIntro
-        eyebrow={hasExecutedSearch ? "Retrieval-first workflow" : "Candidate search"}
-        title={hasExecutedSearch ? "Discover talent. Synthesize fit." : "Search candidates"}
-        description={
-          hasExecutedSearch
-            ? "Use natural language plus structured filters to retrieve evidence-backed candidates. Results stay grounded in chunk-level signals and recruiter-friendly score diagnostics."
-            : undefined
-        }
+        eyebrow="Candidate search"
+        title="Search candidates"
         actions={
           <div className="stack" style={{ alignItems: "flex-end" }}>
             <PlatformScopeControl
@@ -296,162 +446,109 @@ export function SearchDiscoveryPage() {
               workspaceOptions={workspaceOptions}
               onChangeWorkspace={setWorkspaceId}
             />
-            {hasExecutedSearch && (topCompareHref || topChatHref) ? (
-              <div className="skill-list">
-                {topChatHref ? (
-                  <Link className="button button--secondary" to={topChatHref}>
-                    Ask Agent
-                    <MessageSquareText size={16} />
-                  </Link>
-                ) : null}
-                {topCompareHref ? (
-                  <Link className="button button--primary" to={topCompareHref}>
-                    Compare Top Matches
-                    <ArrowRight size={16} />
-                  </Link>
-                ) : null}
-              </div>
-            ) : null}
           </div>
         }
       />
 
-      {loadingWorkspaceStats ? (
-        <div className="stats-grid" aria-busy="true" aria-label="Loading workspace statistics">
-          {["cv-pool", "candidate-profiles", "workspace"].map((item) => (
-            <Panel key={item} className="stat-card stat-card--loading">
-              <div className="stat-card__header">
-                <span className="stat-card__skeleton stat-card__skeleton--label" />
-                <span className="stat-card__skeleton stat-card__skeleton--icon" />
-              </div>
-              <div className="stat-card__value-row">
-                <span className="stat-card__skeleton stat-card__skeleton--value" />
-                <span className="stat-card__skeleton stat-card__skeleton--delta" />
-              </div>
-            </Panel>
-          ))}
-        </div>
-      ) : workspaceStats ? (
-        <div className="stats-grid">
-          <StatCard
-            label="CV Pool"
-            value={workspaceStats.documentCount.toLocaleString()}
-            delta="indexed documents"
-            icon={<FileText size={16} />}
-          />
-          <StatCard
-            label="Candidate Profiles"
-            value={workspaceStats.candidateCount.toLocaleString()}
-            delta="searchable"
-            tone="secondary"
-            icon={<Users size={16} />}
-          />
-          <StatCard
-            label="Workspace"
-            value={isAllScope ? "All workspaces" : currentWorkspace?.name ?? currentTenant?.name ?? "Demo Workspace"}
-            delta={isAllScope ? `${workspaceOptions.length} workspaces` : currentWorkspace ? `${currentWorkspace.role} access` : "tenant-scoped pool"}
-            tone="tertiary"
-            icon={isAllScope ? <ShieldCheck size={16} /> : currentWorkspace ? <Building2 size={16} /> : <ShieldCheck size={16} />}
-          />
-        </div>
-      ) : null}
+      {workspaceStatsPanel}
 
       <form
-        className="hero-grid"
+        className="search-console-form"
         onSubmit={(event) => {
           event.preventDefault();
           handleExecute();
         }}
       >
-        <Panel className="hero-panel">
-          <div className="hero-panel__glow" />
-          <div className="stack">
-            {hasExecutedSearch ? <Tag tone="primary">Rank version {response?.meta.rankVersion ?? "v2-rate"}</Tag> : null}
-            <h2>{hasExecutedSearch ? "Natural language search over dossiers, chunks, and profile signals." : "Start with a title, skill, or seniority."}</h2>
-            {hasExecutedSearch ? (
-              <p>
-                The online layer is retrieval-first: structured filters reduce the candidate pool, then evidence-driven ranking surfaces the strongest profiles with clear reasons.
-              </p>
-            ) : null}
-          </div>
-
-          <div className="search-toolbar">
-            <div className="search-input">
+        <Panel className="search-command-panel">
+          <div className="search-command-bar">
+            <label className="search-field">
               <Sparkles size={18} />
-              <input ref={queryInputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={defaultSearchQuery} />
-            </div>
-            <button className="button button--primary" type="submit" disabled={loadingInitial || loadingMore}>
+              <input
+                ref={queryInputRef}
+                aria-label="Search candidates"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={defaultSearchQuery}
+              />
+            </label>
+            <button className="button button--primary search-submit-button" type="submit" disabled={loadingInitial || loadingMore}>
               <Search size={16} />
               {loadingInitial ? "Searching..." : "Search"}
             </button>
           </div>
-        </Panel>
 
-        <Panel className="filters-panel">
-          <div className="panel__section">
-            <span className="eyebrow">Structured filters</span>
-            {hasExecutedSearch ? <p>Separate deterministic narrowing from semantic retrieval so the ranking layer stays explainable.</p> : null}
+          <div className="search-filter-toolbar">
+            <div className="search-filter-toolbar__title">
+              <SlidersHorizontal size={16} />
+              <strong>Filters</strong>
+              <span>{activeFilterCount ? `${activeFilterCount} active` : "All candidates"}</span>
+            </div>
+            {activeFilterCount ? (
+              <button className="button button--secondary button--compact" type="button" onClick={handleClearFilters}>
+                <X size={14} />
+                Clear
+              </button>
+            ) : null}
           </div>
 
-          <label className="panel__section">
-            <span>Seniority</span>
-            <PickerDropdown
-              value={seniority}
-              options={filterOptions?.seniority ?? []}
-              onChange={setSeniority}
-              placeholder="Any seniority"
-              emptyLabel="No seniority values available"
-            />
-            <p className="muted">Options are loaded from the indexed candidate corpus.</p>
-          </label>
+          <div className="search-filters-grid">
+            <label className="search-filter-field">
+              <span>Seniority</span>
+              <PickerDropdown
+                value={seniority}
+                options={filterOptions?.seniority ?? []}
+                onChange={setSeniority}
+                placeholder="Any seniority"
+                emptyLabel="No seniority values available"
+              />
+            </label>
 
-          <label className="panel__section">
-            <span>Minimum experience</span>
-            <input className="form-input" type="number" value={minYears} min={0} onChange={(event) => setMinYears(Number(event.target.value))} />
-          </label>
+            <label className="search-filter-field">
+              <span>Min years</span>
+              <input className="form-input" type="number" value={minYears} min={0} onChange={(event) => setMinYears(Number(event.target.value))} />
+            </label>
 
-          <label className="panel__section">
-            <span>Location hint</span>
-            <PickerDropdown
-              value={location}
-              options={(filterOptions?.locations ?? []).map((option) => ({ value: option, label: option }))}
-              onChange={setLocation}
-              placeholder="Any location"
-              emptyLabel="No indexed locations available"
-            />
-          </label>
+            <label className="search-filter-field">
+              <span>Location</span>
+              <PickerDropdown
+                value={location}
+                options={(filterOptions?.locations ?? []).map((option) => ({ value: option, label: option }))}
+                onChange={setLocation}
+                placeholder="Any location"
+                emptyLabel="No indexed locations available"
+              />
+            </label>
 
-          <label className="panel__section">
-            <span>Skills</span>
-            <FilterMultiSelect
-              options={filterOptions?.skills ?? []}
-              values={selectedSkills}
-              onChange={setSelectedSkills}
-              placeholder="Add skills from the index or type your own"
-              searchPlaceholder="Search indexed skills or type to add"
-              normalizeInput={parseSkillText}
-              emptyLabel="No indexed skills match the current search"
-            />
-            <p className="muted">Indexed skills come from Supabase. Typed values are still normalized into canonical search tokens.</p>
-          </label>
+            <label className="search-filter-field search-filter-field--wide">
+              <span>Skills</span>
+              <FilterMultiSelect
+                options={filterOptions?.skills ?? []}
+                values={selectedSkills}
+                onChange={setSelectedSkills}
+                placeholder="Any skill"
+                searchPlaceholder="Search skills"
+                normalizeInput={parseSkillText}
+                emptyLabel="No skills match"
+              />
+            </label>
 
-          <label className="panel__section">
-            <span>Companies</span>
-            <FilterMultiSelect
-              options={filterOptions?.companies ?? []}
-              values={selectedCompanies}
-              onChange={setSelectedCompanies}
-              placeholder="Add current or past companies"
-              searchPlaceholder="Search indexed companies or type to add"
-              emptyLabel="No indexed companies match the current search"
-            />
-            <p className="muted">Company filters are backed by parsed experience history from Supabase.</p>
-          </label>
+            <label className="search-filter-field search-filter-field--wide">
+              <span>Companies</span>
+              <FilterMultiSelect
+                options={filterOptions?.companies ?? []}
+                values={selectedCompanies}
+                onChange={setSelectedCompanies}
+                placeholder="Any company"
+                searchPlaceholder="Search companies"
+                emptyLabel="No companies match"
+              />
+            </label>
+          </div>
         </Panel>
       </form>
 
       {!hasExecutedSearch ? null : loadingInitial ? (
-        <EmptyState title="Searching candidates" detail="Applying structured filters, then ranking the candidate pool against semantic and skill signals." />
+        <SearchProcessingState />
       ) : error && !response?.results.length ? (
         <EmptyState title="Search failed" detail={error} />
       ) : !response?.results.length ? (
@@ -462,11 +559,27 @@ export function SearchDiscoveryPage() {
       ) : (
         <>
           <Panel className="search-summary-bar">
-            <div>
-              <strong>Loaded {response.results.length} ranked candidates</strong>
+            <div className="search-summary-bar__main">
+              <strong>Loaded {response.results.length} candidates</strong>
               <p>
                 Results append automatically as you scroll. Sort applies to the loaded result set without changing the active search frame.
               </p>
+              {topChatHref || topCompareHref ? (
+                <div className="search-summary-actions">
+                  {topChatHref ? (
+                    <Link className="button button--secondary" to={topChatHref}>
+                      Ask Agent
+                      <MessageSquareText size={16} />
+                    </Link>
+                  ) : null}
+                  {topCompareHref ? (
+                    <Link className="button button--primary" to={topCompareHref}>
+                      Compare Top Matches
+                      <ArrowRight size={16} />
+                    </Link>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <div className="search-summary-bar__controls">
@@ -480,9 +593,6 @@ export function SearchDiscoveryPage() {
                   <option value="name-desc">Name Z-A</option>
                 </select>
               </label>
-              <Tag tone={response.nextCursor === null ? "success" : "primary"}>
-                {response.nextCursor === null ? "All loaded" : "Infinite scroll active"}
-              </Tag>
             </div>
           </Panel>
 
@@ -506,7 +616,7 @@ export function SearchDiscoveryPage() {
                         </div>
                       </div>
                     </div>
-                    <ScorePill score={candidate.backendMatchRate} label="Backend rate" />
+                    <ScorePill score={candidate.backendMatchRate} label="Match rate" />
                   </div>
 
                   <div className="meta-list">
@@ -516,34 +626,8 @@ export function SearchDiscoveryPage() {
                     </span>
                     <span className="tag">
                       <BriefcaseBusiness size={14} />
-                      {candidate.yearsExperience} years
+                      {formatYearsExperience(candidate.yearsExperience)}
                     </span>
-                  </div>
-
-                  <div className="signal-list">
-                    <div className="signal-row">
-                      <strong>Backend rank rate</strong>
-                      <span>{candidate.backendMatchRate}% · raw {candidate.backendScoreRaw.toFixed(4)}</span>
-                    </div>
-                    <ProgressBar value={candidate.backendMatchRate} />
-
-                    <div className="signal-row">
-                      <strong>Semantic alignment</strong>
-                      <span>{Math.round(candidate.matchSignals.semantic * 100)}%</span>
-                    </div>
-                    <ProgressBar value={candidate.matchSignals.semantic * 100} />
-
-                    <div className="signal-row">
-                      <strong>Skill overlap</strong>
-                      <span>{Math.round(candidate.matchSignals.skill * 100)}%</span>
-                    </div>
-                    <ProgressBar value={candidate.matchSignals.skill * 100} tone="secondary" />
-
-                    <div className="signal-row">
-                      <strong>Experience match</strong>
-                      <span>{Math.round(candidate.matchSignals.experience * 100)}%</span>
-                    </div>
-                    <ProgressBar value={candidate.matchSignals.experience * 100} tone="tertiary" />
                   </div>
 
                   <div className="skill-list">

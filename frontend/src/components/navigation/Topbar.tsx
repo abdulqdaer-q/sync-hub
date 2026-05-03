@@ -51,11 +51,10 @@ const routeMeta: Array<{ test: (path: string) => boolean; title: string; subtitl
 ];
 
 type TopbarProps = {
-  showNavigationToggle: boolean;
   onOpenNavigation: () => void;
 };
 
-export function Topbar({ showNavigationToggle, onOpenNavigation }: TopbarProps) {
+export function Topbar({ onOpenNavigation }: TopbarProps) {
   const location = useLocation();
   const active = routeMeta.find((item) => item.test(location.pathname)) ?? routeMeta[0];
   const { enabled, signOut } = useAuth();
@@ -63,11 +62,9 @@ export function Topbar({ showNavigationToggle, onOpenNavigation }: TopbarProps) 
   return (
     <header className="topbar">
       <div className="topbar__title">
-        {showNavigationToggle ? (
-          <button className="icon-button topbar__menu" onClick={onOpenNavigation} aria-label="Open navigation" type="button">
-            <Menu size={18} />
-          </button>
-        ) : null}
+        <button className="icon-button topbar__menu" onClick={onOpenNavigation} aria-label="Open navigation" type="button">
+          <Menu size={18} />
+        </button>
         <div>
           <strong>{active.title}</strong>
           <span>{active.subtitle}</span>

@@ -1,4 +1,4 @@
-import { extractSeniorityFromText, extractSkillsFromText, normalizeSeniorityValue, normalizeSkillList } from "./searchTaxonomy.ts";
+import { extractSeniorityFromText, extractSkillsFromText, normalizeLocationValue, normalizeSeniorityValue, normalizeSkillList } from "./searchTaxonomy.ts";
 
 type SearchFilters = {
   role?: string | null;
@@ -108,6 +108,43 @@ function normalizeCompanies(companies: string[] | null | undefined) {
   );
 }
 
+function canonicalizeCompanyName(value: string) {
+  const trimmed = value
+    .replace(/[.;,]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!trimmed) {
+    return "";
+  }
+  return /^[a-z\s&.'-]+$/.test(trimmed)
+    ? trimmed.replace(/\b\w/g, (match) => match.toUpperCase())
+    : trimmed;
+}
+
+function extractCompaniesFromQuery(query: string) {
+  const companies: string[] = [];
+  const patterns = [
+    /\b(?:worked|work|working|experience)\s+(?:with|at|for)\s+([a-z0-9&.'\-\s]{2,80})/gi,
+    /\b(?:from|at)\s+([a-z0-9&.'\-]{2,40})\s+(?:company|companies|team|teams)\b/gi,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of query.matchAll(pattern)) {
+      const raw = String(match[1] ?? "")
+        .split(/\b(?:with|using|who|that|where|having|knowledge|and then)\b/i)[0]
+        .trim();
+      for (const company of raw.split(/\s+(?:and|or)\s+|[,/;]/i)) {
+        const canonical = canonicalizeCompanyName(company);
+        if (canonical) {
+          companies.push(canonical);
+        }
+      }
+    }
+  }
+
+  return normalizeCompanies(companies);
+}
+
 export function buildSearchIntentConfig(query: string, filters: SearchFilters = {}) {
   return {
     schemaName: "search_intent",
@@ -168,6 +205,7 @@ export function buildSearchIntentConfig(query: string, filters: SearchFilters = 
       "Skills must be explicitly requested, normalized, and deduplicated.",
       "Companies must be explicitly requested and deduplicated.",
       "Location must be explicitly stated in the query.",
+      "Never use role, department, technology, or skill words as a location. Examples: devops, frontend, backend, data, cloud, Kubernetes, AWS, and React are not locations.",
       "For years of experience, return only the minimum requested number.",
       "Examples: '5+ years' -> 5, '3-5 years' -> 3.",
       "Do not infer skills, companies, location, or years from the role alone.",
@@ -204,8 +242,8 @@ export function deriveSearchFilters(query: string, filters: SearchFilters = {}) 
     role: filters.role || extractRole(query),
     seniority: normalizeSeniorityValue(filters.seniority) ?? extractSeniority(query),
     min_years_experience: minYears ?? extractMinYears(query),
-    location: filters.location?.trim() || null,
+    location: normalizeLocationValue(filters.location, { allowFallback: false }) ?? normalizeLocationValue(query, { allowFallback: false }) ?? null,
     skills: explicitSkills.length ? explicitSkills : extractSkillsFromQuery(query),
-    companies: explicitCompanies,
+    companies: explicitCompanies.length ? explicitCompanies : extractCompaniesFromQuery(query),
   };
 }

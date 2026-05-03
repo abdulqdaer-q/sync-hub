@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { PlatformScopeControl } from "@/components/PlatformScopeControl";
 import { buildChatHref } from "@/lib/chatAgent";
 import type { ComparisonResponse } from "@/lib/contracts";
+import { formatYearsExperience } from "@/lib/experience";
 import { platformApi } from "@/lib/platformApi";
 import { usePlatformScope } from "@/lib/platformScope";
 import { EmptyState, PageIntro, Panel, ProgressBar, Tag } from "@/components/ui";
@@ -119,7 +120,7 @@ export function IntelligentComparisonPage() {
                 <div className="skill-list">
                   {item.tenantId ? <Tag>{workspaceNameById.get(item.tenantId) ?? "Workspace"}</Tag> : null}
                   <Tag tone="primary">{item.seniority}</Tag>
-                  <Tag>{item.yearsExperience} years</Tag>
+                  <Tag>{formatYearsExperience(item.yearsExperience)}</Tag>
                 </div>
               </div>
               <div className="score-pill">

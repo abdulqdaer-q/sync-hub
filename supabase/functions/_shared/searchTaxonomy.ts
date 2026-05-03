@@ -28,7 +28,58 @@ export const SEARCH_SENIORITY_TABLE = [
 ] as const satisfies readonly TaxonomyEntry<string>[];
 
 export const SEARCH_SKILL_TABLE = [
-  { value: ".NET", aliases: [".net", "dotnet", "dot net"] },
+  {
+    value: ".NET",
+    aliases: [
+      ".net",
+      "dotnet",
+      "dot net",
+      ".net core",
+      "dotnet core",
+      ".net framework",
+      "net framework",
+      ".net4",
+      ".net 4",
+      ".net4.0",
+      ".net 4.0",
+      "net4",
+      "net 4",
+      "net4.0",
+      "net 4.0",
+      ".net5",
+      ".net 5",
+      ".net5.0",
+      ".net 5.0",
+      "net5",
+      "net 5",
+      "net5.0",
+      "net 5.0",
+      ".net6",
+      ".net 6",
+      ".net6.0",
+      ".net 6.0",
+      "net6",
+      "net 6",
+      "net6.0",
+      "net 6.0",
+      ".net7",
+      ".net 7",
+      ".net7.0",
+      ".net 7.0",
+      "net7",
+      "net 7",
+      "net7.0",
+      "net 7.0",
+      ".net8",
+      ".net 8",
+      ".net8.0",
+      ".net 8.0",
+      "net8",
+      "net 8",
+      "net8.0",
+      "net 8.0",
+    ],
+  },
   { value: "Angular", aliases: ["angular", "angularjs", "angular js"] },
   { value: "ASP.NET", aliases: ["asp.net", "asp net", "asp-net"] },
   { value: "ASP.NET Core", aliases: ["asp.net core", "asp net core", "asp-net-core"] },
@@ -80,6 +131,31 @@ export const SEARCH_SKILL_TABLE = [
   { value: "Vue", aliases: ["vue", "vuejs", "vue js"] },
 ] as const satisfies readonly TaxonomyEntry<string>[];
 
+const LOCATION_COUNTRY_TABLE = [
+  { value: "Bahrain", aliases: ["bahrain"] },
+  { value: "Canada", aliases: ["canada", "montreal"] },
+  { value: "Egypt", aliases: ["egypt", "cairo"] },
+  { value: "France", aliases: ["france", "paris"] },
+  { value: "Germany", aliases: ["germany", "deutschland", "berlin"] },
+  { value: "India", aliases: ["india"] },
+  { value: "Iraq", aliases: ["iraq"] },
+  { value: "Jordan", aliases: ["jordan", "amman"] },
+  { value: "Kuwait", aliases: ["kuwait", "kuwait city"] },
+  { value: "Lebanon", aliases: ["lebanon", "beirut"] },
+  { value: "Netherlands", aliases: ["netherlands", "holland"] },
+  { value: "Oman", aliases: ["oman"] },
+  { value: "Pakistan", aliases: ["pakistan"] },
+  { value: "Palestine", aliases: ["palestine", "palestinian territories"] },
+  { value: "Philippines", aliases: ["philippines"] },
+  { value: "Qatar", aliases: ["qatar", "doha"] },
+  { value: "Saudi Arabia", aliases: ["saudi arabia", "ksa", "kingdom of saudi arabia", "riyadh", "jeddah"] },
+  { value: "Syria", aliases: ["syria", "syrian arab republic", "damascus", "damscus", "aleppo", "damascus syria", "damscus syria", "aleppo syria"] },
+  { value: "Turkey", aliases: ["turkey", "turkiye", "istanbul"] },
+  { value: "United Arab Emirates", aliases: ["united arab emirates", "uae", "u.a.e", "emirates", "dubai", "abu dhabi"] },
+  { value: "United Kingdom", aliases: ["united kingdom", "uk", "u.k", "great britain", "england"] },
+  { value: "United States", aliases: ["united states", "usa", "u.s.a", "us", "u.s", "america"] },
+] as const satisfies readonly TaxonomyEntry<string>[];
+
 function normalizeLookupToken(value: string) {
   return value
     .trim()
@@ -113,9 +189,38 @@ const COMPILED_SENIORITY = SEARCH_SENIORITY_TABLE.map(compileEntry);
 const COMPILED_SKILLS = SEARCH_SKILL_TABLE
   .map(compileEntry)
   .sort((left, right) => Math.max(...right.aliases.map((alias) => alias.length)) - Math.max(...left.aliases.map((alias) => alias.length)));
+const COMPILED_LOCATIONS = LOCATION_COUNTRY_TABLE
+  .map(compileEntry)
+  .sort((left, right) => Math.max(...right.aliases.map((alias) => alias.length)) - Math.max(...left.aliases.map((alias) => alias.length)));
 
 const SENIORITY_ALIAS_MAP = new Map(COMPILED_SENIORITY.flatMap((entry) => entry.aliases.map((alias) => [alias, entry.value] as const)));
 const SKILL_ALIAS_MAP = new Map(COMPILED_SKILLS.flatMap((entry) => entry.aliases.map((alias) => [alias, entry.value] as const)));
+const LOCATION_ALIAS_MAP = new Map(COMPILED_LOCATIONS.flatMap((entry) => entry.aliases.map((alias) => [alias, entry.value] as const)));
+
+function titleCaseLocation(value: string) {
+  return value
+    .split(/\s+/)
+    .map((part) => part ? `${part[0].toUpperCase()}${part.slice(1).toLowerCase()}` : part)
+    .join(" ");
+}
+
+type LocationNormalizeOptions = {
+  allowFallback?: boolean;
+};
+
+function looksLikeFallbackLocation(value: string) {
+  const normalized = normalizeLookupToken(value);
+  if (!normalized || normalized.length > 48 || /\d/.test(normalized)) {
+    return false;
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 4) {
+    return false;
+  }
+
+  return !/\b(?:frontend|front end|backend|back end|full stack|fullstack|developer|engineer|designer|manager|senior|junior|mid|staff|lead|principal|devops|sre|platform|cloud|data|ml|ai|qa|security|mobile|android|ios|years?|yrs?|experience|skill|skills|knowledge|react|angular|vue|node|net|java|python|kubernetes|terraform|docker|aws|azure|with|worked|working|work)\b/i.test(normalized);
+}
 
 export function normalizeSeniorityValue(value: string | null | undefined) {
   const normalized = normalizeLookupToken(value ?? "");
@@ -139,6 +244,42 @@ export function normalizeSkillValue(value: string | null | undefined) {
 
 export function normalizeSkillList(values: Array<string | null | undefined>) {
   return dedupe(values.map((value) => normalizeSkillValue(value)).filter((value): value is string => Boolean(value)));
+}
+
+export function normalizeLocationValue(value: string | null | undefined, options: LocationNormalizeOptions = {}) {
+  const raw = value?.trim();
+  if (!raw) {
+    return undefined;
+  }
+
+  const parts = raw.split(",").map((part) => part.trim()).filter(Boolean);
+  const candidates = parts.length > 1 ? [parts[parts.length - 1], raw] : [raw];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeLookupToken(candidate);
+    const exact = LOCATION_ALIAS_MAP.get(normalized);
+    if (exact) {
+      return exact;
+    }
+  }
+
+  for (const entry of COMPILED_LOCATIONS) {
+    if (entry.patterns.some((pattern) => pattern.test(raw))) {
+      return entry.value;
+    }
+  }
+
+  if (options.allowFallback === false) {
+    return undefined;
+  }
+
+  const fallbackSource = parts.length > 1 ? parts[parts.length - 1] : raw;
+  if (!looksLikeFallbackLocation(fallbackSource)) {
+    return undefined;
+  }
+
+  const fallback = normalizeLookupToken(fallbackSource);
+  return fallback ? titleCaseLocation(fallback) : undefined;
 }
 
 export function extractSkillsFromText(query: string) {

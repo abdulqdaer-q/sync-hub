@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useDropdownPlacement } from "@/lib/dropdownPlacement";
 
 export type PickerOption = {
   value: string;
@@ -24,6 +25,7 @@ export function PickerDropdown({
 }: PickerDropdownProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const menuPlacement = useDropdownPlacement(rootRef, open);
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -50,6 +52,7 @@ export function PickerDropdown({
     () => options.find((option) => option.value === value) ?? null,
     [options, value],
   );
+  const displayValue = selectedOption?.label ?? (value.trim() || placeholder);
 
   return (
     <div ref={rootRef} className="picker-dropdown">
@@ -60,14 +63,18 @@ export function PickerDropdown({
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        <span className={cn("picker-dropdown__value", !selectedOption && "picker-dropdown__value--placeholder")}>
-          {selectedOption?.label ?? placeholder}
+        <span className={cn("picker-dropdown__value", !value.trim() && "picker-dropdown__value--placeholder")}>
+          {displayValue}
         </span>
         <ChevronDown size={14} className={cn("picker-dropdown__chevron", open && "picker-dropdown__chevron--open")} />
       </button>
 
       {open ? (
-        <div className="picker-dropdown__menu" role="menu">
+        <div
+          className={cn("picker-dropdown__menu", menuPlacement.direction === "above" && "picker-dropdown__menu--above")}
+          role="menu"
+          style={{ maxHeight: menuPlacement.maxHeight }}
+        >
           <button
             type="button"
             role="menuitemradio"

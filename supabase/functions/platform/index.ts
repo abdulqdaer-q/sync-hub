@@ -1,5 +1,6 @@
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { createAuthedClient } from "../_shared/client.ts";
+import { normalizeLocationValue, normalizeSkillList } from "../_shared/searchTaxonomy.ts";
 
 const SEARCH_PAGE_SIZE = 1000;
 
@@ -69,9 +70,9 @@ async function getSearchFilterOptions(supabase: ReturnType<typeof createAuthedCl
   const rows = await fetchAllSearchCacheRows(supabase, tenantIds);
   return {
     seniority: dedupeSorted(rows.map((row) => row.seniority ?? "").filter((value) => value && value !== "unclassified")),
-    skills: dedupeSorted(rows.flatMap((row) => row.skills ?? [])),
+    skills: dedupeSorted(normalizeSkillList(rows.flatMap((row) => row.skills ?? []))),
     companies: dedupeSorted(rows.flatMap((row) => row.companies ?? [])),
-    locations: dedupeSorted(rows.map((row) => row.location ?? "").filter(Boolean)),
+    locations: dedupeSorted(rows.map((row) => normalizeLocationValue(row.location)).filter((value): value is string => Boolean(value))),
   };
 }
 
