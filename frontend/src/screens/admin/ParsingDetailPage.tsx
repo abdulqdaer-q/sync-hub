@@ -37,11 +37,79 @@ function formatDateTime(value: string) {
   });
 }
 
+function ParsingDetailSkeleton() {
+  return (
+    <div className="page-stack" aria-busy="true" aria-label="Loading parsing document diagnostics">
+      <Panel className="table-card parsing-detail-skeleton__header">
+        <div className="stack">
+          <span className="stat-card__skeleton parsing-skeleton__subtitle" />
+          <span className="stat-card__skeleton parsing-detail-skeleton__title" />
+          <span className="stat-card__skeleton parsing-detail-skeleton__copy" />
+        </div>
+      </Panel>
+
+      <div className="stats-grid">
+        {["coverage", "confidence", "text", "warnings"].map((item) => (
+          <Panel key={item} className="stat-card stat-card--loading">
+            <div className="stat-card__header">
+              <span className="stat-card__skeleton stat-card__skeleton--label" />
+              <span className="stat-card__skeleton stat-card__skeleton--icon" />
+            </div>
+            <div className="stat-card__value-row">
+              <span className="stat-card__skeleton stat-card__skeleton--value" />
+              <span className="stat-card__skeleton stat-card__skeleton--delta" />
+            </div>
+          </Panel>
+        ))}
+      </div>
+
+      <div className="detail-grid">
+        <div className="page-stack">
+          {["fields", "profile", "content", "raw"].map((section) => (
+            <Panel key={section} className="table-card parsing-skeleton-card">
+              <div className="stack">
+                <span className="stat-card__skeleton parsing-skeleton__title" />
+                <span className="stat-card__skeleton parsing-skeleton__subtitle" />
+                <div className="parsing-detail-skeleton__grid">
+                  {Array.from({ length: section === "raw" ? 3 : 4 }).map((_, index) => (
+                    <div key={index} className="parsing-skeleton-note">
+                      <span className="stat-card__skeleton parsing-skeleton__subtitle" />
+                      <span className="stat-card__skeleton parsing-skeleton__line" />
+                      <span className="stat-card__skeleton parsing-skeleton__line parsing-skeleton__line--short" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Panel>
+          ))}
+        </div>
+
+        <div className="page-stack">
+          {["metadata", "warnings", "hints"].map((section) => (
+            <Panel key={section} className="table-card parsing-skeleton-card">
+              <div className="stack">
+                <span className="stat-card__skeleton parsing-skeleton__title" />
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="parsing-skeleton-note">
+                    <span className="stat-card__skeleton parsing-skeleton__subtitle" />
+                    <span className="stat-card__skeleton parsing-skeleton__line" />
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ParsingDetailPage() {
   const { documentId } = useParams();
   const { adminMemberships, enabled, isAdmin, loading } = useAuth();
   const [detail, setDetail] = useState<ParsingDocumentDetail | null>(documentId ? getFallbackParsingDocument(documentId) : null);
   const [fetching, setFetching] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [openingOriginal, setOpeningOriginal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const adminTenantIds = useMemo(() => adminMemberships.map((membership) => membership.id), [adminMemberships]);
@@ -62,7 +130,9 @@ export function ParsingDetailPage() {
     }
 
     let active = true;
+    setDetail(null);
     setFetching(true);
+    setHasLoaded(false);
     setError(null);
 
     platformApi
@@ -79,6 +149,7 @@ export function ParsingDetailPage() {
       })
       .finally(() => {
         if (active) {
+          setHasLoaded(true);
           setFetching(false);
         }
       });
@@ -126,6 +197,10 @@ export function ParsingDetailPage() {
     );
   }
 
+  if ((enabled && loading) || (fetching && !hasLoaded)) {
+    return <ParsingDetailSkeleton />;
+  }
+
   if (enabled && !loading && !isAdmin) {
     return (
       <div className="page-stack">
@@ -138,16 +213,6 @@ export function ParsingDetailPage() {
             </Link>
           }
         />
-      </div>
-    );
-  }
-
-  if (!detail && fetching) {
-    return (
-      <div className="page-stack">
-        <Panel className="table-card">
-          <p>Loading parsing diagnostics…</p>
-        </Panel>
       </div>
     );
   }

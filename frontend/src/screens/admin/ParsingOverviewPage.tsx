@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, FileText, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, FileText, Search, Sparkles, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { EmptyState, PageIntro, Panel, ScorePill, StatCard, Tag } from "@/components/ui";
 import { parsingOverview as fallbackParsingOverview } from "@/data/mockData";
@@ -99,6 +99,8 @@ export function ParsingOverviewPage() {
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reviewFilter, setReviewFilter] = useState<"all" | "needsReview">("all");
+  const [queryInput, setQueryInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [pageSize, setPageSize] = useState(25);
   const [pageIndex, setPageIndex] = useState(0);
   const adminTenantIds = useMemo(() => adminMemberships.map((membership) => membership.id), [adminMemberships]);
@@ -106,6 +108,14 @@ export function ParsingOverviewPage() {
     () => new Map(adminMemberships.map((membership) => [membership.id, membership.name])),
     [adminMemberships],
   );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearchQuery(queryInput.trim());
+    }, 300);
+
+    return () => window.clearTimeout(timeout);
+  }, [queryInput]);
 
   useEffect(() => {
     if (enabled && loading) {
@@ -120,7 +130,7 @@ export function ParsingOverviewPage() {
     setError(null);
 
     platformApi
-      .getParsingOverview(adminTenantIds, { pageSize, pageIndex, reviewFilter })
+      .getParsingOverview(adminTenantIds, { pageSize, pageIndex, reviewFilter, searchQuery })
       .then((nextOverview) => {
         if (active) {
           setOverview(nextOverview);
@@ -141,7 +151,7 @@ export function ParsingOverviewPage() {
     return () => {
       active = false;
     };
-  }, [adminTenantIds, enabled, isAdmin, loading, pageIndex, pageSize, reviewFilter]);
+  }, [adminTenantIds, enabled, isAdmin, loading, pageIndex, pageSize, reviewFilter, searchQuery]);
 
   const paginatedItems = overview.items;
   const totalItems = overview.itemsTotalCount ?? overview.items.length;
@@ -152,7 +162,7 @@ export function ParsingOverviewPage() {
 
   useEffect(() => {
     setPageIndex(0);
-  }, [pageSize, reviewFilter]);
+  }, [pageSize, reviewFilter, searchQuery]);
 
   useEffect(() => {
     setPageIndex((current) => Math.min(current, totalPages - 1));
@@ -178,7 +188,7 @@ export function ParsingOverviewPage() {
   const missingContact = overview.missingContactCount ?? overview.items.filter((item) => item.missingFields.includes("email") || item.missingFields.includes("phone")).length;
   const lowCoverage = overview.lowCoverageCount ?? overview.items.filter((item) => item.parsedPercentage < 70).length;
   const reviewQueue = overview.items.filter((item) => item.needsAttention).slice(0, 5);
-  const filteredLabel = reviewFilter === "needsReview" ? "needs review" : "documents";
+  const filteredLabel = searchQuery ? "matching documents" : reviewFilter === "needsReview" ? "needs review" : "documents";
 
   return (
     <div className="page-stack">
@@ -242,6 +252,24 @@ export function ParsingOverviewPage() {
                 </div>
 
                 <div className="parsing-table-controls">
+                  <label className="parsing-search-field">
+                    <span>Search</span>
+                    <div className="parsing-search-control">
+                      <Search size={15} />
+                      <input
+                        className="form-input"
+                        value={queryInput}
+                        onChange={(event) => setQueryInput(event.target.value)}
+                        placeholder="File, candidate, title, skill..."
+                      />
+                      {queryInput ? (
+                        <button className="icon-button parsing-search-clear" type="button" aria-label="Clear parsing search" onClick={() => setQueryInput("")}>
+                          <X size={14} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </label>
+
                   <div className="simulator-view-switch" role="tablist" aria-label="Parsing document filter">
                     <button
                       className={cn("simulator-view-button", reviewFilter === "all" && "simulator-view-button--active")}
@@ -359,11 +387,18 @@ export function ParsingOverviewPage() {
                   </>
                 ) : (
                   <EmptyState
-                    title="No documents need review"
-                    detail="The current filter has no matching documents."
+                    title={searchQuery ? "No documents match your search" : "No documents need review"}
+                    detail={searchQuery ? "Try a candidate name, file name, title, skill, or contact detail." : "The current filter has no matching documents."}
                     action={
-                      <button className="button button--secondary" type="button" onClick={() => setReviewFilter("all")}>
-                        Show all documents
+                      <button
+                        className="button button--secondary"
+                        type="button"
+                        onClick={() => {
+                          setQueryInput("");
+                          setReviewFilter("all");
+                        }}
+                      >
+                        Clear filters
                       </button>
                     }
                   />

@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
-import { useMemo, useState } from "react";
-import { Building2, Loader2, LogOut, Mail, ShieldCheck, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { Loader2, LogOut, Search, ShieldCheck, Star } from "lucide-react";
 import { Panel, SyncBrand, Tag } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 
@@ -18,7 +18,7 @@ function AuthShell({
   eyebrow: string;
   title: string;
   detail: string;
-  aside: ReactNode;
+  aside?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -35,7 +35,7 @@ function AuthShell({
             <p>{detail}</p>
           </div>
 
-          <div className="auth-grid">{aside}</div>
+          {aside ? <div className="auth-grid">{aside}</div> : null}
         </Panel>
 
         <Panel className="auth-panel">{children}</Panel>
@@ -46,40 +46,22 @@ function AuthShell({
 
 function LoadingScreen() {
   return (
-    <AuthShell
-      eyebrow="Bootstrapping"
-      title="Preparing the live workspace."
-      detail="Checking your Supabase session, tenant memberships, and local environment before loading the recruiter console."
-      aside={
-        <>
-          <div className="auth-feature">
-            <ShieldCheck size={18} />
-            <div>
-              <strong>RLS-aware</strong>
-              <p>Every read stays tenant-scoped once the session is active.</p>
-            </div>
-          </div>
-          <div className="auth-feature">
-            <Sparkles size={18} />
-            <div>
-              <strong>Retrieval-first</strong>
-              <p>Search, compare, and ask run against stored candidate evidence.</p>
-            </div>
-          </div>
-        </>
-      }
-    >
-      <div className="auth-loading">
-        <Loader2 className="spin" size={20} />
-        <span>Loading session context...</span>
+    <div className="auth-loading-screen" aria-live="polite" aria-busy="true">
+      <div className="ambient ambient--one" />
+      <div className="ambient ambient--two" />
+      <div className="auth-loading auth-loading--minimal">
+        <div className="auth-loading__spinner">
+          <Loader2 className="spin" size={22} />
+        </div>
+        <span>Checking your authentication...</span>
       </div>
-    </AuthShell>
+    </div>
   );
 }
 
 function SignInScreen() {
-  const { authError, signIn, signUp } = useAuth();
-  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const { authError, requestPasswordReset, signIn } = useAuth();
+  const [mode, setMode] = useState<"sign-in" | "reset-password">("sign-in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
@@ -94,8 +76,8 @@ function SignInScreen() {
       if (mode === "sign-in") {
         await signIn(email, password);
       } else {
-        const nextMessage = await signUp(email, password);
-        setMessage(nextMessage);
+        await requestPasswordReset(email);
+        setMessage("If this email has access, we sent a secure password reset link.");
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -106,23 +88,30 @@ function SignInScreen() {
 
   return (
     <AuthShell
-      eyebrow="Live mode"
-      title={mode === "sign-in" ? "Sign in to the live workspace." : "Create a local test account."}
-      detail="Once authenticated, the frontend uses your Supabase session for Edge Functions and RLS-protected dossier reads instead of mock data."
+      eyebrow="Employer access"
+      title={mode === "sign-in" ? "Sign in to the talent platform." : "Reset your password."}
+      detail="Search the shared CV pool, review candidate profiles, and manage your shortlist."
       aside={
         <>
           <div className="auth-feature">
-            <Mail size={18} />
+            <ShieldCheck size={18} />
             <div>
-              <strong>Email + password</strong>
-              <p>Use local Supabase Auth for end-to-end testing without a custom backend.</p>
+              <strong>Approved access</strong>
+              <p>Only invited employer accounts can enter the platform.</p>
             </div>
           </div>
           <div className="auth-feature">
-            <ShieldCheck size={18} />
+            <Search size={18} />
             <div>
-              <strong>JWT verified functions</strong>
-              <p>`/search`, `/compare`, and `/ask` receive the same signed-in context as the database.</p>
+              <strong>AI-powered search</strong>
+              <p>Find profiles by role, skills, experience, location, or company.</p>
+            </div>
+          </div>
+          <div className="auth-feature auth-feature--wide">
+            <Star size={18} />
+            <div>
+              <strong>Your shortlist</strong>
+              <p>Save candidates to your account and export them when you are ready.</p>
             </div>
           </div>
         </>
@@ -130,68 +119,65 @@ function SignInScreen() {
     >
       <form className="auth-form" onSubmit={handleSubmit}>
         <div className="stack">
-          <h2>{mode === "sign-in" ? "Sign In" : "Create Account"}</h2>
-          <p>Use the browser anon key, then let Postgres and Edge Functions enforce tenant access.</p>
+          <h2>{mode === "sign-in" ? "Welcome back" : "Password reset"}</h2>
+          <p>{mode === "sign-in" ? "Use the email approved for your employer account." : "Enter your approved email and we will send a reset link."}</p>
         </div>
 
         <label className="panel__section">
           <span>Email</span>
-          <input className="form-input" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="recruiter@example.com" required />
+          <input className="form-input" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" required />
         </label>
 
-        <label className="panel__section">
-          <span>Password</span>
-          <input className="form-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 6 characters" minLength={6} required />
-        </label>
+        {mode === "sign-in" ? (
+          <label className="panel__section">
+            <span>Password</span>
+            <input className="form-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Your password" required />
+          </label>
+        ) : null}
 
         {message || authError ? <div className="status-banner">{message ?? authError}</div> : null}
 
         <button className="button button--primary button--full" type="submit" disabled={pending}>
           {pending ? <Loader2 className="spin" size={16} /> : null}
-          {mode === "sign-in" ? "Sign In" : "Create Account"}
+          {mode === "sign-in" ? "Sign in" : "Send reset link"}
         </button>
 
         <button
           className="button button--secondary button--full"
           type="button"
           onClick={() => {
-            setMode((value) => (value === "sign-in" ? "sign-up" : "sign-in"));
+            setMode((value) => (value === "sign-in" ? "reset-password" : "sign-in"));
             setMessage(null);
           }}
         >
-          {mode === "sign-in" ? "Need a local account?" : "Already have an account?"}
-          <strong>{mode === "sign-in" ? "Create one" : "Sign in instead"}</strong>
+          {mode === "sign-in" ? "Forgot your password?" : "Remembered it?"}
+          <strong>{mode === "sign-in" ? "Reset password" : "Back to sign in"}</strong>
         </button>
       </form>
     </AuthShell>
   );
 }
 
-function TenantSetupScreen() {
-  const { authError, bootstrapTenant, signOut, userEmail } = useAuth();
-  const [name, setName] = useState("CV Intelligence Demo");
-  const [slug, setSlug] = useState("cv-intelligence-demo");
+function PasswordRecoveryScreen() {
+  const { authError, signOut, updatePassword } = useAuth();
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const suggestedSlug = useMemo(
-    () =>
-      name
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+/g, "")
-        .replace(/-+$/g, "")
-        .slice(0, 48),
-    [name],
-  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPending(true);
     setMessage(null);
 
+    if (password !== confirmPassword) {
+      setMessage("Passwords do not match.");
+      return;
+    }
+
+    setPending(true);
+
     try {
-      await bootstrapTenant(name, slug || suggestedSlug);
+      await updatePassword(password);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -201,23 +187,23 @@ function TenantSetupScreen() {
 
   return (
     <AuthShell
-      eyebrow="Tenant bootstrap"
-      title="Create the first workspace."
-      detail="RLS is active, so a fresh local user still needs an organization and membership before search and dossier screens can read anything."
+      eyebrow="Password reset"
+      title="Set a new password."
+      detail="Create a new password to continue to the talent platform."
       aside={
         <>
           <div className="auth-feature">
-            <Building2 size={18} />
+            <ShieldCheck size={18} />
             <div>
-              <strong>Self-serve bootstrap</strong>
-              <p>The initial tenant is created through a guarded SQL RPC, not manual SQL edits.</p>
+              <strong>Secure account</strong>
+              <p>Your new password protects your candidate search and shortlist access.</p>
             </div>
           </div>
           <div className="auth-feature">
-            <ShieldCheck size={18} />
+            <Star size={18} />
             <div>
-              <strong>Owner membership</strong>
-              <p>Your first tenant membership is inserted as `owner` so admin screens work immediately.</p>
+              <strong>Back to hiring</strong>
+              <p>After saving it, we will take you back into the platform.</p>
             </div>
           </div>
         </>
@@ -225,38 +211,82 @@ function TenantSetupScreen() {
     >
       <form className="auth-form" onSubmit={handleSubmit}>
         <div className="stack">
-          <h2>Initialize tenant context</h2>
-          <p>Signed in as {userEmail ?? "unknown user"}.</p>
+          <h2>Choose password</h2>
+          <p>Use at least 8 characters.</p>
         </div>
 
         <label className="panel__section">
-          <span>Workspace name</span>
-          <input className="form-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Acme Talent" required />
+          <span>New password</span>
+          <input className="form-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 8 characters" minLength={8} required />
         </label>
 
         <label className="panel__section">
-          <span>Workspace slug</span>
-          <input className="form-input" value={slug} onChange={(event) => setSlug(event.target.value)} placeholder={suggestedSlug || "acme-talent"} />
+          <span>Confirm password</span>
+          <input className="form-input" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Repeat password" minLength={8} required />
         </label>
 
         {message || authError ? <div className="status-banner">{message ?? authError}</div> : null}
 
         <button className="button button--primary button--full" type="submit" disabled={pending}>
           {pending ? <Loader2 className="spin" size={16} /> : null}
-          Create Workspace
+          Save password
         </button>
 
         <button className="button button--secondary button--full" type="button" onClick={() => void signOut()}>
           <LogOut size={16} />
-          Sign Out
+          Use another account
         </button>
       </form>
     </AuthShell>
   );
 }
 
+function AccessPendingScreen() {
+  const { authError, signOut, userEmail } = useAuth();
+
+  return (
+    <AuthShell
+      eyebrow="Access required"
+      title="Your account is not active yet."
+      detail="You are signed in, but this email has not been added to the shared CV platform."
+      aside={
+        <>
+          <div className="auth-feature">
+            <ShieldCheck size={18} />
+            <div>
+              <strong>Ask your admin</strong>
+              <p>Request access for this email before continuing.</p>
+            </div>
+          </div>
+          <div className="auth-feature">
+            <Search size={18} />
+            <div>
+              <strong>Shared CV pool</strong>
+              <p>Approved accounts can search the same indexed candidate database.</p>
+            </div>
+          </div>
+        </>
+      }
+    >
+      <div className="auth-form">
+        <div className="stack">
+          <h2>Access pending</h2>
+          <p>Signed in as {userEmail ?? "unknown user"}.</p>
+        </div>
+
+        {authError ? <div className="status-banner">{authError}</div> : null}
+
+        <button className="button button--secondary button--full" type="button" onClick={() => void signOut()}>
+          <LogOut size={16} />
+          Sign out
+        </button>
+      </div>
+    </AuthShell>
+  );
+}
+
 export function AuthGate({ children }: AuthGateProps) {
-  const { enabled, isAdmin, loading, memberships, session } = useAuth();
+  const { enabled, isAdmin, loading, memberships, passwordRecovery, session } = useAuth();
 
   if (!enabled) {
     return <>{children}</>;
@@ -270,8 +300,12 @@ export function AuthGate({ children }: AuthGateProps) {
     return <SignInScreen />;
   }
 
+  if (passwordRecovery) {
+    return <PasswordRecoveryScreen />;
+  }
+
   if (!memberships.length && !isAdmin) {
-    return <TenantSetupScreen />;
+    return <AccessPendingScreen />;
   }
 
   return <>{children}</>;

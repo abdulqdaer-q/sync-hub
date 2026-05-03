@@ -247,11 +247,13 @@ async function getParsingOverview(supabase: ReturnType<typeof createAuthedClient
   const limit = asInteger(body.limit, 100, 0, 500);
   const offset = asInteger(body.offset, 0, 0, 100000);
   const needsReviewOnly = body.needs_review_only === true;
+  const query = asString(body.query);
   const { data, error } = await supabase.rpc("parsing_overview_page_v1", {
     p_tenant_ids: tenantIds.length ? tenantIds : null,
     p_limit: limit,
     p_offset: offset,
     p_needs_review_only: needsReviewOnly,
+    p_query: query,
   });
   if (error) {
     throw error;

@@ -25,10 +25,11 @@ type AuthContextValue = {
   isAdmin: boolean;
   currentTenant: TenantMembership | null;
   authError: string | null;
+  passwordRecovery: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<string | null>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  bootstrapTenant: (name: string, slug?: string) => Promise<void>;
   selectTenant: (tenantId: string) => void;
   refreshTenantState: () => Promise<void>;
 };
@@ -57,14 +58,12 @@ type AuthContextPayload = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-function slugify(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/g, "")
-    .replace(/-+$/g, "")
-    .slice(0, 48);
+function resolvePasswordResetRedirect() {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  return `${window.location.origin}${window.location.pathname}`;
 }
 
 function readStoredTenantId() {
@@ -131,6 +130,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [currentTenant, setCurrentTenant] = useState<TenantMembership | null>(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   const lastSessionAccessTokenRef = useRef<string | null>(null);
 
   const refreshTenantState = useCallback(async () => {
@@ -163,6 +163,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setCurrentTenant(null);
       setIsPlatformAdmin(false);
       setAuthError(null);
+      setPasswordRecovery(false);
       storeTenantId(null);
       setLoading(false);
       return;
@@ -232,9 +233,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setCurrentTenant(null);
         setIsPlatformAdmin(false);
         setAuthError(null);
+        setPasswordRecovery(false);
         storeTenantId(null);
         setLoading(false);
         lastSessionAccessTokenRef.current = null;
+        return;
+      }
+
+      if (event === "PASSWORD_RECOVERY") {
+        setSession(nextSession);
+        lastSessionAccessTokenRef.current = nextSession?.access_token ?? null;
+        setPasswordRecovery(true);
+        setLoading(false);
         return;
       }
 
@@ -269,28 +279,40 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (error) {
       throw error;
     }
+
+    setPasswordRecovery(false);
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
+  const requestPasswordReset = useCallback(async (email: string) => {
     if (!supabase) {
-      return null;
+      return;
     }
 
-    const { data, error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: resolvePasswordResetRedirect(),
     });
 
     if (error) {
       throw error;
     }
-
-    if (!data.session) {
-      return "Account created. Confirm the email if your auth configuration requires verification.";
-    }
-
-    return "Account created. You are signed in and can finish tenant setup.";
   }, []);
+
+  const updatePassword = useCallback(
+    async (password: string) => {
+      if (!supabase) {
+        return;
+      }
+
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) {
+        throw error;
+      }
+
+      setPasswordRecovery(false);
+      await refreshTenantState();
+    },
+    [refreshTenantState],
+  );
 
   const signOut = useCallback(async () => {
     if (!supabase) {
@@ -304,32 +326,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     setMemberships([]);
     setCurrentTenant(null);
+    setPasswordRecovery(false);
     storeTenantId(null);
     appQueryClient.clear();
   }, []);
-
-  const bootstrapTenant = useCallback(
-    async (name: string, slug?: string) => {
-      if (!supabase) {
-        return;
-      }
-
-      const normalizedName = name.trim();
-      const normalizedSlug = slugify(slug?.trim() || normalizedName);
-
-      if (!normalizedName) {
-        throw new Error("Tenant name is required.");
-      }
-
-      await invokePlatform("bootstrap_tenant", {
-        name: normalizedName,
-        slug: normalizedSlug,
-      });
-
-      await refreshTenantState();
-    },
-    [refreshTenantState],
-  );
 
   const selectTenant = useCallback(
     (tenantId: string) => {
@@ -351,14 +351,29 @@ export function AuthProvider({ children }: PropsWithChildren) {
       isAdmin: isPlatformAdmin,
       currentTenant,
       authError,
+      passwordRecovery,
       signIn,
-      signUp,
+      requestPasswordReset,
+      updatePassword,
       signOut,
-      bootstrapTenant,
       selectTenant,
       refreshTenantState,
     }),
-    [authError, bootstrapTenant, currentTenant, isPlatformAdmin, loading, memberships, refreshTenantState, selectTenant, session, signIn, signOut, signUp],
+    [
+      authError,
+      currentTenant,
+      isPlatformAdmin,
+      loading,
+      memberships,
+      passwordRecovery,
+      refreshTenantState,
+      requestPasswordReset,
+      selectTenant,
+      session,
+      signIn,
+      signOut,
+      updatePassword,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -91,6 +91,7 @@ type ParsingOverviewOptions = {
   pageSize?: number;
   pageIndex?: number;
   reviewFilter?: "all" | "needsReview";
+  searchQuery?: string;
 };
 
 type CandidateDossierRow = {
@@ -366,6 +367,7 @@ async function fetchParsingOverviewRpc(tenantIds: string[], options: ParsingOver
     limit: pageSize,
     offset: pageIndex * pageSize,
     needs_review_only: options.reviewFilter === "needsReview",
+    query: options.searchQuery?.trim() || null,
   });
   if (Array.isArray(payload.items)) {
     return {
