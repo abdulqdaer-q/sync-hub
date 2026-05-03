@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Building2, ExternalLink, FileText, Mail, Phone } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { buildChatHref } from "@/lib/chatAgent";
@@ -86,37 +86,130 @@ function buildContactMailto(
   return `mailto:${candidate.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
+function DossierSkeleton() {
+  return (
+    <div className="page-stack dossier-skeleton" aria-busy="true" aria-label="Loading candidate dossier">
+      <section className="dossier-skeleton__intro">
+        <div className="stack">
+          <span className="stat-card__skeleton dossier-skeleton__eyebrow" />
+          <span className="stat-card__skeleton dossier-skeleton__title" />
+          <span className="stat-card__skeleton dossier-skeleton__subtitle" />
+        </div>
+        <div className="dossier-skeleton__actions">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <span key={index} className="stat-card__skeleton dossier-skeleton__button" />
+          ))}
+        </div>
+      </section>
+
+      <Panel className="candidate-card dossier-skeleton__profile">
+        <div className="candidate-profile__header">
+          <div className="candidate-profile__identity">
+            <span className="stat-card__skeleton dossier-skeleton__avatar" />
+            <div className="stack dossier-skeleton__identity">
+              <div className="skill-list">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <span key={index} className="stat-card__skeleton dossier-skeleton__pill" />
+                ))}
+              </div>
+              <span className="stat-card__skeleton dossier-skeleton__heading" />
+              <span className="stat-card__skeleton dossier-skeleton__line dossier-skeleton__line--medium" />
+              <div className="meta-list">
+                <span className="stat-card__skeleton dossier-skeleton__tag" />
+                <span className="stat-card__skeleton dossier-skeleton__tag" />
+              </div>
+            </div>
+          </div>
+          <span className="stat-card__skeleton dossier-skeleton__score" />
+        </div>
+
+        <div className="meta-list">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <span key={index} className="stat-card__skeleton dossier-skeleton__tag" />
+          ))}
+        </div>
+      </Panel>
+
+      <div className="detail-grid">
+        <div className="stack">
+          <Panel className="timeline-card dossier-skeleton__panel">
+            <span className="stat-card__skeleton dossier-skeleton__eyebrow" />
+            <span className="stat-card__skeleton dossier-skeleton__heading" />
+            <span className="stat-card__skeleton dossier-skeleton__line" />
+            <span className="stat-card__skeleton dossier-skeleton__line" />
+            <span className="stat-card__skeleton dossier-skeleton__line dossier-skeleton__line--short" />
+          </Panel>
+
+          <Panel className="timeline-card dossier-skeleton__panel">
+            <span className="stat-card__skeleton dossier-skeleton__heading" />
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="dossier-skeleton__timeline-entry">
+                <span className="stat-card__skeleton dossier-skeleton__line dossier-skeleton__line--medium" />
+                <span className="stat-card__skeleton dossier-skeleton__line dossier-skeleton__line--short" />
+                <span className="stat-card__skeleton dossier-skeleton__line" />
+              </div>
+            ))}
+          </Panel>
+        </div>
+
+        <div className="stack">
+          <Panel className="table-card dossier-skeleton__panel">
+            <span className="stat-card__skeleton dossier-skeleton__heading" />
+            <div className="skill-list">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <span key={index} className="stat-card__skeleton dossier-skeleton__pill" />
+              ))}
+            </div>
+          </Panel>
+
+          <Panel className="table-card dossier-skeleton__panel">
+            <span className="stat-card__skeleton dossier-skeleton__heading" />
+            {Array.from({ length: 5 }).map((_, index) => (
+              <span key={index} className="stat-card__skeleton dossier-skeleton__line" />
+            ))}
+          </Panel>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CandidateDossierPage() {
   const { candidateId } = useParams();
   const location = useLocation();
   const { currentTenant, session, userEmail } = useAuth();
-  const [candidate, setCandidate] = useState<CandidateDetail | null>(null);
   const routeState = (location.state ?? {}) as DossierLocationState;
   const contextualMatchScore = typeof routeState.searchMatchScore === "number" ? routeState.searchMatchScore : null;
-
-  useEffect(() => {
-    if (!candidateId) {
-      setCandidate(null);
-      return;
-    }
-
-    let cancelled = false;
-    platformApi.getCandidate(candidateId).then((nextCandidate) => {
-      if (!cancelled) {
-        setCandidate(nextCandidate);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [candidateId]);
+  const candidateQuery = useQuery({
+    queryKey: ["candidate-dossier", candidateId],
+    queryFn: () => platformApi.getCandidate(candidateId as string),
+    enabled: Boolean(candidateId),
+    staleTime: 10 * 60 * 1000,
+    gcTime: 45 * 60 * 1000,
+    refetchOnMount: false,
+  });
+  const candidate = candidateQuery.data ?? null;
 
   if (!candidateId) {
     return <EmptyState title="Candidate not selected" detail="Open a dossier from search results to inspect a real candidate profile." />;
   }
 
   if (!candidate) {
-    return <EmptyState title="Loading dossier" detail="Fetching structured profile, summary, and evidence blocks." />;
+    if (candidateQuery.isError) {
+      return (
+        <EmptyState
+          title="Dossier failed to load"
+          detail={candidateQuery.error instanceof Error ? candidateQuery.error.message : "Unable to fetch this candidate dossier."}
+          action={
+            <button className="button button--secondary" type="button" onClick={() => void candidateQuery.refetch()}>
+              Retry
+            </button>
+          }
+        />
+      );
+    }
+
+    return <DossierSkeleton />;
   }
 
   const userMetadata = (session?.user.user_metadata ?? {}) as Record<string, unknown>;

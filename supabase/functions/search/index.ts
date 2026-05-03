@@ -41,6 +41,23 @@ function describeError(error: unknown) {
   return String(error);
 }
 
+function isTransientLlmError(error: unknown) {
+  const message = describeError(error).toLowerCase();
+  return (
+    message.includes("abort") ||
+    message.includes("signal") ||
+    message.includes("timeout") ||
+    message.includes("temporarily unavailable") ||
+    message.includes("overloaded") ||
+    message.includes("503") ||
+    message.includes("504")
+  );
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function normalizeSearchText(value: unknown) {
   return String(value ?? "")
     .toLowerCase()
@@ -149,9 +166,23 @@ async function extractIntentWithLlm(
   filters: Record<string, unknown>,
   facets: SearchIntentFacetOptions,
 ): Promise<SearchIntentPayload | null> {
-  const result = await generateStructuredObject<SearchIntentPayload>(buildSearchIntentConfig(query, filters, facets));
+  let lastError: unknown = null;
 
-  return result?.object ?? null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const result = await generateStructuredObject<SearchIntentPayload>(buildSearchIntentConfig(query, filters, facets));
+      return result?.object ?? null;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientLlmError(error) || attempt === 1) {
+        throw error;
+      }
+      console.warn(`search_intent_llm_retry:${describeError(error)}`);
+      await wait(180);
+    }
+  }
+
+  throw lastError;
 }
 
 type CandidateSearchRow = {

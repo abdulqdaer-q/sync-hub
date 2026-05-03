@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from "react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { appQueryClient } from "@/lib/queryClient";
 import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
 
 const SELECTED_TENANT_KEY = "cv-intelligence.selected-tenant-id";
@@ -130,6 +131,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [currentTenant, setCurrentTenant] = useState<TenantMembership | null>(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const lastSessionAccessTokenRef = useRef<string | null>(null);
 
   const refreshTenantState = useCallback(async () => {
     if (!supabase) {
@@ -153,8 +155,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
 
     setSession(nextSession);
+    lastSessionAccessTokenRef.current = nextSession?.access_token ?? null;
 
     if (!nextSession) {
+      appQueryClient.clear();
       setMemberships([]);
       setCurrentTenant(null);
       setIsPlatformAdmin(false);
@@ -206,11 +210,41 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!active) {
         return;
       }
 
+      if (event === "INITIAL_SESSION") {
+        return;
+      }
+
+      if (event === "TOKEN_REFRESHED") {
+        setSession(nextSession);
+        lastSessionAccessTokenRef.current = nextSession?.access_token ?? null;
+        return;
+      }
+
+      if (event === "SIGNED_OUT") {
+        appQueryClient.clear();
+        setSession(null);
+        setMemberships([]);
+        setCurrentTenant(null);
+        setIsPlatformAdmin(false);
+        setAuthError(null);
+        storeTenantId(null);
+        setLoading(false);
+        lastSessionAccessTokenRef.current = null;
+        return;
+      }
+
+      const nextAccessToken = nextSession?.access_token ?? null;
+      if (nextAccessToken && nextAccessToken === lastSessionAccessTokenRef.current) {
+        setSession(nextSession);
+        return;
+      }
+
+      lastSessionAccessTokenRef.current = nextAccessToken;
       setSession(nextSession);
       setLoading(true);
       void refreshTenantState();
@@ -271,6 +305,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setMemberships([]);
     setCurrentTenant(null);
     storeTenantId(null);
+    appQueryClient.clear();
   }, []);
 
   const bootstrapTenant = useCallback(

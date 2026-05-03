@@ -2053,6 +2053,86 @@ button {
   color: #ff9788;
 }
 
+.candidate-preview-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(4, 7, 10, 0.64);
+}
+
+.candidate-preview-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 51;
+  width: min(560px, 100vw);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(18, 24, 32, 0.98);
+  box-shadow: -24px 0 70px rgba(0, 0, 0, 0.34);
+}
+
+.candidate-preview-drawer__header,
+.candidate-preview-drawer__score-row,
+.candidate-preview-drawer__footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.candidate-preview-drawer__header h2 {
+  margin: 0;
+  font-size: 1.55rem;
+  letter-spacing: 0;
+}
+
+.candidate-preview-drawer__body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-right: 4px;
+}
+
+.candidate-preview-drawer__score-row,
+.candidate-preview-drawer__meta {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.candidate-preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.candidate-preview-section p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.candidate-preview-section .bullet-list {
+  margin: 0;
+}
+
+.candidate-preview-drawer__footer {
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 .search-summary-bar__controls {
   display: flex;
   flex-wrap: wrap;
@@ -2182,6 +2262,107 @@ button {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.6;
+}
+
+.dossier-skeleton__intro {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.dossier-skeleton__actions,
+.dossier-skeleton__panel,
+.dossier-skeleton__timeline-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dossier-skeleton__actions {
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.dossier-skeleton__profile {
+  min-height: 178px;
+}
+
+.dossier-skeleton__identity {
+  width: min(560px, 62vw);
+}
+
+.dossier-skeleton__eyebrow {
+  width: 120px;
+  height: 12px;
+}
+
+.dossier-skeleton__title {
+  width: min(340px, 70vw);
+  height: 34px;
+}
+
+.dossier-skeleton__subtitle {
+  width: min(520px, 82vw);
+  height: 16px;
+}
+
+.dossier-skeleton__button {
+  width: 126px;
+  height: 42px;
+  border-radius: 12px;
+}
+
+.dossier-skeleton__avatar {
+  width: 74px;
+  height: 74px;
+  flex: 0 0 auto;
+  border-radius: 22px;
+}
+
+.dossier-skeleton__pill {
+  width: 92px;
+  height: 28px;
+}
+
+.dossier-skeleton__heading {
+  width: min(260px, 74%);
+  height: 24px;
+}
+
+.dossier-skeleton__line {
+  width: 100%;
+  height: 14px;
+}
+
+.dossier-skeleton__line--medium {
+  width: 68%;
+}
+
+.dossier-skeleton__line--short {
+  width: 42%;
+}
+
+.dossier-skeleton__tag {
+  width: 150px;
+  height: 30px;
+}
+
+.dossier-skeleton__score {
+  width: 82px;
+  height: 64px;
+  border-radius: 18px;
+}
+
+.dossier-skeleton__panel {
+  min-height: 170px;
+}
+
+.dossier-skeleton__timeline-entry {
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .timeline {
@@ -2855,6 +3036,10 @@ button {
     width: min(500px, 100vw);
   }
 
+  .candidate-preview-drawer {
+    width: min(560px, 100vw);
+  }
+
   .chat-thread-panel__header,
   .chat-composer__actions {
     flex-direction: column;
@@ -2971,6 +3156,24 @@ button {
     align-items: stretch;
   }
 
+  .dossier-skeleton__intro,
+  .candidate-profile__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dossier-skeleton__actions {
+    justify-content: flex-start;
+  }
+
+  .dossier-skeleton__button {
+    width: min(100%, 180px);
+  }
+
+  .dossier-skeleton__identity {
+    width: 100%;
+  }
+
   .search-page-header__actions {
     min-width: 0;
     justify-content: flex-start;
@@ -2985,8 +3188,20 @@ button {
     padding: 20px;
   }
 
+  .candidate-preview-drawer {
+    padding: 20px;
+  }
+
+  .candidate-preview-drawer__header,
+  .candidate-preview-drawer__score-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .shortlist-drawer__footer,
-  .shortlist-drawer__footer .button {
+  .shortlist-drawer__footer .button,
+  .candidate-preview-drawer__footer,
+  .candidate-preview-drawer__footer .button {
     width: 100%;
   }
 

@@ -1,5 +1,6 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUp, BookmarkCheck, BookmarkPlus, BriefcaseBusiness, Building2, CheckCircle2, Download, FileText, MapPin, MessageSquareText, Search, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, ArrowUp, BookmarkCheck, BookmarkPlus, BriefcaseBusiness, Building2, CheckCircle2, Download, Eye, FileText, MapPin, MessageSquareText, Search, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { PlatformScopeControl } from "@/components/PlatformScopeControl";
 import { FilterMultiSelect } from "@/components/FilterMultiSelect";
@@ -29,6 +30,90 @@ type SearchSortOption =
   | "name-desc";
 
 const PAGE_SIZE = 8;
+const SEARCH_STATE_STORAGE_KEY = "cv-intelligence.search.discovery-state";
+
+const SEARCH_SORT_OPTIONS = new Set<SearchSortOption>([
+  "best-match",
+  "experience-desc",
+  "experience-asc",
+  "name-asc",
+  "name-desc",
+]);
+
+type StoredSearchState = {
+  request: SearchRequest | null;
+  sortBy: SearchSortOption;
+};
+
+function readOptionalString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readStringArray(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return Array.isArray(value)
+    ? value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
+    : undefined;
+}
+
+function readStoredSearchState(): StoredSearchState {
+  const fallback: StoredSearchState = {
+    request: null,
+    sortBy: "best-match",
+  };
+
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(SEARCH_STATE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : null;
+    if (!parsed || typeof parsed !== "object") {
+      return fallback;
+    }
+
+    const requestRecord = parsed.request && typeof parsed.request === "object" && !Array.isArray(parsed.request)
+      ? parsed.request as Record<string, unknown>
+      : null;
+    const filterRecord = requestRecord?.filters && typeof requestRecord.filters === "object" && !Array.isArray(requestRecord.filters)
+      ? requestRecord.filters as Record<string, unknown>
+      : {};
+    const query = requestRecord?.query;
+
+    const request = typeof query === "string"
+      ? {
+          query,
+          filters: {
+            role: readOptionalString(filterRecord, "role"),
+            seniority: readOptionalString(filterRecord, "seniority"),
+            minYearsExperience: typeof filterRecord.minYearsExperience === "number" ? filterRecord.minYearsExperience : undefined,
+            location: readOptionalString(filterRecord, "location"),
+            skills: readStringArray(filterRecord, "skills") ?? [],
+            companies: readStringArray(filterRecord, "companies") ?? [],
+          },
+          offset: 0,
+          limit: PAGE_SIZE,
+        }
+      : null;
+    const sortBy = typeof parsed.sortBy === "string" && SEARCH_SORT_OPTIONS.has(parsed.sortBy as SearchSortOption)
+      ? parsed.sortBy as SearchSortOption
+      : fallback.sortBy;
+
+    return { request, sortBy };
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredSearchState(request: SearchRequest | null, sortBy: SearchSortOption) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(SEARCH_STATE_STORAGE_KEY, JSON.stringify({ request, sortBy }));
+}
 
 type SearchLoadingStep = {
   label: string;
@@ -231,33 +316,104 @@ export function SearchDiscoveryPage() {
     () => new Map(workspaceOptions.map((workspace) => [workspace.id, workspace.name])),
     [workspaceOptions],
   );
+  const queryClient = useQueryClient();
+  const [initialSearchState] = useState(readStoredSearchState);
   const queryInputRef = useRef<HTMLInputElement | null>(null);
-  const [query, setQuery] = useState("");
-  const [seniority, setSeniority] = useState("");
-  const [minYears, setMinYears] = useState(0);
-  const [location, setLocation] = useState("");
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<SearchSortOption>("best-match");
+  const intentAppliedKeyRef = useRef<string | null>(null);
+  const [query, setQuery] = useState(initialSearchState.request?.query ?? "");
+  const [seniority, setSeniority] = useState(initialSearchState.request?.filters.seniority ?? "");
+  const [minYears, setMinYears] = useState(initialSearchState.request?.filters.minYearsExperience ?? 0);
+  const [location, setLocation] = useState(initialSearchState.request?.filters.location ?? "");
+  const [selectedSkills, setSelectedSkills] = useState<string[]>(initialSearchState.request?.filters.skills ?? []);
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>(initialSearchState.request?.filters.companies ?? []);
+  const [sortBy, setSortBy] = useState<SearchSortOption>(initialSearchState.sortBy);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filterOptions, setFilterOptions] = useState<SearchFilterOptions | null>(null);
-  const [workspaceStats, setWorkspaceStats] = useState<WorkspaceStats | null>(null);
-  const [loadingWorkspaceStats, setLoadingWorkspaceStats] = useState(true);
-  const [response, setResponse] = useState<SearchResponse | null>(null);
-  const [shortlistItems, setShortlistItems] = useState<CandidateShortlistItem[]>([]);
-  const [loadingShortlist, setLoadingShortlist] = useState(true);
   const [shortlistPendingKeys, setShortlistPendingKeys] = useState<Set<string>>(new Set());
   const [shortlistError, setShortlistError] = useState<string | null>(null);
-  const [shortlistTrayVisible, setShortlistTrayVisible] = useState(false);
   const [shortlistDrawerOpen, setShortlistDrawerOpen] = useState(false);
-  const [loadingInitial, setLoadingInitial] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [request, setRequest] = useState<SearchRequest | null>(null);
+  const [previewCandidate, setPreviewCandidate] = useState<CandidateSearchResult | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [request, setRequest] = useState<SearchRequest | null>(initialSearchState.request);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
-  const requestedOffsetsRef = useRef<Set<number>>(new Set());
-  const hasExecutedSearch = request !== null;
   const scopeKey = resolvedTenantIds.join("|");
+  const shortlistQueryKey = useMemo(() => ["shortlist", scopeKey] as const, [scopeKey]);
+  const filterOptionsQuery = useQuery({
+    queryKey: ["search-filter-options", scopeKey],
+    queryFn: () => platformApi.getSearchFilterOptions(resolvedTenantIds),
+    placeholderData: keepPreviousData,
+    staleTime: 10 * 60 * 1000,
+  });
+  const workspaceStatsQuery = useQuery({
+    queryKey: ["workspace-stats", scopeKey],
+    queryFn: () => platformApi.getWorkspaceStats(resolvedTenantIds),
+    placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
+  });
+  const shortlistQuery = useQuery({
+    queryKey: shortlistQueryKey,
+    queryFn: () => platformApi.getShortlist(resolvedTenantIds),
+    placeholderData: keepPreviousData,
+    staleTime: 60 * 1000,
+  });
+  const searchResultsQuery = useInfiniteQuery({
+    queryKey: ["search-results", scopeKey, request?.query ?? "", request?.limit ?? PAGE_SIZE, request?.filters ?? {}],
+    queryFn: ({ pageParam }) => {
+      if (!request) {
+        throw new Error("Search request is not ready.");
+      }
+      return platformApi.search(request.query, request.filters, {
+        offset: Number(pageParam),
+        limit: request.limit,
+      }, resolvedTenantIds);
+    },
+    initialPageParam: 0,
+    enabled: Boolean(request),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 45 * 60 * 1000,
+    refetchOnMount: false,
+  });
+  const response = useMemo<SearchResponse | null>(() => {
+    const pages = searchResultsQuery.data?.pages ?? [];
+    if (!pages.length) {
+      return null;
+    }
+
+    const seenIds = new Set<string>();
+    const results = pages.flatMap((page) =>
+      page.results.filter((candidate) => {
+        if (seenIds.has(candidate.candidateId)) {
+          return false;
+        }
+        seenIds.add(candidate.candidateId);
+        return true;
+      }),
+    );
+    const firstPage = pages[0];
+    const lastPage = pages[pages.length - 1];
+
+    return {
+      ...lastPage,
+      results,
+      nextCursor: lastPage.nextCursor,
+      meta: {
+        ...lastPage.meta,
+        intent: firstPage.meta.intent ?? lastPage.meta.intent,
+        intentSource: firstPage.meta.intentSource ?? lastPage.meta.intentSource,
+        count: results.length,
+      },
+    };
+  }, [searchResultsQuery.data]);
+  const loadingInitial = searchResultsQuery.isLoading && !response;
+  const loadingMore = searchResultsQuery.isFetchingNextPage;
+  const searchError = searchResultsQuery.error ? String(searchResultsQuery.error.message || searchResultsQuery.error) : null;
+  const error = formError ?? searchError;
+  const filterOptions = filterOptionsQuery.data ?? null;
+  const workspaceStats = workspaceStatsQuery.data ?? null;
+  const loadingWorkspaceStats = workspaceStatsQuery.isLoading && !workspaceStats;
+  const shortlistItems = shortlistQuery.data ?? [];
+  const loadingShortlist = shortlistQuery.isLoading && !shortlistQuery.data;
+  const hasExecutedSearch = request !== null;
   const shortlistKeys = useMemo(
     () => new Set(shortlistItems.map((item) => shortlistKey(item.tenantId, item.candidateId))),
     [shortlistItems],
@@ -281,158 +437,50 @@ export function SearchDiscoveryPage() {
   }, [response?.results, sortBy]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    platformApi.getSearchFilterOptions(resolvedTenantIds).then((nextOptions) => {
-      if (!cancelled) {
-        setFilterOptions(nextOptions);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [resolvedTenantIds]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    setWorkspaceStats(null);
-    setLoadingWorkspaceStats(true);
-
-    platformApi
-      .getWorkspaceStats(resolvedTenantIds)
-      .then((nextStats) => {
-        if (!cancelled) {
-          setWorkspaceStats(nextStats);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWorkspaceStats(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadingWorkspaceStats(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [scopeKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    setLoadingShortlist(true);
-    setShortlistError(null);
-    setShortlistTrayVisible(false);
-    setShortlistDrawerOpen(false);
-    platformApi
-      .getShortlist(resolvedTenantIds)
-      .then((items) => {
-        if (!cancelled) {
-          setShortlistItems(items);
-        }
-      })
-      .catch((nextError) => {
-        if (!cancelled) {
-          setShortlistItems([]);
-          setShortlistError(String(nextError));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadingShortlist(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [scopeKey]);
-
-  useEffect(() => {
     if (!shortlistItems.length && !shortlistError) {
-      setShortlistTrayVisible(false);
       setShortlistDrawerOpen(false);
     }
   }, [shortlistItems.length, shortlistError]);
 
   useEffect(() => {
-    if (!request) {
+    setShortlistDrawerOpen(false);
+    setPreviewCandidate(null);
+    setShortlistError(null);
+  }, [scopeKey]);
+
+  useEffect(() => {
+    if (shortlistQuery.error) {
+      setShortlistError(String(shortlistQuery.error));
+    } else if (!shortlistPendingKeys.size) {
+      setShortlistError(null);
+    }
+  }, [shortlistPendingKeys.size, shortlistQuery.error]);
+
+  useEffect(() => {
+    writeStoredSearchState(request, sortBy);
+  }, [request, sortBy]);
+
+  useEffect(() => {
+    const intent = searchResultsQuery.data?.pages[0]?.meta.intent;
+    if (!request || !intent) {
       return;
     }
 
-    let cancelled = false;
-    const isFirstPage = request.offset === 0;
-    setError(null);
-    if (isFirstPage) {
-      setLoadingInitial(true);
-    } else {
-      setLoadingMore(true);
+    const intentKey = `${scopeKey}:${request.query}:${JSON.stringify(request.filters)}`;
+    if (intentAppliedKeyRef.current === intentKey) {
+      return;
     }
 
-    platformApi
-      .search(request.query, request.filters, {
-        offset: request.offset,
-        limit: request.limit,
-      }, resolvedTenantIds)
-      .then((nextResponse) => {
-        if (cancelled) {
-          return;
-        }
-        startTransition(() => {
-          setResponse((currentResponse) => {
-            if (isFirstPage || !currentResponse) {
-              return nextResponse;
-            }
-
-            const seenIds = new Set(currentResponse.results.map((candidate) => candidate.candidateId));
-            const appendedResults = nextResponse.results.filter((candidate) => !seenIds.has(candidate.candidateId));
-
-            return {
-              ...nextResponse,
-              results: [...currentResponse.results, ...appendedResults],
-              meta: {
-                ...nextResponse.meta,
-                count: currentResponse.results.length + appendedResults.length,
-              },
-            };
-          });
-          if (isFirstPage && nextResponse.meta.intent) {
-            const resolvedIntent = nextResponse.meta.intent;
-            setSeniority(resolvedIntent.seniority ?? "");
-            setMinYears(resolvedIntent.minYearsExperience ?? 0);
-            setLocation(resolvedIntent.location ?? "");
-            setSelectedSkills(resolvedIntent.skills ?? []);
-            setSelectedCompanies(resolvedIntent.companies ?? []);
-          }
-          setLoadingInitial(false);
-          setLoadingMore(false);
-        });
-      })
-      .catch((nextError) => {
-        if (cancelled) {
-          return;
-        }
-        if (!isFirstPage) {
-          requestedOffsetsRef.current.delete(request.offset);
-        }
-        setError(String(nextError));
-        setLoadingInitial(false);
-        setLoadingMore(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [request, resolvedTenantIds]);
+    intentAppliedKeyRef.current = intentKey;
+    setSeniority(intent.seniority ?? "");
+    setMinYears(intent.minYearsExperience ?? 0);
+    setLocation(intent.location ?? "");
+    setSelectedSkills(intent.skills ?? []);
+    setSelectedCompanies(intent.companies ?? []);
+  }, [request, scopeKey, searchResultsQuery.dataUpdatedAt]);
 
   useEffect(() => {
-    if (!response?.nextCursor || loadingInitial || loadingMore || error) {
+    if (!response?.nextCursor || loadingInitial || loadingMore || error || !searchResultsQuery.hasNextPage) {
       return;
     }
 
@@ -448,15 +496,7 @@ export function SearchDiscoveryPage() {
           return;
         }
 
-        if (requestedOffsetsRef.current.has(response.nextCursor)) {
-          return;
-        }
-
-        requestedOffsetsRef.current.add(response.nextCursor);
-        setRequest({
-          ...request,
-          offset: response.nextCursor,
-        });
+        void searchResultsQuery.fetchNextPage();
       },
       {
         rootMargin: "320px 0px",
@@ -465,23 +505,40 @@ export function SearchDiscoveryPage() {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadingInitial, loadingMore, request, response]);
+  }, [error, loadingInitial, loadingMore, request, response?.nextCursor, searchResultsQuery.fetchNextPage, searchResultsQuery.hasNextPage]);
 
-  useEffect(() => {
-    if (!request) {
-      return;
-    }
+  const saveShortlistMutation = useMutation({
+    mutationFn: (item: CandidateShortlistInput) => platformApi.saveShortlistItem(item),
+    onSuccess: (saved) => {
+      queryClient.setQueryData<CandidateShortlistItem[]>(shortlistQueryKey, (current = []) => {
+        const key = shortlistKey(saved.tenantId, saved.candidateId);
+        const withoutExisting = current.filter((item) => shortlistKey(item.tenantId, item.candidateId) !== key);
+        return [saved, ...withoutExisting];
+      });
+    },
+  });
 
-    requestedOffsetsRef.current = new Set([0]);
-    setResponse(null);
-    setRequest((current) => (current ? { ...current, offset: 0 } : current));
-  }, [scopeKey]);
+  const removeShortlistMutation = useMutation({
+    mutationFn: (item: { candidateId: string; tenantId: string }) => platformApi.removeShortlistItem(item.candidateId, item.tenantId),
+    onSuccess: (_result, item) => {
+      queryClient.setQueryData<CandidateShortlistItem[]>(shortlistQueryKey, (current = []) =>
+        current.filter((shortlistItem) => shortlistKey(shortlistItem.tenantId, shortlistItem.candidateId) !== shortlistKey(item.tenantId, item.candidateId)),
+      );
+    },
+  });
+
+  const clearShortlistMutation = useMutation({
+    mutationFn: () => platformApi.clearShortlist(resolvedTenantIds),
+    onSuccess: () => {
+      queryClient.setQueryData<CandidateShortlistItem[]>(shortlistQueryKey, []);
+    },
+  });
 
   function handleExecute() {
     const normalizedQuery = query.trim();
     const hasStructuredInput = Boolean(seniority || minYears > 0 || location.trim() || selectedSkills.length || selectedCompanies.length);
     if (!normalizedQuery && !hasStructuredInput) {
-      setError("Enter a title, skill, or filter to start searching.");
+      setFormError("Enter a title, skill, or filter to start searching.");
       return;
     }
 
@@ -500,9 +557,7 @@ export function SearchDiscoveryPage() {
     setSelectedSkills(normalizedFilters.skills ?? []);
     setSelectedCompanies(normalizedFilters.companies ?? []);
 
-    setError(null);
-    setResponse(null);
-    requestedOffsetsRef.current = new Set([0]);
+    setFormError(null);
     setRequest({
       query: normalizedQuery,
       filters: normalizedFilters,
@@ -557,7 +612,6 @@ export function SearchDiscoveryPage() {
     const tenantId = resolveCandidateTenantId(candidate);
     if (!tenantId) {
       setShortlistError("Select a workspace before adding candidates to your shortlist.");
-      setShortlistTrayVisible(true);
       return;
     }
 
@@ -568,19 +622,12 @@ export function SearchDiscoveryPage() {
 
     try {
       if (isShortlisted) {
-        await platformApi.removeShortlistItem(candidate.candidateId, tenantId);
-        setShortlistItems((current) => current.filter((item) => shortlistKey(item.tenantId, item.candidateId) !== key));
+        await removeShortlistMutation.mutateAsync({ candidateId: candidate.candidateId, tenantId });
       } else {
-        const saved = await platformApi.saveShortlistItem(buildShortlistInput(candidate, tenantId));
-        setShortlistItems((current) => {
-          const withoutExisting = current.filter((item) => shortlistKey(item.tenantId, item.candidateId) !== key);
-          return [saved, ...withoutExisting];
-        });
-        setShortlistTrayVisible(true);
+        await saveShortlistMutation.mutateAsync(buildShortlistInput(candidate, tenantId));
       }
     } catch (nextError) {
       setShortlistError(`Shortlist update failed: ${String(nextError)}`);
-      setShortlistTrayVisible(true);
     } finally {
       setShortlistPendingKeys((current) => {
         const next = new Set(current);
@@ -595,11 +642,9 @@ export function SearchDiscoveryPage() {
     setShortlistError(null);
     setShortlistPendingKeys((current) => new Set(current).add(key));
     try {
-      await platformApi.removeShortlistItem(item.candidateId, item.tenantId);
-      setShortlistItems((current) => current.filter((shortlistItem) => shortlistKey(shortlistItem.tenantId, shortlistItem.candidateId) !== key));
+      await removeShortlistMutation.mutateAsync({ candidateId: item.candidateId, tenantId: item.tenantId });
     } catch (nextError) {
       setShortlistError(`Shortlist update failed: ${String(nextError)}`);
-      setShortlistTrayVisible(true);
     } finally {
       setShortlistPendingKeys((current) => {
         const next = new Set(current);
@@ -618,13 +663,10 @@ export function SearchDiscoveryPage() {
     setShortlistError(null);
     setShortlistPendingKeys((current) => new Set(current).add(pendingKey));
     try {
-      await platformApi.clearShortlist(resolvedTenantIds);
-      setShortlistItems([]);
-      setShortlistTrayVisible(false);
+      await clearShortlistMutation.mutateAsync();
       setShortlistDrawerOpen(false);
     } catch (nextError) {
       setShortlistError(`Could not clear shortlist: ${String(nextError)}`);
-      setShortlistTrayVisible(true);
     } finally {
       setShortlistPendingKeys((current) => {
         const next = new Set(current);
@@ -683,6 +725,13 @@ export function SearchDiscoveryPage() {
       ? buildChatHref(shortlistCandidateIds.slice(0, 8), "Which candidate in my shortlist is the strongest fit and why?")
       : null;
   const clearingShortlist = shortlistPendingKeys.has("clear-shortlist");
+  const previewTenantId = previewCandidate ? resolveCandidateTenantId(previewCandidate) : null;
+  const previewShortlistKey = previewCandidate && previewTenantId ? shortlistKey(previewTenantId, previewCandidate.candidateId) : "";
+  const previewIsShortlisted = previewShortlistKey ? shortlistKeys.has(previewShortlistKey) : false;
+  const previewShortlistPending = previewShortlistKey ? shortlistPendingKeys.has(previewShortlistKey) : false;
+  const previewPartnerId = previewCandidate
+    ? sortedResults.find((candidate) => candidate.candidateId !== previewCandidate.candidateId)?.candidateId
+    : null;
   const workspaceStatsPanel = loadingWorkspaceStats ? (
     <div className="search-metrics-strip" aria-busy="true" aria-label="Loading workspace statistics">
       {["cv-pool", "candidate-profiles", "workspace"].map((item) => (
@@ -876,7 +925,7 @@ export function SearchDiscoveryPage() {
         </Panel>
       </form>
 
-      {shortlistTrayVisible && (shortlistItems.length || shortlistError) ? (
+      {shortlistItems.length || shortlistError ? (
         <Panel className="shortlist-tray">
           <div className="shortlist-tray__main">
             <span className="shortlist-tray__icon">
@@ -896,9 +945,9 @@ export function SearchDiscoveryPage() {
               <Download size={16} />
               Export CSV
             </button>
-            <button className="button button--secondary" type="button" onClick={() => setShortlistTrayVisible(false)}>
-              <X size={16} />
-              Dismiss
+            <button className="button button--secondary" type="button" onClick={handleClearShortlist} disabled={!shortlistItems.length || clearingShortlist}>
+              <Trash2 size={16} />
+              {clearingShortlist ? "Clearing..." : "Clear"}
             </button>
           </div>
         </Panel>
@@ -1019,6 +1068,130 @@ export function SearchDiscoveryPage() {
         </>
       ) : null}
 
+      {previewCandidate ? (
+        <>
+          <div className="candidate-preview-drawer-backdrop" onClick={() => setPreviewCandidate(null)} />
+          <aside className="candidate-preview-drawer" role="dialog" aria-modal="true" aria-labelledby="candidate-preview-title">
+            <div className="candidate-preview-drawer__header">
+              <div className="candidate-card__identity">
+                <Avatar name={previewCandidate.name} hue={previewCandidate.avatarHue} size="lg" />
+                <div className="stack">
+                  <span className="eyebrow">Sneak peek</span>
+                  <h2 id="candidate-preview-title">{previewCandidate.name}</h2>
+                  <p>{previewCandidate.currentTitle}</p>
+                </div>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setPreviewCandidate(null)} aria-label="Close candidate overview">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="candidate-preview-drawer__body">
+              <div className="candidate-preview-drawer__score-row">
+                <ScorePill score={previewCandidate.backendMatchRate} label="Match rate" />
+                <div className="skill-list">
+                  <Tag>{previewCandidate.seniority}</Tag>
+                  <Tag>{previewCandidate.primaryRole}</Tag>
+                  <Tag tone="success">{previewCandidate.stage}</Tag>
+                </div>
+              </div>
+
+              <div className="meta-list candidate-preview-drawer__meta">
+                <span className="tag">
+                  <MapPin size={14} />
+                  {previewCandidate.location}
+                </span>
+                <span className="tag">
+                  <BriefcaseBusiness size={14} />
+                  {formatYearsExperience(previewCandidate.yearsExperience)}
+                </span>
+              </div>
+
+              <section className="candidate-preview-section">
+                <span className="eyebrow">Overview</span>
+                <p>{previewCandidate.shortSummary || previewCandidate.headline || previewCandidate.matchNarrative}</p>
+              </section>
+
+              {previewCandidate.matchNarrative ? (
+                <section className="candidate-preview-section">
+                  <span className="eyebrow">Why this match</span>
+                  <p>{previewCandidate.matchNarrative}</p>
+                </section>
+              ) : null}
+
+              <section className="candidate-preview-section">
+                <span className="eyebrow">Top skills</span>
+                <div className="skill-list">
+                  {previewCandidate.topSkills.slice(0, 8).map((skill) => (
+                    <Tag key={skill} tone="primary">
+                      {skill}
+                    </Tag>
+                  ))}
+                </div>
+              </section>
+
+              {previewCandidate.strengths.length ? (
+                <section className="candidate-preview-section">
+                  <span className="eyebrow">Strengths</span>
+                  <ul className="bullet-list">
+                    {previewCandidate.strengths.slice(0, 3).map((strength) => (
+                      <li key={strength}>{strength}</li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              {previewCandidate.risks.length ? (
+                <section className="candidate-preview-section">
+                  <span className="eyebrow">Watchouts</span>
+                  <ul className="bullet-list">
+                    {previewCandidate.risks.slice(0, 2).map((risk) => (
+                      <li key={risk}>{risk}</li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
+
+            <div className="candidate-preview-drawer__footer">
+              <button
+                className={previewIsShortlisted ? "button button--primary" : "button button--secondary"}
+                type="button"
+                aria-pressed={previewIsShortlisted}
+                disabled={previewShortlistPending || !previewTenantId}
+                onClick={() => void handleToggleShortlist(previewCandidate)}
+              >
+                {previewIsShortlisted ? <BookmarkCheck size={16} /> : <BookmarkPlus size={16} />}
+                {previewShortlistPending ? "Saving..." : previewIsShortlisted ? "Shortlisted" : "Shortlist"}
+              </button>
+              <Link
+                className="button button--primary"
+                to={`/dossier/${previewCandidate.candidateId}`}
+                state={{
+                  searchMatchScore: previewCandidate.matchScore,
+                  searchMatchSignals: previewCandidate.matchSignals,
+                  searchQuery: request?.query ?? query,
+                }}
+                onClick={() => setPreviewCandidate(null)}
+              >
+                View Dossier
+                <ArrowRight size={16} />
+              </Link>
+              <Link className="button button--secondary" to={buildChatHref([previewCandidate.candidateId], "Why is this candidate a strong fit?")}>
+                Ask Agent
+                <MessageSquareText size={16} />
+              </Link>
+              {previewPartnerId ? (
+                <Link className="button button--secondary" to={`/compare?ids=${previewCandidate.candidateId},${previewPartnerId}`}>
+                  Compare
+                  <ArrowRight size={16} />
+                </Link>
+              ) : null}
+            </div>
+          </aside>
+        </>
+      ) : null}
+
       {!hasExecutedSearch ? null : loadingInitial && request ? (
         <SearchProcessingState request={request} />
       ) : error && !response?.results.length ? (
@@ -1114,7 +1287,11 @@ export function SearchDiscoveryPage() {
                     ))}
                   </div>
 
-                  <div className="skill-list">
+	                  <div className="skill-list">
+                    <button className="button button--secondary" type="button" onClick={() => setPreviewCandidate(candidate)}>
+                      <Eye size={16} />
+                      Quick overview
+                    </button>
                     <button
                       className={[
                         "button",
@@ -1165,13 +1342,8 @@ export function SearchDiscoveryPage() {
                   <button
                     className="button button--secondary"
                     type="button"
-                    onClick={() => {
-                      requestedOffsetsRef.current.add(response.nextCursor as number);
-                      setRequest({
-                        ...request,
-                        offset: response.nextCursor as number,
-                      });
-                    }}
+                    onClick={() => void searchResultsQuery.fetchNextPage()}
+                    disabled={loadingMore}
                   >
                     Retry
                   </button>

@@ -27,6 +27,37 @@ function toFiniteNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function describeError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error && typeof error === "object") {
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
+function isTransientLlmError(error: unknown) {
+  const message = describeError(error).toLowerCase();
+  return (
+    message.includes("abort") ||
+    message.includes("signal") ||
+    message.includes("timeout") ||
+    message.includes("temporarily unavailable") ||
+    message.includes("overloaded") ||
+    message.includes("503") ||
+    message.includes("504")
+  );
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function calibratedMatchRate(row: Record<string, unknown>) {
   const subscores = row.subscores && typeof row.subscores === "object" && !Array.isArray(row.subscores)
     ? row.subscores as Record<string, unknown>
@@ -91,8 +122,23 @@ async function extractIntentWithLlm(
   filters: Record<string, unknown>,
   facets: SearchIntentFacetOptions,
 ): Promise<SearchIntentPayload | null> {
-  const result = await generateStructuredObject<SearchIntentPayload>(buildSearchIntentConfig(query, filters, facets));
-  return result?.object ?? null;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const result = await generateStructuredObject<SearchIntentPayload>(buildSearchIntentConfig(query, filters, facets));
+      return result?.object ?? null;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientLlmError(error) || attempt === 1) {
+        throw error;
+      }
+      console.warn(`search_debug_intent_llm_retry:${describeError(error)}`);
+      await wait(180);
+    }
+  }
+
+  throw lastError;
 }
 
 const SEARCH_REST_PAGE_SIZE = 1000;
