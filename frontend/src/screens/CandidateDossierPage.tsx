@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Building2, ExternalLink, Mail, Phone } from "lucide-react";
+import { Building2, ExternalLink, FileText, Mail, Phone } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { buildChatHref } from "@/lib/chatAgent";
 import type { CandidateDetail, MatchSignals } from "@/lib/contracts";
@@ -146,6 +146,12 @@ export function CandidateDossierPage() {
             >
               Ask Agent
             </Link>
+            {candidate.cvUrl ? (
+              <a className="button button--secondary" href={candidate.cvUrl} target="_blank" rel="noreferrer noopener">
+                <FileText size={16} />
+                Open CV
+              </a>
+            ) : null}
             {contactMailto ? (
               <a className="button button--primary" href={contactMailto}>
                 Contact candidate
@@ -192,6 +198,12 @@ export function CandidateDossierPage() {
             <a className="tag" href={`tel:${candidate.phone}`}>
               <Phone size={14} />
               {candidate.phone}
+            </a>
+          ) : null}
+          {candidate.cvUrl ? (
+            <a className="tag" href={candidate.cvUrl} target="_blank" rel="noreferrer noopener">
+              <FileText size={14} />
+              {candidate.originalFilename ?? "Original CV"}
             </a>
           ) : null}
           {candidate.links.map((link) => (

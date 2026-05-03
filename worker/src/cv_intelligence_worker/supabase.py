@@ -248,6 +248,9 @@ class SupabaseClient:
             warnings.append("Supabase capacity RPC is not available; limit checks used table counts only and cannot read exact database or storage size.")
         return warnings
 
+    def public_source_uri(self, local_source_path: str) -> str:
+        return self.config.public_source_uri or local_source_path
+
     def resolve_source_document_id(self, tenant_id: str, document_sha256: str, fallback_id: str) -> str:
         query = urllib.parse.urlencode(
             {
@@ -392,7 +395,7 @@ class SupabaseClient:
             "original_filename": bundle.source.original_filename,
             "mime_type": bundle.source.mime_type,
             "document_sha256": bundle.source.document_sha256,
-            "source_uri": bundle.source.source_path,
+            "source_uri": self.public_source_uri(bundle.source.source_path),
             "storage_path": source_storage_path,
             "uploaded_by": bundle.source.uploaded_by,
             "metadata_json": dataclass_to_dict(bundle.source.metadata),

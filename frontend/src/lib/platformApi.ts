@@ -4,6 +4,8 @@ import type {
   AnalyticsSnapshot,
   AskResponse,
   CandidateDetail,
+  CandidateShortlistInput,
+  CandidateShortlistItem,
   ComparisonResponse,
   DataConnector,
   IndexingWorkbench,
@@ -69,6 +71,10 @@ type PlatformApi = {
     tenantIds?: string[],
   ) => Promise<AgentResponse>;
   getOriginalDocumentUrl: (storagePath?: string | null, sourceUri?: string | null) => Promise<string | null>;
+  getShortlist: (tenantIds?: string[]) => Promise<CandidateShortlistItem[]>;
+  saveShortlistItem: (item: CandidateShortlistInput) => Promise<CandidateShortlistItem>;
+  removeShortlistItem: (candidateId: string, tenantId?: string | null) => Promise<void>;
+  clearShortlist: (tenantIds?: string[]) => Promise<void>;
   getParsingOverview: (tenantIds?: string[], options?: ParsingOverviewOptions) => Promise<ParsingOverview>;
   getParsingDocument: (documentId: string, tenantIds?: string[]) => Promise<ParsingDocumentDetail>;
   getParserProfiles: (tenantIds?: string[]) => Promise<ParserProfile[]>;
@@ -176,6 +182,27 @@ type ParserProfileRow = {
   avg_parse_percentage: number | null;
   avg_confidence: number | null;
   documents_evaluated: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type CandidateShortlistRow = {
+  user_id: string;
+  tenant_id: string;
+  candidate_id: string;
+  candidate_name: string | null;
+  current_title: string | null;
+  location: string | null;
+  years_experience: number | null;
+  seniority: string | null;
+  primary_role: string | null;
+  top_skills: string[] | null;
+  match_rate: number | null;
+  cv_url: string | null;
+  original_filename: string | null;
+  source_query: string | null;
+  search_snapshot: unknown;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -902,6 +929,10 @@ function isBrowserOpenableSource(sourceUri?: string | null) {
   return Boolean(sourceUri && /^(https?:)?\/\//i.test(sourceUri));
 }
 
+function buildCandidateCvUrl(sourceUri?: string | null) {
+  return isBrowserOpenableSource(sourceUri) ? sourceUri ?? null : null;
+}
+
 function mapRemoteSearch(payload: JsonRecord): SearchResponse {
   const rawResults = asArray(payload.results);
   const meta = asRecord(payload.meta);
@@ -1183,8 +1214,54 @@ function mapRemoteParserProfile(row: ParserProfileRow): ParserProfile {
   };
 }
 
+function mapRemoteShortlistItem(row: CandidateShortlistRow): CandidateShortlistItem {
+  return {
+    userId: row.user_id,
+    tenantId: row.tenant_id,
+    candidateId: row.candidate_id,
+    candidateName: row.candidate_name ?? "Unknown candidate",
+    currentTitle: row.current_title ?? "Candidate",
+    location: row.location ?? "Unknown",
+    yearsExperience: typeof row.years_experience === "number" ? row.years_experience : null,
+    seniority: row.seniority,
+    primaryRole: row.primary_role,
+    topSkills: toStringArray(row.top_skills),
+    matchRate: typeof row.match_rate === "number" ? row.match_rate : null,
+    cvUrl: row.cv_url,
+    originalFilename: row.original_filename,
+    sourceQuery: row.source_query ?? "",
+    searchSnapshot: asRecord(row.search_snapshot),
+    notes: row.notes ?? "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function shortlistInputPayload(item: CandidateShortlistInput) {
+  return {
+    tenant_id: item.tenantId,
+    candidate_id: item.candidateId,
+    candidate_name: item.candidateName,
+    current_title: item.currentTitle,
+    location: item.location,
+    years_experience: item.yearsExperience ?? null,
+    seniority: item.seniority ?? null,
+    primary_role: item.primaryRole ?? null,
+    top_skills: item.topSkills ?? [],
+    match_rate: item.matchRate ?? null,
+    cv_url: item.cvUrl ?? null,
+    original_filename: item.originalFilename ?? null,
+    source_query: item.sourceQuery ?? "",
+    search_snapshot: item.searchSnapshot ?? {},
+    notes: item.notes ?? "",
+  };
+}
+
+const mockShortlistItems = new Map<string, CandidateShortlistItem>();
+
 function mapRemoteCandidate(row: CandidateDossierRow, chunks: CandidateChunkRow[]): CandidateDetail {
   const profile = asRecord(row.profile_json);
+  const cvUrl = buildCandidateCvUrl(row.source_uri);
   const timeline = asArray(row.timeline_json).map((entry) => {
     const record = asRecord(entry);
     const description = String(record.description ?? "");
@@ -1249,6 +1326,10 @@ function mapRemoteCandidate(row: CandidateDossierRow, chunks: CandidateChunkRow[
     longSummary: row.long_summary ?? row.short_summary ?? row.summary_short ?? "",
     email: row.email,
     phone: row.phone,
+    originalFilename: row.original_filename,
+    sourceUri: row.source_uri,
+    storagePath: row.storage_path,
+    cvUrl,
     links: toStringArray(row.links),
     education,
     certifications: toStringArray(profile.certifications),
@@ -1267,10 +1348,9 @@ function mapRemoteCandidate(row: CandidateDossierRow, chunks: CandidateChunkRow[
       ),
     ),
     cvPreview: [
-      row.original_filename ? `Source file: ${row.original_filename}` : "",
+      row.original_filename ? `CV file: ${row.original_filename}` : "",
       row.mime_type ? `MIME type: ${row.mime_type}` : "",
-      row.storage_path ? `Storage path: ${row.storage_path}` : "",
-      row.source_uri ? `Source URI: ${row.source_uri}` : "",
+      cvUrl ? `Drive link: ${cvUrl}` : "",
     ].filter(Boolean),
   };
 }
@@ -1414,6 +1494,58 @@ function createMockApi(): PlatformApi {
         return sourceUri ?? null;
       }
       return storagePath ? sourceUri ?? null : null;
+    },
+    async getShortlist(tenantIds) {
+      await wait(60);
+      const allowedTenantIds = new Set(tenantIds ?? []);
+      return Array.from(mockShortlistItems.values())
+        .filter((item) => !allowedTenantIds.size || allowedTenantIds.has(item.tenantId))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    },
+    async saveShortlistItem(item) {
+      await wait(70);
+      const now = new Date().toISOString();
+      const key = `${item.tenantId}:${item.candidateId}`;
+      const current = mockShortlistItems.get(key);
+      const saved: CandidateShortlistItem = {
+        userId: "mock-user",
+        tenantId: item.tenantId,
+        candidateId: item.candidateId,
+        candidateName: item.candidateName,
+        currentTitle: item.currentTitle,
+        location: item.location,
+        yearsExperience: item.yearsExperience ?? null,
+        seniority: item.seniority ?? null,
+        primaryRole: item.primaryRole ?? null,
+        topSkills: item.topSkills ?? [],
+        matchRate: item.matchRate ?? null,
+        cvUrl: item.cvUrl ?? null,
+        originalFilename: item.originalFilename ?? null,
+        sourceQuery: item.sourceQuery ?? "",
+        searchSnapshot: item.searchSnapshot ?? {},
+        notes: item.notes ?? "",
+        createdAt: current?.createdAt ?? now,
+        updatedAt: now,
+      };
+      mockShortlistItems.set(key, saved);
+      return saved;
+    },
+    async removeShortlistItem(candidateId, tenantId) {
+      await wait(50);
+      for (const [key, item] of mockShortlistItems.entries()) {
+        if (item.candidateId === candidateId && (!tenantId || item.tenantId === tenantId)) {
+          mockShortlistItems.delete(key);
+        }
+      }
+    },
+    async clearShortlist(tenantIds) {
+      await wait(60);
+      const allowedTenantIds = new Set(tenantIds ?? []);
+      for (const [key, item] of mockShortlistItems.entries()) {
+        if (!allowedTenantIds.size || allowedTenantIds.has(item.tenantId)) {
+          mockShortlistItems.delete(key);
+        }
+      }
     },
     async getParsingOverview(_tenantIds) {
       await wait(120);
@@ -1579,6 +1711,47 @@ function createRemoteApi(): PlatformApi {
       }
 
       return mock.getOriginalDocumentUrl(storagePath, sourceUri);
+    },
+    async getShortlist(tenantIds) {
+      if (!supabase || !tenantIds?.length) {
+        return mock.getShortlist(tenantIds);
+      }
+
+      try {
+        const rows = await invokePlatform<CandidateShortlistRow[]>("shortlist_items", { tenant_ids: tenantIds });
+        return (rows ?? []).map(mapRemoteShortlistItem);
+      } catch {
+        return [];
+      }
+    },
+    async saveShortlistItem(item) {
+      if (!supabase) {
+        return mock.saveShortlistItem(item);
+      }
+
+      const row = await invokePlatform<CandidateShortlistRow>("save_shortlist_item", {
+        item: shortlistInputPayload(item),
+      });
+      return mapRemoteShortlistItem(row);
+    },
+    async removeShortlistItem(candidateId, tenantId) {
+      if (!supabase) {
+        return mock.removeShortlistItem(candidateId, tenantId);
+      }
+
+      await invokePlatform("delete_shortlist_item", {
+        candidate_id: candidateId,
+        tenant_id: tenantId ?? null,
+      });
+    },
+    async clearShortlist(tenantIds) {
+      if (!supabase) {
+        return mock.clearShortlist(tenantIds);
+      }
+
+      await invokePlatform("clear_shortlist_items", {
+        tenant_ids: tenantIds ?? [],
+      });
     },
     async getParsingOverview(tenantIds, options) {
       if (!supabase || !tenantIds?.length) {

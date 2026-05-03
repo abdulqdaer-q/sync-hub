@@ -48,6 +48,10 @@ export type CandidateDetail = CandidateSearchResult & {
   longSummary: string;
   email?: string | null;
   phone?: string | null;
+  originalFilename?: string | null;
+  sourceUri?: string | null;
+  storagePath?: string | null;
+  cvUrl?: string | null;
   links: string[];
   education: string[];
   certifications: string[];
@@ -92,6 +96,45 @@ export type SearchResponse = {
     intentSource?: "llm" | "explicit";
     intent?: SearchFilters;
   };
+};
+
+export type CandidateShortlistItem = {
+  userId: string;
+  tenantId: string;
+  candidateId: string;
+  candidateName: string;
+  currentTitle: string;
+  location: string;
+  yearsExperience: number | null;
+  seniority: string | null;
+  primaryRole: string | null;
+  topSkills: string[];
+  matchRate: number | null;
+  cvUrl?: string | null;
+  originalFilename?: string | null;
+  sourceQuery: string;
+  searchSnapshot: Record<string, unknown>;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CandidateShortlistInput = {
+  tenantId: string;
+  candidateId: string;
+  candidateName: string;
+  currentTitle: string;
+  location: string;
+  yearsExperience?: number | null;
+  seniority?: string | null;
+  primaryRole?: string | null;
+  topSkills?: string[];
+  matchRate?: number | null;
+  cvUrl?: string | null;
+  originalFilename?: string | null;
+  sourceQuery?: string;
+  searchSnapshot?: Record<string, unknown>;
+  notes?: string;
 };
 
 export type SearchDebugFilters = {

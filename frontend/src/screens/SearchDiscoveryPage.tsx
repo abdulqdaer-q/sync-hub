@@ -1,18 +1,18 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUp, BriefcaseBusiness, Building2, CheckCircle2, FileText, MapPin, MessageSquareText, Search, ShieldCheck, SlidersHorizontal, Sparkles, Users, X } from "lucide-react";
+import { ArrowRight, ArrowUp, BookmarkCheck, BookmarkPlus, BriefcaseBusiness, Building2, CheckCircle2, Download, FileText, MapPin, MessageSquareText, Search, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { PlatformScopeControl } from "@/components/PlatformScopeControl";
 import { FilterMultiSelect } from "@/components/FilterMultiSelect";
 import { PickerDropdown } from "@/components/PickerDropdown";
 import { defaultSearchQuery } from "@/data/mockData";
 import { buildChatHref } from "@/lib/chatAgent";
-import type { SearchFilterOptions, SearchFilters, SearchResponse, WorkspaceStats } from "@/lib/contracts";
+import type { CandidateSearchResult, CandidateShortlistInput, CandidateShortlistItem, SearchFilterOptions, SearchFilters, SearchResponse, WorkspaceStats } from "@/lib/contracts";
 import { useAuth } from "@/lib/auth";
 import { formatYearsExperience } from "@/lib/experience";
 import { platformApi } from "@/lib/platformApi";
 import { usePlatformScope } from "@/lib/platformScope";
 import { deriveSearchFilters, parseSkillText } from "@/lib/queryIntent";
-import { Avatar, EmptyState, PageIntro, Panel, ScorePill, StatCard, Tag } from "@/components/ui";
+import { Avatar, EmptyState, Panel, ScorePill, Tag } from "@/components/ui";
 
 type SearchRequest = {
   query: string;
@@ -58,6 +58,28 @@ function formatSearchList(values: string[], maxItems = 2) {
 function compactSearchQuery(value: string) {
   const trimmed = value.trim();
   return trimmed.length > 54 ? `${trimmed.slice(0, 51)}...` : trimmed;
+}
+
+function shortlistKey(tenantId: string, candidateId: string) {
+  return `${tenantId}:${candidateId}`;
+}
+
+function csvCell(value: unknown) {
+  const normalized = Array.isArray(value) ? value.join("; ") : String(value ?? "");
+  return `"${normalized.replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename: string, rows: unknown[][]) {
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function buildSearchLoadingSteps(request: SearchRequest): SearchLoadingStep[] {
@@ -217,10 +239,17 @@ export function SearchDiscoveryPage() {
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<SearchSortOption>("best-match");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterOptions, setFilterOptions] = useState<SearchFilterOptions | null>(null);
   const [workspaceStats, setWorkspaceStats] = useState<WorkspaceStats | null>(null);
   const [loadingWorkspaceStats, setLoadingWorkspaceStats] = useState(true);
   const [response, setResponse] = useState<SearchResponse | null>(null);
+  const [shortlistItems, setShortlistItems] = useState<CandidateShortlistItem[]>([]);
+  const [loadingShortlist, setLoadingShortlist] = useState(true);
+  const [shortlistPendingKeys, setShortlistPendingKeys] = useState<Set<string>>(new Set());
+  const [shortlistError, setShortlistError] = useState<string | null>(null);
+  const [shortlistTrayVisible, setShortlistTrayVisible] = useState(false);
+  const [shortlistDrawerOpen, setShortlistDrawerOpen] = useState(false);
   const [loadingInitial, setLoadingInitial] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -229,6 +258,10 @@ export function SearchDiscoveryPage() {
   const requestedOffsetsRef = useRef<Set<number>>(new Set());
   const hasExecutedSearch = request !== null;
   const scopeKey = resolvedTenantIds.join("|");
+  const shortlistKeys = useMemo(
+    () => new Set(shortlistItems.map((item) => shortlistKey(item.tenantId, item.candidateId))),
+    [shortlistItems],
+  );
   const sortedResults = useMemo(() => {
     const results = response?.results ?? [];
 
@@ -289,6 +322,44 @@ export function SearchDiscoveryPage() {
       cancelled = true;
     };
   }, [scopeKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setLoadingShortlist(true);
+    setShortlistError(null);
+    setShortlistTrayVisible(false);
+    setShortlistDrawerOpen(false);
+    platformApi
+      .getShortlist(resolvedTenantIds)
+      .then((items) => {
+        if (!cancelled) {
+          setShortlistItems(items);
+        }
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setShortlistItems([]);
+          setShortlistError(String(nextError));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingShortlist(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scopeKey]);
+
+  useEffect(() => {
+    if (!shortlistItems.length && !shortlistError) {
+      setShortlistTrayVisible(false);
+      setShortlistDrawerOpen(false);
+    }
+  }, [shortlistItems.length, shortlistError]);
 
   useEffect(() => {
     if (!request) {
@@ -455,6 +526,139 @@ export function SearchDiscoveryPage() {
     setSelectedCompanies([]);
   }
 
+  function resolveCandidateTenantId(candidate: CandidateSearchResult) {
+    return candidate.tenantId ?? currentWorkspace?.id ?? currentTenant?.id ?? resolvedTenantIds[0] ?? null;
+  }
+
+  function buildShortlistInput(candidate: CandidateSearchResult, tenantId: string): CandidateShortlistInput {
+    return {
+      tenantId,
+      candidateId: candidate.candidateId,
+      candidateName: candidate.name,
+      currentTitle: candidate.currentTitle,
+      location: candidate.location,
+      yearsExperience: candidate.yearsExperience,
+      seniority: candidate.seniority,
+      primaryRole: candidate.primaryRole,
+      topSkills: candidate.topSkills,
+      matchRate: candidate.backendMatchRate,
+      sourceQuery: request?.query ?? query.trim(),
+      searchSnapshot: {
+        headline: candidate.headline,
+        shortSummary: candidate.shortSummary,
+        matchSignals: candidate.matchSignals,
+        matchNarrative: candidate.matchNarrative,
+        stage: candidate.stage,
+      },
+    };
+  }
+
+  async function handleToggleShortlist(candidate: CandidateSearchResult) {
+    const tenantId = resolveCandidateTenantId(candidate);
+    if (!tenantId) {
+      setShortlistError("Select a workspace before adding candidates to your shortlist.");
+      setShortlistTrayVisible(true);
+      return;
+    }
+
+    const key = shortlistKey(tenantId, candidate.candidateId);
+    const isShortlisted = shortlistKeys.has(key);
+    setShortlistError(null);
+    setShortlistPendingKeys((current) => new Set(current).add(key));
+
+    try {
+      if (isShortlisted) {
+        await platformApi.removeShortlistItem(candidate.candidateId, tenantId);
+        setShortlistItems((current) => current.filter((item) => shortlistKey(item.tenantId, item.candidateId) !== key));
+      } else {
+        const saved = await platformApi.saveShortlistItem(buildShortlistInput(candidate, tenantId));
+        setShortlistItems((current) => {
+          const withoutExisting = current.filter((item) => shortlistKey(item.tenantId, item.candidateId) !== key);
+          return [saved, ...withoutExisting];
+        });
+        setShortlistTrayVisible(true);
+      }
+    } catch (nextError) {
+      setShortlistError(`Shortlist update failed: ${String(nextError)}`);
+      setShortlistTrayVisible(true);
+    } finally {
+      setShortlistPendingKeys((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+    }
+  }
+
+  async function handleRemoveShortlistItem(item: CandidateShortlistItem) {
+    const key = shortlistKey(item.tenantId, item.candidateId);
+    setShortlistError(null);
+    setShortlistPendingKeys((current) => new Set(current).add(key));
+    try {
+      await platformApi.removeShortlistItem(item.candidateId, item.tenantId);
+      setShortlistItems((current) => current.filter((shortlistItem) => shortlistKey(shortlistItem.tenantId, shortlistItem.candidateId) !== key));
+    } catch (nextError) {
+      setShortlistError(`Shortlist update failed: ${String(nextError)}`);
+      setShortlistTrayVisible(true);
+    } finally {
+      setShortlistPendingKeys((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+    }
+  }
+
+  async function handleClearShortlist() {
+    if (!shortlistItems.length) {
+      return;
+    }
+
+    const pendingKey = "clear-shortlist";
+    setShortlistError(null);
+    setShortlistPendingKeys((current) => new Set(current).add(pendingKey));
+    try {
+      await platformApi.clearShortlist(resolvedTenantIds);
+      setShortlistItems([]);
+      setShortlistTrayVisible(false);
+      setShortlistDrawerOpen(false);
+    } catch (nextError) {
+      setShortlistError(`Could not clear shortlist: ${String(nextError)}`);
+      setShortlistTrayVisible(true);
+    } finally {
+      setShortlistPendingKeys((current) => {
+        const next = new Set(current);
+        next.delete(pendingKey);
+        return next;
+      });
+    }
+  }
+
+  function handleExportShortlist() {
+    if (!shortlistItems.length) {
+      return;
+    }
+
+    const rows = [
+      ["Name", "Title", "Location", "Years Experience", "Seniority", "Primary Role", "Match Rate", "Top Skills", "CV URL", "Source Query", "Dossier URL"],
+      ...shortlistItems.map((item) => [
+        item.candidateName,
+        item.currentTitle,
+        item.location,
+        item.yearsExperience ?? "",
+        item.seniority ?? "",
+        item.primaryRole ?? "",
+        item.matchRate === null ? "" : `${item.matchRate}%`,
+        item.topSkills,
+        item.cvUrl ?? "",
+        item.sourceQuery,
+        `${window.location.origin}/dossier/${item.candidateId}`,
+      ]),
+    ];
+
+    downloadCsv(`candidate-shortlist-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  }
+
   const topCompareHref =
     response && sortedResults.length >= 2
       ? `/compare?ids=${sortedResults
@@ -469,64 +673,96 @@ export function SearchDiscoveryPage() {
           "Which candidate is the strongest overall fit and why?",
         )
       : null;
+  const shortlistCandidateIds = shortlistItems.map((item) => item.candidateId);
+  const shortlistCompareHref =
+    shortlistCandidateIds.length >= 2
+      ? `/compare?ids=${shortlistCandidateIds.slice(0, 8).join(",")}`
+      : null;
+  const shortlistChatHref =
+    shortlistCandidateIds.length
+      ? buildChatHref(shortlistCandidateIds.slice(0, 8), "Which candidate in my shortlist is the strongest fit and why?")
+      : null;
+  const clearingShortlist = shortlistPendingKeys.has("clear-shortlist");
   const workspaceStatsPanel = loadingWorkspaceStats ? (
-    <div className="stats-grid search-stats-grid" aria-busy="true" aria-label="Loading workspace statistics">
+    <div className="search-metrics-strip" aria-busy="true" aria-label="Loading workspace statistics">
       {["cv-pool", "candidate-profiles", "workspace"].map((item) => (
-        <Panel key={item} className="stat-card stat-card--loading">
-          <div className="stat-card__header">
-            <span className="stat-card__skeleton stat-card__skeleton--label" />
-            <span className="stat-card__skeleton stat-card__skeleton--icon" />
+        <div key={item} className="search-metric search-metric--loading">
+          <span className="stat-card__skeleton search-metric__icon" />
+          <div>
+            <span className="stat-card__skeleton search-metric__label" />
+            <span className="stat-card__skeleton search-metric__value" />
           </div>
-          <div className="stat-card__value-row">
-            <span className="stat-card__skeleton stat-card__skeleton--value" />
-            <span className="stat-card__skeleton stat-card__skeleton--delta" />
-          </div>
-        </Panel>
+        </div>
       ))}
     </div>
   ) : workspaceStats ? (
-    <div className="stats-grid search-stats-grid">
-      <StatCard
-        label="CV Pool"
-        value={workspaceStats.documentCount.toLocaleString()}
-        delta="indexed documents"
-        icon={<FileText size={16} />}
-      />
-      <StatCard
-        label="Candidate Profiles"
-        value={workspaceStats.candidateCount.toLocaleString()}
-        delta="searchable"
-        tone="secondary"
-        icon={<Users size={16} />}
-      />
-      <StatCard
-        label="Workspace"
-        value={isAllScope ? "All workspaces" : currentWorkspace?.name ?? currentTenant?.name ?? "Demo Workspace"}
-        delta={isAllScope ? `${workspaceOptions.length} workspaces` : currentWorkspace ? `${currentWorkspace.role} access` : "tenant-scoped pool"}
-        tone="tertiary"
-        icon={isAllScope ? <ShieldCheck size={16} /> : currentWorkspace ? <Building2 size={16} /> : <ShieldCheck size={16} />}
-      />
+    <div className="search-metrics-strip" aria-label="Search corpus summary">
+      <div className="search-metric">
+        <span className="search-metric__icon">
+          <FileText size={16} />
+        </span>
+        <div>
+          <span>CV Pool</span>
+          <strong>{workspaceStats.documentCount.toLocaleString()}</strong>
+          <small>indexed documents</small>
+        </div>
+      </div>
+
+      <div className="search-metric">
+        <span className="search-metric__icon search-metric__icon--secondary">
+          <Users size={16} />
+        </span>
+        <div>
+          <span>Candidate Profiles</span>
+          <strong>{workspaceStats.candidateCount.toLocaleString()}</strong>
+          <small>searchable</small>
+        </div>
+      </div>
+
+      <div className="search-metric">
+        <span className="search-metric__icon search-metric__icon--tertiary">
+          {isAllScope ? <ShieldCheck size={16} /> : currentWorkspace ? <Building2 size={16} /> : <ShieldCheck size={16} />}
+        </span>
+        <div>
+          <span>Workspace</span>
+          <strong>{isAllScope ? "All workspaces" : currentWorkspace?.name ?? currentTenant?.name ?? "Demo Workspace"}</strong>
+          <small>{isAllScope ? `${workspaceOptions.length} workspaces` : currentWorkspace ? `${currentWorkspace.role} access` : "tenant-scoped pool"}</small>
+        </div>
+      </div>
     </div>
   ) : null;
 
   return (
-    <div className="page-stack">
-      <PageIntro
-        eyebrow="Candidate search"
-        title="Search candidates"
-        actions={
-          <div className="stack" style={{ alignItems: "flex-end" }}>
-            <PlatformScopeControl
-              isPlatformAdmin={isPlatformAdmin}
-              scopeMode={scopeMode}
-              onChangeScopeMode={setScopeMode}
-              currentWorkspace={currentWorkspace}
-              workspaceOptions={workspaceOptions}
-              onChangeWorkspace={setWorkspaceId}
-            />
-          </div>
-        }
-      />
+    <div className="page-stack search-page">
+      <section className="search-page-header" aria-labelledby="search-page-title">
+        <div className="search-page-header__copy">
+          <span className="eyebrow">Candidate search</span>
+          <h1 id="search-page-title">Search candidates</h1>
+        </div>
+
+        <div className="search-page-header__actions">
+          {shortlistItems.length ? (
+            <button
+              className="button button--secondary search-shortlist-button"
+              type="button"
+              onClick={() => setShortlistDrawerOpen(true)}
+              aria-label={`Open shortlist with ${shortlistItems.length} candidates`}
+            >
+              <BookmarkCheck size={16} />
+              <span>Shortlist</span>
+              <strong>{shortlistItems.length}</strong>
+            </button>
+          ) : null}
+          <PlatformScopeControl
+            isPlatformAdmin={isPlatformAdmin}
+            scopeMode={scopeMode}
+            onChangeScopeMode={setScopeMode}
+            currentWorkspace={currentWorkspace}
+            workspaceOptions={workspaceOptions}
+            onChangeWorkspace={setWorkspaceId}
+          />
+        </div>
+      </section>
 
       {workspaceStatsPanel}
 
@@ -549,81 +785,239 @@ export function SearchDiscoveryPage() {
                 placeholder={defaultSearchQuery}
               />
             </label>
+            <button
+              className="button button--secondary search-filter-toggle"
+              type="button"
+              aria-expanded={filtersOpen}
+              aria-controls="search-filter-region"
+              onClick={() => setFiltersOpen((value) => !value)}
+            >
+              <SlidersHorizontal size={16} />
+              Filters
+              {activeFilterCount ? <strong>{activeFilterCount}</strong> : null}
+            </button>
             <button className="button button--primary search-submit-button" type="submit" disabled={loadingInitial || loadingMore}>
               <Search size={16} />
               {loadingInitial ? "Searching..." : "Search"}
             </button>
           </div>
 
-          <div className="search-filter-toolbar">
-            <div className="search-filter-toolbar__title">
-              <SlidersHorizontal size={16} />
-              <strong>Filters</strong>
-              <span>{activeFilterCount ? `${activeFilterCount} active` : "All candidates"}</span>
+          {filtersOpen ? (
+            <div id="search-filter-region" className="search-filter-region">
+              <div className="search-filter-toolbar">
+                <div className="search-filter-toolbar__title">
+                  <SlidersHorizontal size={16} />
+                  <strong>Filters</strong>
+                  <span>{activeFilterCount ? `${activeFilterCount} active` : "All candidates"}</span>
+                </div>
+                {activeFilterCount ? (
+                  <button className="button button--secondary button--compact" type="button" onClick={handleClearFilters}>
+                    <X size={14} />
+                    Clear
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="search-filters-grid">
+                <label className="search-filter-field">
+                  <span>Seniority</span>
+                  <PickerDropdown
+                    value={seniority}
+                    options={filterOptions?.seniority ?? []}
+                    onChange={setSeniority}
+                    placeholder="Any seniority"
+                    emptyLabel="No seniority values available"
+                  />
+                </label>
+
+                <label className="search-filter-field">
+                  <span>Min years</span>
+                  <input className="form-input" type="number" value={minYears} min={0} onChange={(event) => setMinYears(Number(event.target.value))} />
+                </label>
+
+                <label className="search-filter-field">
+                  <span>Location</span>
+                  <PickerDropdown
+                    value={location}
+                    options={(filterOptions?.locations ?? []).map((option) => ({ value: option, label: option }))}
+                    onChange={setLocation}
+                    placeholder="Any location"
+                    emptyLabel="No indexed locations available"
+                  />
+                </label>
+
+                <label className="search-filter-field search-filter-field--wide">
+                  <span>Skills</span>
+                  <FilterMultiSelect
+                    options={filterOptions?.skills ?? []}
+                    values={selectedSkills}
+                    onChange={setSelectedSkills}
+                    placeholder="Any skill"
+                    searchPlaceholder="Search skills"
+                    normalizeInput={parseSkillText}
+                    emptyLabel="No skills match"
+                  />
+                </label>
+
+                <label className="search-filter-field search-filter-field--wide">
+                  <span>Companies</span>
+                  <FilterMultiSelect
+                    options={filterOptions?.companies ?? []}
+                    values={selectedCompanies}
+                    onChange={setSelectedCompanies}
+                    placeholder="Any company"
+                    searchPlaceholder="Search companies"
+                    emptyLabel="No companies match"
+                  />
+                </label>
+              </div>
             </div>
-            {activeFilterCount ? (
-              <button className="button button--secondary button--compact" type="button" onClick={handleClearFilters}>
-                <X size={14} />
-                Clear
-              </button>
-            ) : null}
-          </div>
-
-          <div className="search-filters-grid">
-            <label className="search-filter-field">
-              <span>Seniority</span>
-              <PickerDropdown
-                value={seniority}
-                options={filterOptions?.seniority ?? []}
-                onChange={setSeniority}
-                placeholder="Any seniority"
-                emptyLabel="No seniority values available"
-              />
-            </label>
-
-            <label className="search-filter-field">
-              <span>Min years</span>
-              <input className="form-input" type="number" value={minYears} min={0} onChange={(event) => setMinYears(Number(event.target.value))} />
-            </label>
-
-            <label className="search-filter-field">
-              <span>Location</span>
-              <PickerDropdown
-                value={location}
-                options={(filterOptions?.locations ?? []).map((option) => ({ value: option, label: option }))}
-                onChange={setLocation}
-                placeholder="Any location"
-                emptyLabel="No indexed locations available"
-              />
-            </label>
-
-            <label className="search-filter-field search-filter-field--wide">
-              <span>Skills</span>
-              <FilterMultiSelect
-                options={filterOptions?.skills ?? []}
-                values={selectedSkills}
-                onChange={setSelectedSkills}
-                placeholder="Any skill"
-                searchPlaceholder="Search skills"
-                normalizeInput={parseSkillText}
-                emptyLabel="No skills match"
-              />
-            </label>
-
-            <label className="search-filter-field search-filter-field--wide">
-              <span>Companies</span>
-              <FilterMultiSelect
-                options={filterOptions?.companies ?? []}
-                values={selectedCompanies}
-                onChange={setSelectedCompanies}
-                placeholder="Any company"
-                searchPlaceholder="Search companies"
-                emptyLabel="No companies match"
-              />
-            </label>
-          </div>
+          ) : null}
         </Panel>
       </form>
+
+      {shortlistTrayVisible && (shortlistItems.length || shortlistError) ? (
+        <Panel className="shortlist-tray">
+          <div className="shortlist-tray__main">
+            <span className="shortlist-tray__icon">
+              <BookmarkCheck size={18} />
+            </span>
+            <div>
+              <strong>{shortlistItems.length ? `${shortlistItems.length} shortlisted` : "Shortlist needs attention"}</strong>
+              <p>{shortlistError ?? "Saved to your account. Review the list before exporting."}</p>
+            </div>
+          </div>
+          <div className="shortlist-tray__actions">
+            <button className="button button--primary" type="button" onClick={() => setShortlistDrawerOpen(true)} disabled={!shortlistItems.length}>
+              <BookmarkCheck size={16} />
+              Review
+            </button>
+            <button className="button button--secondary" type="button" onClick={handleExportShortlist} disabled={!shortlistItems.length}>
+              <Download size={16} />
+              Export CSV
+            </button>
+            <button className="button button--secondary" type="button" onClick={() => setShortlistTrayVisible(false)}>
+              <X size={16} />
+              Dismiss
+            </button>
+          </div>
+        </Panel>
+      ) : null}
+
+      {shortlistDrawerOpen ? (
+        <>
+          <div className="shortlist-drawer-backdrop" onClick={() => setShortlistDrawerOpen(false)} />
+          <aside className="shortlist-drawer" role="dialog" aria-modal="true" aria-labelledby="shortlist-drawer-title">
+            <div className="shortlist-drawer__header">
+              <div className="stack">
+                <span className="eyebrow">Saved shortlist</span>
+                <h2 id="shortlist-drawer-title">{shortlistItems.length} candidates</h2>
+                <p className="muted">Account-level selections for the active workspace scope.</p>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setShortlistDrawerOpen(false)} aria-label="Close shortlist drawer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="shortlist-drawer__body">
+              {shortlistError ? <p className="shortlist-drawer__error">{shortlistError}</p> : null}
+              {loadingShortlist ? (
+                <p className="muted">Loading saved candidates...</p>
+              ) : !shortlistItems.length ? (
+                <p className="muted">No candidates saved yet.</p>
+              ) : (
+                <div className="shortlist-drawer__list">
+                  {shortlistItems.map((item) => {
+                    const key = shortlistKey(item.tenantId, item.candidateId);
+                    const removing = shortlistPendingKeys.has(key);
+                    return (
+                      <article key={key} className="shortlist-drawer-card">
+                        <div className="shortlist-drawer-card__header">
+                          <div className="candidate-card__identity">
+                            <Avatar name={item.candidateName} hue={item.candidateName.length * 17} size="sm" />
+                            <div className="stack">
+                              <strong>{item.candidateName}</strong>
+                              <p>{item.currentTitle}</p>
+                            </div>
+                          </div>
+                          {item.matchRate !== null ? <ScorePill score={item.matchRate} label="Match" /> : null}
+                        </div>
+
+                        <div className="meta-list shortlist-drawer-card__meta">
+                          <span className="tag">
+                            <MapPin size={14} />
+                            {item.location}
+                          </span>
+                          {item.yearsExperience !== null ? (
+                            <span className="tag">
+                              <BriefcaseBusiness size={14} />
+                              {formatYearsExperience(item.yearsExperience)}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {item.topSkills.length ? (
+                          <div className="skill-list">
+                            {item.topSkills.slice(0, 4).map((skill) => (
+                              <Tag key={skill} tone="primary">
+                                {skill}
+                              </Tag>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        <div className="shortlist-drawer-card__actions">
+                          <Link className="button button--secondary button--compact" to={`/dossier/${item.candidateId}`} onClick={() => setShortlistDrawerOpen(false)}>
+                            View
+                          </Link>
+                          {item.cvUrl ? (
+                            <a className="button button--secondary button--compact" href={item.cvUrl} target="_blank" rel="noreferrer">
+                              <FileText size={14} />
+                              CV
+                            </a>
+                          ) : null}
+                          <button
+                            className="button button--secondary button--compact"
+                            type="button"
+                            onClick={() => void handleRemoveShortlistItem(item)}
+                            disabled={removing}
+                          >
+                            <Trash2 size={14} />
+                            {removing ? "Removing..." : "Remove"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="shortlist-drawer__footer">
+              {shortlistChatHref ? (
+                <Link className="button button--secondary" to={shortlistChatHref}>
+                  Ask Agent
+                  <MessageSquareText size={16} />
+                </Link>
+              ) : null}
+              {shortlistCompareHref ? (
+                <Link className="button button--primary" to={shortlistCompareHref}>
+                  Compare
+                  <ArrowRight size={16} />
+                </Link>
+              ) : null}
+              <button className="button button--secondary" type="button" onClick={handleExportShortlist} disabled={!shortlistItems.length}>
+                <Download size={16} />
+                Export CSV
+              </button>
+              <button className="button button--secondary" type="button" onClick={handleClearShortlist} disabled={!shortlistItems.length || clearingShortlist}>
+                <Trash2 size={16} />
+                {clearingShortlist ? "Clearing..." : "Clear"}
+              </button>
+            </div>
+          </aside>
+        </>
+      ) : null}
 
       {!hasExecutedSearch ? null : loadingInitial && request ? (
         <SearchProcessingState request={request} />
@@ -677,6 +1071,10 @@ export function SearchDiscoveryPage() {
           <div className="candidate-results">
             {sortedResults.map((candidate) => {
               const partnerId = sortedResults.find((item) => item.candidateId !== candidate.candidateId)?.candidateId;
+              const candidateTenantId = resolveCandidateTenantId(candidate);
+              const candidateShortlistKey = candidateTenantId ? shortlistKey(candidateTenantId, candidate.candidateId) : "";
+              const isShortlisted = candidateShortlistKey ? shortlistKeys.has(candidateShortlistKey) : false;
+              const shortlistPending = candidateShortlistKey ? shortlistPendingKeys.has(candidateShortlistKey) : false;
 
               return (
                 <Panel key={candidate.candidateId} className="candidate-card">
@@ -717,6 +1115,19 @@ export function SearchDiscoveryPage() {
                   </div>
 
                   <div className="skill-list">
+                    <button
+                      className={[
+                        "button",
+                        isShortlisted ? "button--primary shortlist-action-button shortlist-action-button--active" : "button--secondary shortlist-action-button",
+                      ].join(" ")}
+                      type="button"
+                      aria-pressed={isShortlisted}
+                      disabled={shortlistPending || !candidateTenantId}
+                      onClick={() => void handleToggleShortlist(candidate)}
+                    >
+                      {isShortlisted ? <BookmarkCheck size={16} /> : <BookmarkPlus size={16} />}
+                      {shortlistPending ? "Saving..." : isShortlisted ? "Shortlisted" : "Shortlist"}
+                    </button>
                     <Link
                       className="button button--secondary"
                       to={`/dossier/${candidate.candidateId}`}

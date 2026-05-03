@@ -197,6 +197,7 @@ export function buildSearchIntentConfig(query: string, filters: SearchFilters = 
       "If query conflicts with existing_filters, query wins.",
       "Do not invent constraints.",
       "Normalize role and seniority to the allowed enums.",
+      "For broad generic titles like 'software engineer', 'software developer', or 'engineer' with no frontend/backend/mobile/data/ML/DevOps/QA/security focus, set role to null.",
       "Set missing or uncertain scalar fields to null, and list fields to [].",
       "Skills must be explicitly requested, normalized, and deduplicated. Technologies, frameworks, libraries, platforms, protocols, and tools belong in skills.",
       "Companies must be explicit employer/client/company filters only, such as candidates who worked at/for/with a named company.",
@@ -234,6 +235,11 @@ function normalizePositiveYears(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
+function normalizeRoleFilter(value: string | null | undefined) {
+  const normalized = value?.trim() || null;
+  return normalized === "generalist" ? null : normalized;
+}
+
 function mergeUnique<T>(left: T[], right: T[]) {
   return Array.from(new Set([...left, ...right]));
 }
@@ -251,7 +257,7 @@ export function resolveSearchFilters(
   const llmCompanies = limitCompaniesToFacets(llmIntent?.companies, facets);
 
   return deriveSearchFilters("", {
-    role: llmIntent?.role ?? requestFilters.role ?? null,
+    role: normalizeRoleFilter(llmIntent?.role ?? requestFilters.role ?? null),
     seniority: llmIntent?.seniority ?? requestFilters.seniority ?? null,
     min_years_experience: llmIntent?.min_years_experience ?? requestFilters.min_years_experience ?? null,
     location: limitLocationToFacets(llmIntent?.location ?? requestFilters.location ?? null, facets),
@@ -266,7 +272,7 @@ export function deriveSearchFilters(query: string, filters: SearchFilters = {}) 
   const explicitCompanies = normalizeCompanies(filters.companies);
 
   return {
-    role: filters.role ?? null,
+    role: normalizeRoleFilter(filters.role),
     seniority: normalizeSeniorityValue(filters.seniority) ?? null,
     min_years_experience: normalizePositiveYears(filters.min_years_experience),
     location: normalizeLocationValue(filters.location, { allowFallback: false }) ?? null,
