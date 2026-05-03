@@ -89,6 +89,8 @@ export type SearchResponse = {
     count: number;
     rankVersion: string;
     source: "mock" | "remote";
+    intentSource?: "llm" | "explicit";
+    intent?: SearchFilters;
   };
 };
 
@@ -135,7 +137,7 @@ export type SearchDebugResponse = {
     explicitFilters: SearchDebugFilters;
   };
   analysis: {
-    intentSource: "llm" | "rule_based";
+    intentSource: "llm" | "explicit";
     llmIntent: SearchDebugFilters | null;
     resolvedIntent: SearchDebugFilters;
     embedding: {

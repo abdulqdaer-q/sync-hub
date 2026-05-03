@@ -306,18 +306,6 @@ export function CandidateDossierPage() {
               </div>
             </div>
           </Panel>
-
-          <Panel className="table-card">
-            <div className="stack">
-              <h3>CV preview map</h3>
-              <ul className="bullet-list">
-                {candidate.cvPreview.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-              <p>This is wired as a metadata-ready preview area so the shared-hosted frontend can later open the original stored CV with a signed URL.</p>
-            </div>
-          </Panel>
         </div>
       </div>
     </div>

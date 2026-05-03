@@ -51,6 +51,9 @@ import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
 
 type JsonRecord = Record<string, unknown>;
 
+const MAX_VISIBLE_CITATIONS = 3;
+const MAX_CONTEXT_BLOCKS = 6;
+
 type PlatformApi = {
   search: (query: string, filters: SearchFilters, options?: SearchQueryOptions, tenantIds?: string[]) => Promise<SearchResponse>;
   searchDebug: (query: string, filters: SearchFilters, options?: SearchQueryOptions, tenantIds?: string[]) => Promise<SearchDebugResponse>;
@@ -468,7 +471,7 @@ function rowMatchesFastFilters(row: CandidateSearchRow, filters: ReturnType<type
   if (filters.location && !location.includes(filterLocation) && !normalizeSearchText(row.location).includes(normalizeSearchText(filters.location))) {
     return false;
   }
-  if (filters.skills.length && !filters.skills.every((skill) => skills.includes(normalizeSearchText(skill)))) {
+  if (filters.skills.length && !filters.skills.some((skill) => skills.includes(normalizeSearchText(skill)))) {
     return false;
   }
   if (filters.companies.length && !filters.companies.some((company) => companies.includes(normalizeSearchText(company)))) {
@@ -610,6 +613,17 @@ function normalizeSearchFilters(filters: SearchFilters) {
     location: normalizeLocationValue(filters.location, { allowFallback: false }) ?? null,
     skills: normalizeSkillList(filters.skills ?? []),
     companies: dedupeSorted((filters.companies ?? []).map((company) => company.trim())),
+  };
+}
+
+function mapSearchIntentFilters(record: JsonRecord): SearchFilters {
+  return {
+    role: typeof record.role === "string" ? record.role : undefined,
+    seniority: typeof record.seniority === "string" ? record.seniority : undefined,
+    minYearsExperience: typeof record.min_years_experience === "number" ? record.min_years_experience : 0,
+    location: typeof record.location === "string" ? record.location : undefined,
+    skills: toStringArray(record.skills),
+    companies: toStringArray(record.companies),
   };
 }
 
@@ -808,6 +822,8 @@ function isBrowserOpenableSource(sourceUri?: string | null) {
 
 function mapRemoteSearch(payload: JsonRecord): SearchResponse {
   const rawResults = asArray(payload.results);
+  const meta = asRecord(payload.meta);
+  const intent = asRecord(meta.intent);
 
   return {
     results: rawResults.map((row) => {
@@ -847,9 +863,11 @@ function mapRemoteSearch(payload: JsonRecord): SearchResponse {
     }),
     nextCursor: typeof payload.next_cursor === "number" ? payload.next_cursor : null,
     meta: {
-      count: toNumber(asRecord(payload.meta).count, rawResults.length),
-      rankVersion: String(asRecord(payload.meta).rank_version ?? "v2-rate"),
+      count: toNumber(meta.count, rawResults.length),
+      rankVersion: String(meta.rank_version ?? "v2-rate"),
       source: "remote",
+      intentSource: typeof meta.intent_source === "string" ? meta.intent_source as SearchResponse["meta"]["intentSource"] : undefined,
+      intent: Object.keys(intent).length ? mapSearchIntentFilters(intent) : undefined,
     },
   };
 }
@@ -882,7 +900,7 @@ function mapRemoteSearchDebug(payload: JsonRecord): SearchDebugResponse {
       explicitFilters: normalizeFilters(explicitFilters),
     },
     analysis: {
-      intentSource: String(analysis.intent_source ?? "rule_based") as SearchDebugResponse["analysis"]["intentSource"],
+      intentSource: String(analysis.intent_source ?? "explicit") as SearchDebugResponse["analysis"]["intentSource"],
       llmIntent: Object.keys(llmIntent).length ? normalizeFilters(llmIntent) : null,
       resolvedIntent: normalizeFilters(resolvedIntent),
       embedding: {
@@ -1024,8 +1042,8 @@ function mapRemoteAsk(payload: JsonRecord, candidateIds: string[]): AskResponse 
         fact: String(record.fact ?? ""),
       };
     }),
-    citations: asArray(payload.citations).map((row, index) => mapEvidenceSnippet(asRecord(row), index)),
-    contextBlocks: asArray(payload.context_blocks).map((row, index) => mapEvidenceSnippet(asRecord(row), index)),
+    citations: asArray(payload.citations).slice(0, MAX_VISIBLE_CITATIONS).map((row, index) => mapEvidenceSnippet(asRecord(row), index)),
+    contextBlocks: asArray(payload.context_blocks).slice(0, MAX_CONTEXT_BLOCKS).map((row, index) => mapEvidenceSnippet(asRecord(row), index)),
     extractiveAnswer: String(payload.extractive_answer ?? ""),
     meta: {
       candidateCount: toNumber(asRecord(payload.meta).candidate_count, candidateIds.length),
@@ -1040,8 +1058,8 @@ function mapRemoteAsk(payload: JsonRecord, candidateIds: string[]): AskResponse 
 function mapRemoteAgent(payload: JsonRecord, candidateIds: string[]): AgentResponse {
   return {
     answer: String(payload.answer ?? payload.extractive_answer ?? ""),
-    citations: asArray(payload.citations).map((row, index) => mapEvidenceSnippet(asRecord(row), index)),
-    contextBlocks: asArray(payload.context_blocks).map((row, index) => mapEvidenceSnippet(asRecord(row), index)),
+    citations: asArray(payload.citations).slice(0, MAX_VISIBLE_CITATIONS).map((row, index) => mapEvidenceSnippet(asRecord(row), index)),
+    contextBlocks: asArray(payload.context_blocks).slice(0, MAX_CONTEXT_BLOCKS).map((row, index) => mapEvidenceSnippet(asRecord(row), index)),
     meta: {
       candidateCount: toNumber(asRecord(payload.meta).candidate_count, candidateIds.length),
       topK: toNumber(asRecord(payload.meta).top_k, 6),
@@ -1205,7 +1223,7 @@ function createMockApi(): PlatformApi {
           explicitFilters,
         },
         analysis: {
-          intentSource: "rule_based",
+          intentSource: "explicit",
           llmIntent: null,
           resolvedIntent: explicitFilters,
           embedding: {

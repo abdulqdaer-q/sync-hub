@@ -932,7 +932,7 @@ export function askCandidates(question: string, candidateIds: string[]): AskResp
     return [{ candidateId: candidate.candidateId, candidateName: candidate.name, fact: candidate.shortSummary }];
   });
 
-  const citations = selected.flatMap((candidate) => candidate.evidence).slice(0, 6);
+  const citations = selected.flatMap((candidate) => candidate.evidence).slice(0, 3);
 
   return {
     intent,
@@ -942,7 +942,7 @@ export function askCandidates(question: string, candidateIds: string[]): AskResp
     extractiveAnswer: facts.slice(0, 3).map((fact) => fact.fact).join(" "),
     meta: {
       candidateCount: selected.length,
-      topK: 6,
+      topK: 3,
       answerSource: "mock",
       scopeSource: candidateIds.length ? "explicit" : "mock",
       resolvedCandidateIds: resolvedIds,

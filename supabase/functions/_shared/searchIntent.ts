@@ -1,4 +1,4 @@
-import { extractSeniorityFromText, extractSkillsFromText, normalizeLocationValue, normalizeSeniorityValue, normalizeSkillList } from "./searchTaxonomy.ts";
+import { normalizeLocationValue, normalizeSeniorityValue, normalizeSkillList } from "./searchTaxonomy.ts";
 
 type SearchFilters = {
   role?: string | null;
@@ -39,59 +39,18 @@ export type SearchIntentPayload = {
   location: string | null;
 };
 
+export type SearchIntentFacetOptions = {
+  skills: string[];
+  companies: string[];
+  locations: string[];
+};
+
 function nullableEnum(values: readonly string[], description: string) {
   return {
     type: ["string", "null"] as const,
     enum: [...values, null],
     description,
   };
-}
-
-const ROLE_PATTERNS: Array<{ role: string; patterns: RegExp[] }> = [
-  { role: "full-stack", patterns: [/\bfull[\s-]?stack\b/i] },
-  { role: "frontend", patterns: [/\bfront[\s-]?end\b/i, /\breact\b/i, /\bangular\b/i, /\bvue\b/i] },
-  {
-    role: "backend",
-    patterns: [/\bback[\s-]?end\b/i, /\bapi\b/i, /\bmicroservices?\b/i, /\bnode(?:\.js)?\b/i, /\bdjango\b/i, /\bflask\b/i, /\b\.net\b/i],
-  },
-  { role: "ml", patterns: [/\bml\b/i, /\bai\b/i, /\bmachine learning\b/i, /\bllm\b/i] },
-  { role: "data", patterns: [/\bdata engineer\b/i, /\banalytics\b/i, /\betl\b/i] },
-  { role: "devops", patterns: [/\bdevops\b/i, /\bsre\b/i, /\bterraform\b/i, /\bkubernetes\b/i] },
-  { role: "mobile", patterns: [/\bmobile\b/i, /\bandroid\b/i, /\bios\b/i, /\bflutter\b/i, /\breact native\b/i] },
-  { role: "security", patterns: [/\bsecurity\b/i, /\bcybersecurity\b/i, /\bsoc\b/i] },
-];
-
-function extractRole(query: string) {
-  for (const entry of ROLE_PATTERNS) {
-    if (entry.patterns.some((pattern) => pattern.test(query))) {
-      return entry.role;
-    }
-  }
-  return null;
-}
-
-function extractSeniority(query: string) {
-  return extractSeniorityFromText(query) ?? null;
-}
-
-function extractMinYears(query: string) {
-  const rangeMatch = query.match(/\b(\d{1,2})\s*[-–]\s*(\d{1,2})\s*(?:years?|yrs?)(?:\s+of\s+experience)?\b/i);
-  if (rangeMatch) {
-    const lowerBound = Number(rangeMatch[1]);
-    return Number.isFinite(lowerBound) ? lowerBound : null;
-  }
-
-  const match = query.match(/(?:at least|min(?:imum)?|with)?\s*(\d{1,2})\+?\s*(?:years?|yrs?)(?:\s+of\s+experience)?/i);
-  if (!match) {
-    return null;
-  }
-
-  const value = Number(match[1]);
-  return Number.isFinite(value) ? value : null;
-}
-
-function extractSkillsFromQuery(query: string) {
-  return extractSkillsFromText(query);
 }
 
 function normalizeSkills(skills: string[] | null | undefined) {
@@ -108,44 +67,81 @@ function normalizeCompanies(companies: string[] | null | undefined) {
   );
 }
 
-function canonicalizeCompanyName(value: string) {
-  const trimmed = value
-    .replace(/[.;,]+$/g, "")
+function normalizeFacetKey(value: string | null | undefined) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9+#.]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!trimmed) {
-    return "";
-  }
-  return /^[a-z\s&.'-]+$/.test(trimmed)
-    ? trimmed.replace(/\b\w/g, (match) => match.toUpperCase())
-    : trimmed;
 }
 
-function extractCompaniesFromQuery(query: string) {
-  const companies: string[] = [];
-  const patterns = [
-    /\b(?:worked|work|working|experience)\s+(?:with|at|for)\s+([a-z0-9&.'\-\s]{2,80})/gi,
-    /\b(?:from|at)\s+([a-z0-9&.'\-]{2,40})\s+(?:company|companies|team|teams)\b/gi,
-  ];
-
-  for (const pattern of patterns) {
-    for (const match of query.matchAll(pattern)) {
-      const raw = String(match[1] ?? "")
-        .split(/\b(?:with|using|who|that|where|having|knowledge|and then)\b/i)[0]
-        .trim();
-      for (const company of raw.split(/\s+(?:and|or)\s+|[,/;]/i)) {
-        const canonical = canonicalizeCompanyName(company);
-        if (canonical) {
-          companies.push(canonical);
-        }
-      }
-    }
-  }
-
-  return normalizeCompanies(companies);
+function dedupe(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
 }
 
-export function buildSearchIntentConfig(query: string, filters: SearchFilters = {}) {
+function buildAllowedSkills(facets?: SearchIntentFacetOptions | null) {
+  const allowedSkills = normalizeSkills(facets?.skills);
+  const allowedByKey = new Map(allowedSkills.map((skill) => [normalizeFacetKey(skill), skill] as const));
+  return { allowedSkills, allowedByKey };
+}
+
+function buildAllowedCompanies(facets?: SearchIntentFacetOptions | null) {
+  const allowedCompanies = normalizeCompanies(facets?.companies);
+  const allowedByKey = new Map(allowedCompanies.map((company) => [normalizeFacetKey(company), company] as const));
+  return { allowedCompanies, allowedByKey };
+}
+
+function buildAllowedLocations(facets?: SearchIntentFacetOptions | null) {
+  const allowedLocations = dedupe(
+    (facets?.locations ?? [])
+      .map((location) => normalizeLocationValue(location, { allowFallback: false }))
+      .filter((location): location is string => Boolean(location)),
+  );
+  const allowedByKey = new Map(allowedLocations.map((location) => [normalizeFacetKey(location), location] as const));
+  return { allowedLocations, allowedByKey };
+}
+
+function limitSkillsToFacets(skills: string[] | null | undefined, facets?: SearchIntentFacetOptions | null) {
+  const normalizedSkills = normalizeSkills(skills);
+  if (!facets) {
+    return normalizedSkills;
+  }
+
+  const { allowedByKey } = buildAllowedSkills(facets);
+  return dedupe(
+    normalizedSkills
+      .map((skill) => allowedByKey.get(normalizeFacetKey(skill)) ?? "")
+      .filter(Boolean),
+  );
+}
+
+function limitCompaniesToFacets(companies: string[] | null | undefined, facets?: SearchIntentFacetOptions | null) {
+  const normalizedCompanies = normalizeCompanies(companies);
+  if (!facets) {
+    return normalizedCompanies;
+  }
+
+  const { allowedByKey } = buildAllowedCompanies(facets);
+  return dedupe(
+    normalizedCompanies
+      .map((company) => allowedByKey.get(normalizeFacetKey(company)) ?? "")
+      .filter(Boolean),
+  );
+}
+
+function limitLocationToFacets(location: string | null | undefined, facets?: SearchIntentFacetOptions | null) {
+  const normalizedLocation = normalizeLocationValue(location, { allowFallback: false }) ?? null;
+  if (!normalizedLocation || !facets) {
+    return normalizedLocation;
+  }
+
+  const { allowedByKey } = buildAllowedLocations(facets);
+  return allowedByKey.get(normalizeFacetKey(normalizedLocation)) ?? null;
+}
+
+export function buildSearchIntentConfig(query: string, filters: SearchFilters = {}, facets?: SearchIntentFacetOptions | null) {
+  const allowedLocations = buildAllowedLocations(facets).allowedLocations;
+
   return {
     schemaName: "search_intent",
     schema: {
@@ -154,7 +150,7 @@ export function buildSearchIntentConfig(query: string, filters: SearchFilters = 
       properties: {
         role: nullableEnum(
           SEARCH_ROLE_VALUES,
-          "Requested role normalized to allowed_roles; otherwise null.",
+          "Requested candidate role normalized to allowed_roles; otherwise null.",
         ),
         seniority: nullableEnum(
           SEARCH_SENIORITY_VALUES,
@@ -178,7 +174,7 @@ export function buildSearchIntentConfig(query: string, filters: SearchFilters = 
           items: { type: "string" },
           uniqueItems: true,
           description:
-            "Explicitly requested company names only. Preserve canonical company spelling when possible.",
+            "Explicitly requested past/current employer, client, or company filters only. Preserve canonical company spelling when possible.",
         },
         location: {
           type: ["string", "null"] as const,
@@ -202,8 +198,16 @@ export function buildSearchIntentConfig(query: string, filters: SearchFilters = 
       "Do not invent constraints.",
       "Normalize role and seniority to the allowed enums.",
       "Set missing or uncertain scalar fields to null, and list fields to [].",
-      "Skills must be explicitly requested, normalized, and deduplicated.",
-      "Companies must be explicitly requested and deduplicated.",
+      "Skills must be explicitly requested, normalized, and deduplicated. Technologies, frameworks, libraries, platforms, protocols, and tools belong in skills.",
+      "Companies must be explicit employer/client/company filters only, such as candidates who worked at/for/with a named company.",
+      "The backend validates extracted skills, companies, and locations against indexed DB facets after you respond.",
+      "Use canonical common spelling for skills and companies; if a value is uncertain, omit it instead of inventing a new filter.",
+      "For location, use only the indexed locations provided in the user payload when there is a clear explicit location match.",
+      "Never put technologies or tools in companies. Node.js, Express, React, React Native, JavaScript, TypeScript, REST, JSON, HTTP, Babel, Webpack, NPM, iOS, and Android are skills or platforms, not companies.",
+      "For pasted job descriptions, extract the desired candidate profile from requirements and responsibilities, but do not treat the hiring company, product, business unit, or team name as a company filter unless the query asks for candidates who worked at or with that company.",
+      "Example: 'Experience with Node.js / Express' -> skills ['Node.js','Express'], companies [].",
+      "Example: 'senior frontend with React worked with Noon' -> skills ['React'], companies ['Noon'].",
+      "Example: 'Frontend Engineer level 2 at Noon Food team with React Native and Node.js' -> role frontend, skills ['React Native','Node.js'], companies [] unless the user asks for prior Noon experience.",
       "Location must be explicitly stated in the query.",
       "Never use role, department, technology, or skill words as a location. Examples: devops, frontend, backend, data, cloud, Kubernetes, AWS, and React are not locations.",
       "For years of experience, return only the minimum requested number.",
@@ -215,35 +219,58 @@ export function buildSearchIntentConfig(query: string, filters: SearchFilters = 
       existing_filters: filters,
       allowed_roles: SEARCH_ROLE_VALUES,
       allowed_seniority: SEARCH_SENIORITY_VALUES,
+      allowed_locations: allowedLocations,
+      indexed_facet_counts: {
+        skills: facets?.skills.length ?? 0,
+        companies: facets?.companies.length ?? 0,
+        locations: allowedLocations.length,
+      },
     }),
     temperature: 0,
   };
 }
 
-export function resolveSearchFilters(query: string, requestFilters: SearchFilters = {}, llmIntent: SearchIntentPayload | null = null) {
-  return deriveSearchFilters(query, {
+function normalizePositiveYears(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function mergeUnique<T>(left: T[], right: T[]) {
+  return Array.from(new Set([...left, ...right]));
+}
+
+export function resolveSearchFilters(
+  query: string,
+  requestFilters: SearchFilters = {},
+  llmIntent: SearchIntentPayload | null = null,
+  facets?: SearchIntentFacetOptions | null,
+) {
+  void query;
+  const requestSkills = limitSkillsToFacets(requestFilters.skills, facets);
+  const llmSkills = limitSkillsToFacets(llmIntent?.skills, facets);
+  const requestCompanies = limitCompaniesToFacets(requestFilters.companies, facets);
+  const llmCompanies = limitCompaniesToFacets(llmIntent?.companies, facets);
+
+  return deriveSearchFilters("", {
     role: llmIntent?.role ?? requestFilters.role ?? null,
     seniority: llmIntent?.seniority ?? requestFilters.seniority ?? null,
     min_years_experience: llmIntent?.min_years_experience ?? requestFilters.min_years_experience ?? null,
-    location: llmIntent?.location ?? requestFilters.location ?? null,
-    skills: llmIntent?.skills?.length ? llmIntent.skills : (requestFilters.skills ?? []),
-    companies: llmIntent?.companies?.length ? llmIntent.companies : (requestFilters.companies ?? []),
+    location: limitLocationToFacets(llmIntent?.location ?? requestFilters.location ?? null, facets),
+    skills: mergeUnique(requestSkills, llmSkills),
+    companies: mergeUnique(requestCompanies, llmCompanies),
   });
 }
 
 export function deriveSearchFilters(query: string, filters: SearchFilters = {}) {
+  void query;
   const explicitSkills = normalizeSkills(filters.skills);
   const explicitCompanies = normalizeCompanies(filters.companies);
-  const minYears = typeof filters.min_years_experience === "number" && filters.min_years_experience > 0
-    ? filters.min_years_experience
-    : null;
 
   return {
-    role: filters.role || extractRole(query),
-    seniority: normalizeSeniorityValue(filters.seniority) ?? extractSeniority(query),
-    min_years_experience: minYears ?? extractMinYears(query),
-    location: normalizeLocationValue(filters.location, { allowFallback: false }) ?? normalizeLocationValue(query, { allowFallback: false }) ?? null,
-    skills: explicitSkills.length ? explicitSkills : extractSkillsFromQuery(query),
-    companies: explicitCompanies.length ? explicitCompanies : extractCompaniesFromQuery(query),
+    role: filters.role ?? null,
+    seniority: normalizeSeniorityValue(filters.seniority) ?? null,
+    min_years_experience: normalizePositiveYears(filters.min_years_experience),
+    location: normalizeLocationValue(filters.location, { allowFallback: false }) ?? null,
+    skills: explicitSkills,
+    companies: explicitCompanies,
   };
 }

@@ -2,7 +2,7 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { createAuthedClient } from "../_shared/client.ts";
 import { generateStructuredObject } from "../_shared/llm.ts";
 import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
-import { buildSearchIntentConfig, resolveSearchFilters, type SearchIntentPayload } from "../_shared/searchIntent.ts";
+import { buildSearchIntentConfig, resolveSearchFilters, type SearchIntentFacetOptions, type SearchIntentPayload } from "../_shared/searchIntent.ts";
 import { normalizeLocationValue, normalizeSeniorityValue, normalizeSkillList } from "../_shared/searchTaxonomy.ts";
 
 function asString(value: unknown) {
@@ -143,8 +143,12 @@ function normalizeExplicitFilters(filters: Record<string, unknown>) {
   };
 }
 
-async function extractIntentWithLlm(query: string, filters: Record<string, unknown>): Promise<SearchIntentPayload | null> {
-  const result = await generateStructuredObject<SearchIntentPayload>(buildSearchIntentConfig(query, filters));
+async function extractIntentWithLlm(
+  query: string,
+  filters: Record<string, unknown>,
+  facets: SearchIntentFacetOptions,
+): Promise<SearchIntentPayload | null> {
+  const result = await generateStructuredObject<SearchIntentPayload>(buildSearchIntentConfig(query, filters, facets));
 
   return result?.object ?? null;
 }
@@ -167,6 +171,53 @@ type CandidateSearchRow = {
 };
 
 const SEARCH_REST_PAGE_SIZE = 1000;
+
+function dedupeSorted(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean))).sort((left, right) => left.localeCompare(right));
+}
+
+async function fetchSearchIntentFacets(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+): Promise<SearchIntentFacetOptions> {
+  const rows: Array<{
+    skills: string[] | null;
+    companies: string[] | null;
+    location: string | null;
+  }> = [];
+
+  for (let offset = 0; ; offset += SEARCH_REST_PAGE_SIZE) {
+    let request = supabase
+      .from("candidate_search_cache")
+      .select("skills, companies, location")
+      .range(offset, offset + SEARCH_REST_PAGE_SIZE - 1);
+
+    if (tenantIds.length) {
+      request = request.in("tenant_id", tenantIds);
+    }
+
+    const { data, error } = await request;
+    if (error) {
+      throw error;
+    }
+
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < SEARCH_REST_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return {
+    skills: dedupeSorted(normalizeSkillList(rows.flatMap((row) => row.skills ?? []))),
+    companies: dedupeSorted(rows.flatMap((row) => row.companies ?? [])),
+    locations: dedupeSorted(
+      rows
+        .map((row) => normalizeLocationValue(row.location, { allowFallback: false }))
+        .filter((location): location is string => Boolean(location)),
+    ),
+  };
+}
 
 function roleSearchAliases(role: string | null | undefined) {
   switch (role) {
@@ -335,7 +386,7 @@ function rowPassesExplicitFilters(row: CandidateSearchRow, filters: SearchIntent
   ) {
     return false;
   }
-  if (filters.skills.length && skillMatchScore(row, filters.skills) < 1) {
+  if (filters.skills.length && skillMatchScore(row, filters.skills) <= 0) {
     return false;
   }
   if (filters.companies.length && companyMatchScore(row, filters.companies) < 1) {
@@ -553,9 +604,13 @@ Deno.serve(async (req) => {
     const query = String(body.q ?? "");
     const tenantIds = asStringArray(body.tenant_ids);
     const requestFilters = normalizeExplicitFilters((body.filters ?? {}) as Record<string, unknown>);
-    let intentSource = "rule_based";
+    let intentSource: "llm" | "explicit" = "explicit";
+    const requiresIntentExtraction = query.trim().length > 0;
     const useSemanticSearch = body.semantic !== false && (query.trim().length > 0 || Array.isArray(body.query_embedding));
-    const llmIntentPromise = extractIntentWithLlm(query, requestFilters).catch(() => null);
+    const intentFacetsPromise = fetchSearchIntentFacets(supabase, tenantIds);
+    const llmIntentPromise = requiresIntentExtraction
+      ? intentFacetsPromise.then((facets) => extractIntentWithLlm(query, requestFilters, facets))
+      : Promise.resolve(null);
     const queryEmbeddingPromise = !useSemanticSearch
       ? Promise.resolve({
           embedding: null,
@@ -570,7 +625,24 @@ Deno.serve(async (req) => {
         })
       : buildQueryEmbedding(query);
 
-    const llmIntent = await llmIntentPromise;
+    let llmIntent: SearchIntentPayload | null = null;
+    let intentFacets: SearchIntentFacetOptions;
+    try {
+      [llmIntent, intentFacets] = await Promise.all([llmIntentPromise, intentFacetsPromise]);
+    } catch (error) {
+      return jsonResponse(503, {
+        error: "intent_extraction_failed",
+        details: describeError(error),
+      });
+    }
+
+    if (requiresIntentExtraction && !llmIntent) {
+      return jsonResponse(503, {
+        error: "intent_llm_unavailable",
+        details: "LLM intent extraction is required for natural-language search.",
+      });
+    }
+
     if (llmIntent) {
       intentSource = "llm";
     }
@@ -582,7 +654,7 @@ Deno.serve(async (req) => {
       location: requestFilters.location ?? null,
       skills: requestFilters.skills,
       companies: requestFilters.companies,
-    }, llmIntent);
+    }, llmIntent, intentFacets);
     const queryEmbeddingPayload = await queryEmbeddingPromise;
     const limit = Math.max(1, Math.min(50, Math.trunc(Number(body.limit ?? 20))));
     const offset = Math.max(0, Math.trunc(Number(body.offset ?? 0)));

@@ -229,7 +229,7 @@ def passes_case(row: dict[str, Any], case: SearchCase) -> bool:
         return False
     if case.location and normalize_location(row.get("location")) != normalize_location(case.location):
         return False
-    if case.skills and skill_match_score(row, case.skills) < 1:
+    if case.skills and skill_match_score(row, case.skills) <= 0:
         return False
     return True
 
@@ -409,7 +409,7 @@ def grade_edge_row(row: dict[str, Any], case: SearchCase) -> list[str]:
         issues.append("years")
     if case.location and normalize_location(mapped.get("location")) != normalize_location(case.location):
         issues.append("location")
-    if case.skills and skill_match_score(mapped, case.skills) < 1:
+    if case.skills and skill_match_score(mapped, case.skills) <= 0:
         issues.append("skills")
     return issues
 

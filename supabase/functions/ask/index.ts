@@ -47,6 +47,9 @@ type SearchHitRow = {
   candidate_id: string;
 };
 
+const MAX_VISIBLE_CITATIONS = 3;
+const MAX_CONTEXT_BLOCKS = 6;
+
 function inferIntent(question: string): SupportedIntent {
   const normalized = question.toLowerCase();
   if (normalized.includes("why")) return "why_matched";
@@ -55,6 +58,24 @@ function inferIntent(question: string): SupportedIntent {
   if (normalized.includes("compare")) return "compare";
   if (normalized.includes("experience")) return "experience";
   return "skills";
+}
+
+function evidenceSignal(row: EvidenceRow) {
+  return Math.max(Number(row.semantic_similarity) || 0, Number(row.lexical_score) || 0);
+}
+
+function limitEvidenceRows(rows: EvidenceRow[], limit: number) {
+  const seenChunkIds = new Set<string>();
+  return [...rows]
+    .sort((left, right) => evidenceSignal(right) - evidenceSignal(left))
+    .filter((row) => {
+      if (!row.chunk_id || seenChunkIds.has(row.chunk_id)) {
+        return false;
+      }
+      seenChunkIds.add(row.chunk_id);
+      return true;
+    })
+    .slice(0, limit);
 }
 
 function buildDeterministicFacts(intent: SupportedIntent, dossiers: DossierRow[]) {
@@ -270,9 +291,11 @@ Deno.serve(async (req) => {
     }
 
     const citedChunkIds = new Set(synthesized?.cited_chunk_ids ?? []);
-    const citations = citedChunkIds.size > 0
+    const citationCandidates = citedChunkIds.size > 0
       ? evidenceRows.filter((row) => citedChunkIds.has(row.chunk_id))
       : evidenceRows;
+    const citations = limitEvidenceRows(citationCandidates, MAX_VISIBLE_CITATIONS);
+    const contextBlocks = limitEvidenceRows(evidenceRows, MAX_CONTEXT_BLOCKS);
     const facts = synthesized?.facts?.length ? synthesized.facts : fallbackFacts;
     const extractiveAnswer = synthesized?.answer?.trim().length
       ? synthesized.answer
@@ -282,7 +305,7 @@ Deno.serve(async (req) => {
       intent,
       facts,
       citations: citations,
-      context_blocks: evidenceRows,
+      context_blocks: contextBlocks,
       extractive_answer: extractiveAnswer,
       meta: {
         candidate_count: candidateIds.length,

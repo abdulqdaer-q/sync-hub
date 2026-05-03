@@ -1115,6 +1115,17 @@ button {
   color: #0f1715;
 }
 
+.search-processing-step--complete {
+  border-color: rgba(80, 193, 184, 0.26);
+  color: var(--text-soft);
+  animation: none;
+}
+
+.search-processing-step--complete > span {
+  background: rgba(80, 193, 184, 0.16);
+  color: var(--primary);
+}
+
 .search-processing-step:nth-child(2) {
   animation-delay: 0.18s;
 }

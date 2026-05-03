@@ -30,63 +30,129 @@ type SearchSortOption =
 
 const PAGE_SIZE = 8;
 
-const SEARCH_LOADING_STEPS = [
-  {
-    label: "Reading intent",
-    detail: "Extracting role, seniority, years, skills, companies, and location from the search.",
-  },
-  {
-    label: "Normalizing filters",
-    detail: "Cleaning aliases like .NET, Front-End, Damascus, and country-level location matches.",
-  },
-  {
-    label: "Scanning profiles",
-    detail: "Looking through indexed candidate titles, skills, summaries, and experience signals.",
-  },
-  {
-    label: "Ranking matches",
-    detail: "Balancing exact title evidence with semantic fit and calibrated match rate.",
-  },
-  {
-    label: "Preparing results",
-    detail: "Sorting the strongest profiles and packaging the first ranked candidates.",
-  },
-];
+type SearchLoadingStep = {
+  label: string;
+  phrase: string;
+  detail: string;
+};
 
-const SEARCH_LOADING_PHRASES = [
-  "Asking the index better questions",
-  "Reading the recruiter intent",
-  "Separating title evidence from noise",
-  "Checking seniority and years of experience",
-  "Normalizing skills and locations",
-  "Comparing exact matches with semantic fit",
-  "Calibrating the match rate",
-  "Preparing the strongest candidates",
-];
+const ROLE_LABELS: Record<string, string> = {
+  backend: "backend",
+  frontend: "frontend",
+  "full-stack": "full-stack",
+  mobile: "mobile",
+  devops: "DevOps",
+  data: "data",
+  ml: "ML",
+  qa: "QA",
+  security: "security",
+  generalist: "generalist",
+};
 
-function pickSearchLoadingPhrase(previous?: string) {
-  const pool = SEARCH_LOADING_PHRASES.filter((phrase) => phrase !== previous);
-  return pool[Math.floor(Math.random() * pool.length)] ?? SEARCH_LOADING_PHRASES[0];
+function formatSearchList(values: string[], maxItems = 2) {
+  const visible = values.slice(0, maxItems);
+  const suffix = values.length > maxItems ? ` +${values.length - maxItems}` : "";
+  return `${visible.join(", ")}${suffix}`;
 }
 
-function SearchProcessingState() {
+function compactSearchQuery(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length > 54 ? `${trimmed.slice(0, 51)}...` : trimmed;
+}
+
+function buildSearchLoadingSteps(request: SearchRequest): SearchLoadingStep[] {
+  const inferredFilters = deriveSearchFilters(request.query, request.filters);
+  const queryLabel = compactSearchQuery(request.query);
+  const roleLabel = inferredFilters.role ? ROLE_LABELS[inferredFilters.role] ?? inferredFilters.role : null;
+  const seniorityLabel = inferredFilters.seniority ? `${inferredFilters.seniority} ` : "";
+  const rolePhrase = roleLabel ? `${seniorityLabel}${roleLabel}`.trim() : "matching";
+  const skills = inferredFilters.skills ?? [];
+  const companies = inferredFilters.companies ?? [];
+  const minYears = inferredFilters.minYearsExperience ?? 0;
+  const location = inferredFilters.location?.trim();
+  const constraintParts = [
+    minYears > 0 ? `${Math.round(minYears)}+ years` : null,
+    location || null,
+    skills.length ? formatSearchList(skills) : null,
+    companies.length ? formatSearchList(companies) : null,
+  ].filter((part): part is string => Boolean(part));
+
+  const steps: SearchLoadingStep[] = [
+    {
+      label: "Read request",
+      phrase: queryLabel ? `Asking the intent model to read "${queryLabel}"` : "Reading selected filters",
+      detail: roleLabel
+        ? `Treating ${roleLabel} as the target role and keeping location separate.`
+        : "Separating role, skills, seniority, years, companies, and location with the LLM.",
+    },
+    {
+      label: "Shape filters",
+      phrase: constraintParts.length ? `Applying ${formatSearchList(constraintParts, 3)}` : `Looking for ${rolePhrase} candidates`,
+      detail: constraintParts.length
+        ? "Using the explicit constraints as hard filters before ranking."
+        : "Keeping the search broad enough to avoid dropping relevant profiles too early.",
+    },
+  ];
+
+  if (skills.length) {
+    steps.push({
+      label: "Check skills",
+      phrase: `Checking ${formatSearchList(skills)} evidence`,
+      detail: "Matching requested skills against normalized candidate skill tokens.",
+    });
+  }
+
+  if (location) {
+    steps.push({
+      label: "Match location",
+      phrase: `Filtering for ${location}`,
+      detail: "Comparing candidate locations with the normalized location request.",
+    });
+  }
+
+  steps.push(
+    {
+      label: "Scan profiles",
+      phrase: `Scanning ${rolePhrase} profiles`,
+      detail: "Looking at titles, profile summaries, experience, and indexed skills.",
+    },
+    {
+      label: "Rank shortlist",
+      phrase: "Balancing exact fit with semantic relevance",
+      detail: "Prioritizing title evidence, role fit, seniority, experience, and match quality.",
+    },
+    {
+      label: "Prepare results",
+      phrase: "Preparing the first ranked profiles",
+      detail: "Packaging the strongest candidates for the results list.",
+    },
+  );
+
+  return steps;
+}
+
+function SearchProcessingState({ request }: { request: SearchRequest }) {
+  const steps = useMemo(() => buildSearchLoadingSteps(request), [request]);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
-  const [phrase, setPhrase] = useState(() => pickSearchLoadingPhrase());
-  const activeStep = SEARCH_LOADING_STEPS[activeStepIndex] ?? SEARCH_LOADING_STEPS[0];
+  const activeStep = steps[activeStepIndex] ?? steps[0];
 
   useEffect(() => {
+    setActiveStepIndex(0);
     const stepTimer = window.setInterval(() => {
-      setActiveStepIndex((currentIndex) => (currentIndex + 1) % SEARCH_LOADING_STEPS.length);
-    }, 1100);
-    const phraseTimer = window.setInterval(() => {
-      setPhrase((currentPhrase) => pickSearchLoadingPhrase(currentPhrase));
-    }, 1450);
+      setActiveStepIndex((currentIndex) => {
+        if (currentIndex >= steps.length - 1) {
+          window.clearInterval(stepTimer);
+          return currentIndex;
+        }
+
+        return currentIndex + 1;
+      });
+    }, 1250);
 
     return () => {
       window.clearInterval(stepTimer);
-      window.clearInterval(phraseTimer);
     };
-  }, []);
+  }, [steps]);
 
   return (
     <Panel className="search-processing-panel" aria-busy="true" aria-label="Searching candidates">
@@ -105,14 +171,18 @@ function SearchProcessingState() {
       </div>
       <div className="search-processing-copy">
         <strong>AI search in progress</strong>
-        <span className="search-processing-phrase">{phrase}</span>
+        <span className="search-processing-phrase">{activeStep.phrase}</span>
         <p>{activeStep.detail}</p>
       </div>
       <div className="search-processing-steps">
-        {SEARCH_LOADING_STEPS.map((step, index) => (
+        {steps.map((step, index) => (
           <span
             key={step.label}
-            className={index === activeStepIndex ? "search-processing-step search-processing-step--active" : "search-processing-step"}
+            className={[
+              "search-processing-step",
+              index < activeStepIndex ? "search-processing-step--complete" : "",
+              index === activeStepIndex ? "search-processing-step--active" : "",
+            ].filter(Boolean).join(" ")}
           >
             <span>{String(index + 1).padStart(2, "0")}</span>
             {step.label}
@@ -261,6 +331,14 @@ export function SearchDiscoveryPage() {
               },
             };
           });
+          if (isFirstPage && nextResponse.meta.intent) {
+            const resolvedIntent = nextResponse.meta.intent;
+            setSeniority(resolvedIntent.seniority ?? "");
+            setMinYears(resolvedIntent.minYearsExperience ?? 0);
+            setLocation(resolvedIntent.location ?? "");
+            setSelectedSkills(resolvedIntent.skills ?? []);
+            setSelectedCompanies(resolvedIntent.companies ?? []);
+          }
           setLoadingInitial(false);
           setLoadingMore(false);
         });
@@ -343,20 +421,20 @@ export function SearchDiscoveryPage() {
       skills: selectedSkills,
       companies: selectedCompanies,
     };
-    const derivedFilters = deriveSearchFilters(normalizedQuery, explicitFilters);
+    const normalizedFilters = deriveSearchFilters(normalizedQuery, explicitFilters);
 
-    setSeniority(derivedFilters.seniority ?? "");
-    setMinYears(derivedFilters.minYearsExperience ?? 0);
-    setLocation(derivedFilters.location ?? "");
-    setSelectedSkills(derivedFilters.skills ?? []);
-    setSelectedCompanies(derivedFilters.companies ?? []);
+    setSeniority(normalizedFilters.seniority ?? "");
+    setMinYears(normalizedFilters.minYearsExperience ?? 0);
+    setLocation(normalizedFilters.location ?? "");
+    setSelectedSkills(normalizedFilters.skills ?? []);
+    setSelectedCompanies(normalizedFilters.companies ?? []);
 
     setError(null);
     setResponse(null);
     requestedOffsetsRef.current = new Set([0]);
     setRequest({
       query: normalizedQuery,
-      filters: explicitFilters,
+      filters: normalizedFilters,
       offset: 0,
       limit: PAGE_SIZE,
     });
@@ -547,8 +625,8 @@ export function SearchDiscoveryPage() {
         </Panel>
       </form>
 
-      {!hasExecutedSearch ? null : loadingInitial ? (
-        <SearchProcessingState />
+      {!hasExecutedSearch ? null : loadingInitial && request ? (
+        <SearchProcessingState request={request} />
       ) : error && !response?.results.length ? (
         <EmptyState title="Search failed" detail={error} />
       ) : !response?.results.length ? (

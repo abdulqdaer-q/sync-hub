@@ -34,6 +34,9 @@ type ChatMessage = {
   content: string;
 };
 
+const MAX_VISIBLE_CITATIONS = 3;
+const MAX_CONTEXT_BLOCKS = 6;
+
 function isCorpusCountQuestion(question: string) {
   const normalized = question.toLowerCase();
   return /(how many|number of|count of|count)\b/.test(normalized) &&
@@ -68,6 +71,24 @@ function normalizeMessages(value: unknown): ChatMessage[] {
     })
     .filter((item): item is ChatMessage => Boolean(item))
     .slice(-12);
+}
+
+function evidenceSignal(row: EvidenceRow) {
+  return Math.max(Number(row.semantic_similarity) || 0, Number(row.lexical_score) || 0);
+}
+
+function limitEvidenceRows(rows: EvidenceRow[], limit: number) {
+  const seenChunkIds = new Set<string>();
+  return [...rows]
+    .sort((left, right) => evidenceSignal(right) - evidenceSignal(left))
+    .filter((row) => {
+      if (!row.chunk_id || seenChunkIds.has(row.chunk_id)) {
+        return false;
+      }
+      seenChunkIds.add(row.chunk_id);
+      return true;
+    })
+    .slice(0, limit);
 }
 
 function normalizeTenantIds(value: unknown): string[] {
@@ -325,8 +346,8 @@ Deno.serve(async (req) => {
 
     return jsonResponse(200, {
       answer,
-      citations: evidenceRows,
-      context_blocks: evidenceRows,
+      citations: limitEvidenceRows(evidenceRows, MAX_VISIBLE_CITATIONS),
+      context_blocks: limitEvidenceRows(evidenceRows, MAX_CONTEXT_BLOCKS),
       meta: {
         candidate_count: candidateIds.length,
         top_k: body.top_k ?? 12,
