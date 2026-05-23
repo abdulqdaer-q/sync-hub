@@ -12,6 +12,7 @@ import {
   Search,
   SlidersHorizontal,
   UserPlus,
+  RefreshCw,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
@@ -28,6 +29,7 @@ const operationsRoutes = [
   { to: "/admin", label: "Platform Dashboard", icon: LayoutDashboard },
   { to: "/admin/accounts", label: "Account provisioning", icon: UserPlus },
   { to: "/admin/alerts", label: "Alerts", icon: Bell },
+  { to: "/admin/manatal-sync", label: "Manatal Sync", icon: RefreshCw },
   { to: "/admin/search-simulator", label: "Search Simulator", icon: SlidersHorizontal },
   { to: "/admin/parsing", label: "Parsing Quality", icon: FileText },
   { to: "/admin/parsing/lab", label: "Parsing Lab", icon: FlaskConical },
@@ -100,6 +102,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   route.to === "/admin"
                     ? location.pathname === route.to || location.pathname === "/admin/dashboard"
                     : route.to === "/admin/alerts" || route.to === "/admin/accounts"
+                    ? location.pathname === route.to
+                    : route.to === "/admin/manatal-sync"
                     ? location.pathname === route.to
                     : route.to === "/admin/search-simulator"
                     ? location.pathname === route.to
