@@ -301,6 +301,9 @@ export function PlatformAdminDashboardPage() {
             <Link className="button button--secondary" to="/admin/parsing">
               Parsing Quality
             </Link>
+            <Link className="button button--secondary" to="/admin/accounts">
+              Account provisioning
+            </Link>
             <Link className="button button--secondary" to="/admin/parsing/lab">
               Parsing Lab
             </Link>

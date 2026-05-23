@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   Search,
   SlidersHorizontal,
+  UserPlus,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
@@ -25,6 +26,7 @@ const productRoutes = [
 
 const operationsRoutes = [
   { to: "/admin", label: "Platform Dashboard", icon: LayoutDashboard },
+  { to: "/admin/accounts", label: "Account provisioning", icon: UserPlus },
   { to: "/admin/alerts", label: "Alerts", icon: Bell },
   { to: "/admin/search-simulator", label: "Search Simulator", icon: SlidersHorizontal },
   { to: "/admin/parsing", label: "Parsing Quality", icon: FileText },
@@ -97,7 +99,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 const active =
                   route.to === "/admin"
                     ? location.pathname === route.to || location.pathname === "/admin/dashboard"
-                    : route.to === "/admin/alerts"
+                    : route.to === "/admin/alerts" || route.to === "/admin/accounts"
                     ? location.pathname === route.to
                     : route.to === "/admin/search-simulator"
                     ? location.pathname === route.to

@@ -1,5 +1,12 @@
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { createAuthedClient } from "../_shared/client.ts";
+import {
+  addUserToTenant,
+  assertPlatformAdmin,
+  createServiceClient,
+  createTenantAccount,
+  listAdminTenants,
+} from "../_shared/platformProvisioning.ts";
 import { normalizeLocationValue, normalizeSkillList } from "../_shared/searchTaxonomy.ts";
 
 const SEARCH_PAGE_SIZE = 1000;
@@ -868,10 +875,29 @@ Deno.serve(async (req) => {
         return jsonResponse(200, await deleteShortlistItem(supabase, body));
       case "clear_shortlist_items":
         return jsonResponse(200, await clearShortlistItems(supabase, tenantIds));
+      case "list_admin_tenants": {
+        await assertPlatformAdmin(supabase);
+        const admin = createServiceClient();
+        return jsonResponse(200, await listAdminTenants(admin));
+      }
+      case "create_tenant_account": {
+        await assertPlatformAdmin(supabase);
+        const admin = createServiceClient();
+        return jsonResponse(200, await createTenantAccount(admin, body));
+      }
+      case "add_user_to_tenant": {
+        await assertPlatformAdmin(supabase);
+        const admin = createServiceClient();
+        return jsonResponse(200, await addUserToTenant(admin, body));
+      }
       default:
         return jsonResponse(400, { error: "unknown_action", details: action });
     }
   } catch (error) {
-    return jsonResponse(500, { error: "unexpected_error", details: describeError(error) });
+    const message = describeError(error);
+    if (message === "Authentication is required." || message === "Platform admin access is required.") {
+      return jsonResponse(403, { error: "forbidden", details: message });
+    }
+    return jsonResponse(500, { error: "unexpected_error", details: message });
   }
 });
