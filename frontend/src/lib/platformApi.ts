@@ -65,6 +65,7 @@ type PlatformApi = {
   getSearchFilterOptions: (tenantIds?: string[]) => Promise<SearchFilterOptions>;
   getWorkspaceStats: (tenantIds?: string[]) => Promise<WorkspaceStats>;
   getManatalSyncStatus: (tenantIds?: string[]) => Promise<ManatalSyncStatus>;
+  getManatalCandidateId: (candidateId: string) => Promise<string | null>;
   getCandidate: (candidateId: string) => Promise<CandidateDetail>;
   compare: (candidateIds: string[], requiredSkills?: string[]) => Promise<ComparisonResponse>;
   ask: (question: string, candidateIds: string[]) => Promise<AskResponse>;
@@ -1117,24 +1118,42 @@ async function fetchCandidateDetailDirect(candidateId: string): Promise<Candidat
     throw chunks.error;
   }
 
-  const sourceDocumentId = typeof dossier.data.source_document_id === "string" ? dossier.data.source_document_id : "";
-  let manatalCandidateId: string | null = null;
-  if (sourceDocumentId) {
-    const syncResult = await supabase
-      .from("manatal_candidate_sync")
-      .select("manatal_candidate_id")
-      .eq("source_document_id", sourceDocumentId)
-      .limit(1);
-    if (!syncResult.error) {
-      const row = asRecord(asArray(syncResult.data)[0]);
-      manatalCandidateId = typeof row.manatal_candidate_id === "string" ? row.manatal_candidate_id : null;
-    }
-  }
-
   return mapRemoteCandidate(
-    { ...(asRecord(dossier.data) as CandidateDossierRow), manatal_candidate_id: manatalCandidateId },
+    { ...(asRecord(dossier.data) as CandidateDossierRow), manatal_candidate_id: await fetchManatalCandidateIdByCandidateId(candidateId) },
     asArray(chunks.data) as CandidateChunkRow[],
   );
+}
+
+async function fetchManatalCandidateIdByCandidateId(candidateId: string): Promise<string | null> {
+  if (!supabase) {
+    return null;
+  }
+
+  const dossierResult = await supabase
+    .from("candidate_dossier_v1")
+    .select("source_document_id")
+    .eq("candidate_id", candidateId)
+    .maybeSingle();
+  if (dossierResult.error) {
+    throw dossierResult.error;
+  }
+
+  const sourceDocumentId = typeof dossierResult.data?.source_document_id === "string" ? dossierResult.data.source_document_id : "";
+  if (!sourceDocumentId) {
+    return null;
+  }
+
+  const syncResult = await supabase
+    .from("manatal_candidate_sync")
+    .select("manatal_candidate_id")
+    .eq("source_document_id", sourceDocumentId)
+    .limit(1);
+  if (syncResult.error) {
+    throw syncResult.error;
+  }
+
+  const row = asRecord(asArray(syncResult.data)[0]);
+  return typeof row.manatal_candidate_id === "string" ? row.manatal_candidate_id : null;
 }
 
 function mapRemoteSearch(payload: JsonRecord): SearchResponse {
@@ -1734,6 +1753,10 @@ function createMockApi(): PlatformApi {
         ],
       };
     },
+    async getManatalCandidateId(_candidateId) {
+      await wait(40);
+      return null;
+    },
     async getCandidate(candidateId) {
       await wait(120);
       return getCandidate(candidateId);
@@ -1944,6 +1967,13 @@ function createRemoteApi(): PlatformApi {
         return await invokePlatform<ManatalSyncStatus>("manatal_sync_status", { tenant_ids: tenantIds });
       } catch {
         return fetchManatalSyncStatusDirect(tenantIds);
+      }
+    },
+    async getManatalCandidateId(candidateId) {
+      try {
+        return await fetchManatalCandidateIdByCandidateId(candidateId);
+      } catch {
+        return null;
       }
     },
     async getCandidate(candidateId) {

@@ -198,6 +198,12 @@ export function CandidateDossierPage() {
     refetchOnMount: false,
   });
   const candidate = candidateQuery.data ?? null;
+  const manatalCandidateIdQuery = useQuery({
+    queryKey: ["candidate-manatal-id", candidateId],
+    queryFn: () => platformApi.getManatalCandidateId(candidateId as string),
+    enabled: Boolean(candidateId && isAdmin),
+    staleTime: 10 * 60 * 1000,
+  });
   const [openingOriginal, setOpeningOriginal] = useState(false);
   const [openOriginalError, setOpenOriginalError] = useState<string | null>(null);
 
@@ -233,7 +239,8 @@ export function CandidateDossierPage() {
   const contactMailto = buildContactMailto(candidate, recruiter, routeState.searchQuery);
   const currentEmployer = candidate.timeline[0]?.employer?.trim() || null;
   const canOpenOriginal = Boolean(candidate.storagePath || candidate.sourceUri || candidate.cvUrl);
-  const manatalUrl = isAdmin ? buildManatalCandidateUrl(candidate.manatalCandidateId) : null;
+  const manatalCandidateId = candidate.manatalCandidateId ?? manatalCandidateIdQuery.data ?? null;
+  const manatalUrl = isAdmin ? buildManatalCandidateUrl(manatalCandidateId) : null;
 
   async function handleOpenOriginalCv() {
     if (!candidate || openingOriginal) {
@@ -346,7 +353,7 @@ export function CandidateDossierPage() {
           {manatalUrl ? (
             <a className="tag" href={manatalUrl} target="_blank" rel="noreferrer noopener">
               <ExternalLink size={14} />
-              Manatal {candidate.manatalCandidateId}
+              Manatal {manatalCandidateId}
             </a>
           ) : null}
           {candidate.links.map((link) => (
