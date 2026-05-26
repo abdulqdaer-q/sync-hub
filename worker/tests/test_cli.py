@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from cv_intelligence_worker.cli import main
@@ -98,6 +99,42 @@ class CliTests(unittest.TestCase):
             bundle_path = cache_dir / "tenants" / "tenant-1" / "bundles" / f"{candidate_id}.json"
             self.assertFalse(bundle_path.exists())
             supabase_client_cls.return_value.sync_bundles.assert_called_once()
+
+    def test_pending_manatal_sync_allows_partial_failures(self) -> None:
+        result = SimpleNamespace(
+            fetched_candidates=25,
+            queued_candidates=0,
+            skipped_candidates=0,
+            downloaded_resumes=23,
+            synced_resumes=22,
+            failures=[{"manatal_candidate_id": "candidate-1", "error": "bad resume"}],
+            ingestion_result=None,
+        )
+        buffer = io.StringIO()
+        with mock.patch("cv_intelligence_worker.cli.ManatalSync") as manatal_sync_cls:
+            manatal_sync_cls.return_value.sync.return_value = result
+            with redirect_stdout(buffer):
+                exit_code = main(["manatal-sync", "--tenant-id", "tenant-1", "--pending"])
+        self.assertEqual(0, exit_code)
+        output = json.loads(buffer.getvalue())
+        self.assertEqual(result.failures, output["failures"])
+
+    def test_explicit_manatal_sync_fails_on_candidate_failure(self) -> None:
+        result = SimpleNamespace(
+            fetched_candidates=1,
+            queued_candidates=0,
+            skipped_candidates=0,
+            downloaded_resumes=0,
+            synced_resumes=0,
+            failures=[{"manatal_candidate_id": "candidate-1", "error": "bad resume"}],
+            ingestion_result=None,
+        )
+        buffer = io.StringIO()
+        with mock.patch("cv_intelligence_worker.cli.ManatalSync") as manatal_sync_cls:
+            manatal_sync_cls.return_value.sync.return_value = result
+            with redirect_stdout(buffer):
+                exit_code = main(["manatal-sync", "--tenant-id", "tenant-1", "--candidate-id", "candidate-1"])
+        self.assertEqual(2, exit_code)
 
 
 if __name__ == "__main__":

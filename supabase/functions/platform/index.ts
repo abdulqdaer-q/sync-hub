@@ -10,6 +10,10 @@ type GcsServiceAccountCredentials = {
   client_email?: string;
   private_key?: string;
 };
+type GcsSignedUrlResult = {
+  url: string;
+  expiresAt: string;
+};
 
 type OriginalDocumentRow = {
   id: string;
@@ -69,6 +73,31 @@ function rfc3986Encode(value: string) {
   return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
+function decodeBase64Secret(value: string, envName: string) {
+  try {
+    const binary = atob(value.replace(/\s/g, ""));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new TextDecoder().decode(bytes);
+  } catch (error) {
+    throw new Error(`${envName} must be valid base64: ${describeError(error)}`);
+  }
+}
+
+function normalizeSecretValue(value: string) {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function normalizePrivateKey(privateKey: string) {
+  return normalizeSecretValue(privateKey).replace(/\\n/g, "\n");
+}
+
 function encodePath(value: string) {
   return value.split("/").map(rfc3986Encode).join("/");
 }
@@ -110,19 +139,45 @@ function getGcsBucketName() {
 }
 
 function getGcsCredentials() {
-  const raw = asString(Deno.env.get("GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON"));
+  const rawJson = asString(Deno.env.get("GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON"));
+  const rawJsonBase64 = asString(Deno.env.get("GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON_BASE64"));
+  const raw = rawJson
+    ? normalizeSecretValue(rawJson)
+    : rawJsonBase64
+      ? decodeBase64Secret(rawJsonBase64, "GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON_BASE64")
+      : null;
   if (!raw) {
-    return null;
+    const clientEmail = asString(Deno.env.get("GCS_SIGNED_URL_CLIENT_EMAIL"));
+    const privateKey = asString(Deno.env.get("GCS_SIGNED_URL_PRIVATE_KEY"));
+    const privateKeyBase64 = asString(Deno.env.get("GCS_SIGNED_URL_PRIVATE_KEY_BASE64"));
+    const normalizedPrivateKey = privateKey
+      ? normalizePrivateKey(privateKey)
+      : privateKeyBase64
+        ? normalizePrivateKey(decodeBase64Secret(privateKeyBase64, "GCS_SIGNED_URL_PRIVATE_KEY_BASE64"))
+        : null;
+    if (!clientEmail && !normalizedPrivateKey) {
+      return null;
+    }
+    if (!clientEmail || !normalizedPrivateKey) {
+      throw new Error("GCS signed URL credentials require GCS_SIGNED_URL_CLIENT_EMAIL and a private key secret.");
+    }
+    return {
+      client_email: clientEmail,
+      private_key: normalizedPrivateKey,
+    };
   }
   const parsed = JSON.parse(raw) as GcsServiceAccountCredentials;
   if (!parsed.client_email || !parsed.private_key) {
-    throw new Error("GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON must include client_email and private_key.");
+    throw new Error("GCS signed URL service account JSON must include client_email and private_key.");
   }
-  return parsed;
+  return {
+    client_email: parsed.client_email,
+    private_key: normalizePrivateKey(parsed.private_key),
+  };
 }
 
 function parseGcsUri(value: string) {
-  if (!value.startsWith("gs://")) {
+  if (!/^gs:\/\//i.test(value)) {
     return null;
   }
   const withoutScheme = value.slice("gs://".length);
@@ -159,10 +214,50 @@ function resolveGcsLocation(document: OriginalDocumentRow) {
   return { bucket: configuredBucket, objectName };
 }
 
+async function createRemoteGcsSignedUrl(bucket: string, objectName: string): Promise<GcsSignedUrlResult | null> {
+  const signerUrl = asString(Deno.env.get("GCS_SIGNER_SERVICE_URL"));
+  const signerSecret = asString(Deno.env.get("GCS_SIGNER_SHARED_SECRET"));
+  if (!signerUrl && !signerSecret) {
+    return null;
+  }
+  if (!signerUrl || !signerSecret) {
+    throw new Error("GCS signer service requires GCS_SIGNER_SERVICE_URL and GCS_SIGNER_SHARED_SECRET.");
+  }
+
+  const expiresSeconds = parseIntegerEnv("GCS_SIGNED_URL_EXPIRES_SECONDS", DEFAULT_GCS_SIGNED_URL_SECONDS, 60, 3600);
+  const response = await fetch(`${signerUrl.replace(/\/+$/, "")}/sign`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${signerSecret}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ bucket, objectName, expiresSeconds }),
+  });
+
+  const payload = asRecord(await response.json().catch(() => ({})));
+  if (!response.ok) {
+    throw new Error(`GCS signer service failed (${response.status}): ${describeError(payload)}`);
+  }
+
+  const url = asString(payload.url);
+  const expiresAt = asString(payload.expiresAt) ?? asString(payload.expires_at);
+  if (!url || !expiresAt) {
+    throw new Error("GCS signer service returned an invalid response.");
+  }
+  return { url, expiresAt };
+}
+
 async function createGcsSignedUrl(bucket: string, objectName: string) {
+  const remoteSignedUrl = await createRemoteGcsSignedUrl(bucket, objectName);
+  if (remoteSignedUrl) {
+    return remoteSignedUrl;
+  }
+
   const credentials = getGcsCredentials();
   if (!credentials) {
-    throw new Error("GCS signed URL credentials are not configured.");
+    throw new Error(
+      "GCS signed URL access is not configured. Set GCS_SIGNER_SERVICE_URL and GCS_SIGNER_SHARED_SECRET, or configure service account signing credentials.",
+    );
   }
 
   const expiresSeconds = parseIntegerEnv("GCS_SIGNED_URL_EXPIRES_SECONDS", DEFAULT_GCS_SIGNED_URL_SECONDS, 60, 3600);

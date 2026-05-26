@@ -125,7 +125,7 @@ The Terraform config creates or manages:
 
 1. A bucket with uniform bucket-level access, public access prevention, Standard storage, labels, and soft delete.
 2. The worker service account and bucket read access so Cloud Run Jobs can mount the bucket.
-3. A `cv-document-signer` service account with read access and self `roles/iam.serviceAccountTokenCreator`, ready for a future signed-URL service.
+3. A `cv-document-signer` service account with read access, usable by the Supabase Edge Function for signed URL credentials or by a future dedicated signed-URL service.
 
 If a resource was first created manually or with `gcloud`, import it before applying Terraform. That makes Terraform the source of truth instead of trying to create duplicates. For the current `example-gcp-project` project, import the resources we already created before running `terraform apply`:
 
@@ -190,15 +190,17 @@ cv-intelligence-worker manatal-originals-to-gcs \
 
 When the protected frontend flow is validated, use `--update-source-uri` to replace Drive URLs with `gs://` URIs. The worker keeps the old URL under `metadata_json.previous_source_uri`.
 
-The protected UI open flow requires these Supabase Edge Function secrets:
+The protected UI open flow should use the keyless signer service in production. Deploy `infra/gcp/gcs-signer-service` to Cloud Run with the `cv-document-signer` service account attached, then set these Supabase Edge Function secrets:
 
 ```bash
 supabase secrets set \
   GCS_ORIGINALS_BUCKET='example-cv-originals' \
-  GCS_SIGNED_URL_EXPIRES_SECONDS='600'
+  GCS_SIGNED_URL_EXPIRES_SECONDS='600' \
+  GCS_SIGNER_SERVICE_URL='https://<gcs-signer-service-url>' \
+  GCS_SIGNER_SHARED_SECRET='<shared-secret>'
 ```
 
-`GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON` is also required if the Supabase Edge Function signs URLs directly. For stricter production key hygiene, put the signer behind a small GCP Cloud Run service and let it sign with its attached service account instead of creating a long-lived key.
+The Edge Function still accepts `GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON_BASE64`, `GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON`, or the split pair `GCS_SIGNED_URL_CLIENT_EMAIL` plus `GCS_SIGNED_URL_PRIVATE_KEY_BASE64` for local experiments. Avoid those in production when service-account key creation is disabled or centrally restricted.
 
 ## Sync New CVs From Manatal
 

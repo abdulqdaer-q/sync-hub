@@ -69,6 +69,14 @@ def _json_output(payload: object, pretty: bool) -> str:
     return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
 
+def _manatal_sync_exit_code(result, *, pending: bool) -> int:
+    if not result.failures:
+        return 0
+    if pending and (result.synced_resumes > 0 or result.queued_candidates > 0 or result.skipped_candidates > 0):
+        return 0
+    return 2
+
+
 def _config_with_ingest_overrides(config: WorkerConfig, args: argparse.Namespace) -> WorkerConfig:
     updates = {}
     if args.concurrency is not None:
@@ -167,7 +175,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             },
         }
         print(_json_output(payload, pretty=args.pretty))
-        return 0 if not result.failures else 2
+        return _manatal_sync_exit_code(result, pending=args.pending)
 
     if args.command == "manatal-originals-to-gcs":
         tenant_id = args.tenant_id or config.tenant_id
