@@ -107,6 +107,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     ? location.pathname === route.to
                     : route.to === "/admin/manatal-sync"
                     ? location.pathname === route.to
+                    : route.to === "/admin/manatal-sync"
+                    ? location.pathname === route.to
                     : route.to === "/admin/search-simulator"
                     ? location.pathname === route.to
                     : route.to === "/admin/parsing/lab"

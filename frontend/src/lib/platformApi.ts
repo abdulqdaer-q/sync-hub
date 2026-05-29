@@ -1103,7 +1103,7 @@ function isBrowserOpenableSource(sourceUri?: string | null) {
 }
 
 function isGcsSource(sourceUri?: string | null) {
-  return Boolean(sourceUri && sourceUri.startsWith("gs://"));
+  return Boolean(sourceUri && /^gs:\/\//i.test(sourceUri));
 }
 
 function buildCandidateCvUrl(sourceUri?: string | null) {
@@ -2118,6 +2118,8 @@ function createRemoteApi(): PlatformApi {
       return mapRemoteAgent(payload, candidateIds);
     },
     async getOriginalDocumentUrl(storagePath, sourceUri, context) {
+      const hasGcsOriginal = isGcsSource(sourceUri) || isGcsSource(storagePath);
+
       if (supabase && (context?.candidateId || context?.documentId)) {
         try {
           const payload = await invokePlatform<JsonRecord>("original_document_url", {
@@ -2130,17 +2132,18 @@ function createRemoteApi(): PlatformApi {
           if (url) {
             return url;
           }
-        } catch {
+        } catch (error) {
           if (isBrowserOpenableSource(sourceUri)) {
             return sourceUri ?? null;
           }
-          if (isGcsSource(sourceUri)) {
-            throw new Error("This original CV is private in GCS, but signed URL access is not configured yet.");
+          if (hasGcsOriginal) {
+            const detail = errorMessage(error).trim();
+            throw new Error(detail || "This original CV is private in GCS and could not be signed.");
           }
         }
       }
 
-      if (supabase && storagePath && !isGcsSource(sourceUri)) {
+      if (supabase && storagePath && !hasGcsOriginal) {
         try {
           const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(storagePath, 60 * 10);
           if (error) {
