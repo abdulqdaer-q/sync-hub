@@ -470,6 +470,20 @@ export type AnalyticsSnapshot = {
   }>;
 };
 
+export type PlatformRuntimeConfigSource = "database" | "environment" | "unset";
+
+export type PlatformRuntimeConfigField = {
+  key: string;
+  value: string | null;
+  source: PlatformRuntimeConfigSource;
+  envName: string;
+};
+
+export type PlatformRuntimeConfig = {
+  settings: PlatformRuntimeConfigField[];
+  updatedAt: string | null;
+};
+
 export type SystemHealth = {
   overallStatus: string;
   latencyMs: number;
@@ -537,6 +551,30 @@ export type IndexingWorkbench = {
   }>;
   queues: IndexingJob[];
 };
+
+export type TenantAdminSummary = {
+  tenantId: string;
+  slug: string;
+  name: string;
+  iconUrl: string;
+  createdAt: string | null;
+  membershipCount: number;
+  candidateCount: number;
+  documentCount: number;
+};
+
+export type AccountProvisionResult = {
+  userId: string;
+  email: string;
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  tenantIcon: string;
+  role: string;
+  folderName: string;
+};
+
+export type MembershipRole = "owner" | "admin" | "recruiter" | "viewer";
 
 export type AccessRoster = {
   users: Array<{

@@ -203,6 +203,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(_json_output(payload, pretty=args.pretty))
         return 0 if not result.failed else 2
 
+    if args.command == "manatal-originals-to-gcs":
+        tenant_id = args.tenant_id or config.tenant_id
+        config = replace(config, tenant_id=tenant_id)
+        progress = None if args.no_progress else (lambda message: print(message, file=sys.stderr, flush=True))
+        result = ManatalOriginalsBackfill(config).run(
+            bucket=args.bucket or config.gcs_originals_bucket,
+            limit=args.limit,
+            page_size=args.page_size,
+            offset=args.offset,
+            apply=args.apply,
+            force=args.force,
+            update_source_uri=args.update_source_uri,
+            progress=progress,
+        )
+        payload = {
+            "processed": result.processed,
+            "uploaded": result.uploaded,
+            "skipped": result.skipped,
+            "missing_source": result.missing_source,
+            "failed": result.failed,
+            "failures": result.failures,
+            "dry_run": result.dry_run,
+        }
+        print(_json_output(payload, pretty=args.pretty))
+        return 0 if not result.failed else 2
+
     parser.error(f"unsupported command: {args.command}")
     return 1
 

@@ -11,7 +11,9 @@ import { ManatalSyncStatusPage } from "@/screens/admin/ManatalSyncStatusPage";
 import { ParsingDetailPage } from "@/screens/admin/ParsingDetailPage";
 import { ParsingLabPage } from "@/screens/admin/ParsingLabPage";
 import { ParsingOverviewPage } from "@/screens/admin/ParsingOverviewPage";
+import { AccountProvisioningPage } from "@/screens/admin/AccountProvisioningPage";
 import { PlatformAdminDashboardPage } from "@/screens/admin/PlatformAdminDashboardPage";
+import { PlatformRuntimeSettingsPage } from "@/screens/admin/PlatformRuntimeSettingsPage";
 
 export const router = createHashRouter([
   {
@@ -31,6 +33,8 @@ export const router = createHashRouter([
       { path: "analytics", element: <Navigate to="/search" replace /> },
       { path: "admin", element: <PlatformAdminDashboardPage /> },
       { path: "admin/dashboard", element: <PlatformAdminDashboardPage /> },
+      { path: "admin/accounts", element: <AccountProvisioningPage /> },
+      { path: "admin/settings", element: <PlatformRuntimeSettingsPage /> },
       { path: "admin/alerts", element: <OpsAlertsPage /> },
       { path: "admin/manatal-sync", element: <ManatalSyncStatusPage /> },
       { path: "admin/search-simulator", element: <SearchConfigurationPage /> },

@@ -125,7 +125,7 @@ The Terraform config creates or manages:
 
 1. A bucket with uniform bucket-level access, public access prevention, Standard storage, labels, and soft delete.
 2. The worker service account and bucket read access so Cloud Run Jobs can mount the bucket.
-3. A `cv-document-signer` service account with read access, usable by the Supabase Edge Function for signed URL credentials or by a future dedicated signed-URL service.
+3. A `cv-document-signer` service account with read access and self `roles/iam.serviceAccountTokenCreator`, ready for the keyless signed-URL Cloud Run service or local Supabase Edge Function signing experiments.
 
 If a resource was first created manually or with `gcloud`, import it before applying Terraform. That makes Terraform the source of truth instead of trying to create duplicates. For the current `example-gcp-project` project, import the resources we already created before running `terraform apply`:
 

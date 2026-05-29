@@ -1,5 +1,8 @@
 import type {
   AccessRoster,
+  AccountProvisionResult,
+  MembershipRole,
+  TenantAdminSummary,
   AgentResponse,
   AnalyticsSnapshot,
   AskResponse,
@@ -11,6 +14,8 @@ import type {
   IndexingWorkbench,
   ManatalSyncStatus,
   OpsAlert,
+  PlatformRuntimeConfig,
+  PlatformRuntimeConfigSource,
   ParsingDocumentDetail,
   ParsingOverview,
   ParserProfile,
@@ -92,6 +97,25 @@ type PlatformApi = {
   getDataConnectors: () => Promise<DataConnector[]>;
   getIndexingWorkbench: () => Promise<IndexingWorkbench>;
   getAccessRoster: () => Promise<AccessRoster>;
+  listAdminTenants: () => Promise<TenantAdminSummary[]>;
+  createTenantAccount: (input: {
+    email: string;
+    password: string;
+    tenantName: string;
+    tenantSlug?: string;
+    tenantIcon?: string;
+    fullName?: string;
+    role?: MembershipRole;
+  }) => Promise<AccountProvisionResult>;
+  addUserToTenant: (input: {
+    email: string;
+    password: string;
+    tenantSlug: string;
+    fullName?: string;
+    role?: MembershipRole;
+  }) => Promise<AccountProvisionResult>;
+  getPlatformRuntimeConfig: () => Promise<PlatformRuntimeConfig>;
+  savePlatformRuntimeConfig: (settings: Record<string, string | null>) => Promise<PlatformRuntimeConfig>;
 };
 
 type OriginalDocumentUrlContext = {
@@ -1468,6 +1492,63 @@ function normalizeOpsStatus(value: unknown): OpsAlert["status"] {
   return value === "firing" || value === "acknowledged" || value === "resolved" ? value : "firing";
 }
 
+function mapTenantAdminSummary(row: unknown): TenantAdminSummary {
+  const record = asRecord(row);
+  return {
+    tenantId: String(record.tenantId ?? record.tenant_id ?? ""),
+    slug: String(record.slug ?? ""),
+    name: String(record.name ?? ""),
+    iconUrl: String(record.iconUrl ?? record.icon_url ?? ""),
+    createdAt: typeof record.createdAt === "string" ? record.createdAt : typeof record.created_at === "string" ? record.created_at : null,
+    membershipCount: toNumber(record.membershipCount ?? record.membership_count),
+    candidateCount: toNumber(record.candidateCount ?? record.candidate_count),
+    documentCount: toNumber(record.documentCount ?? record.document_count),
+  };
+}
+
+function mapRuntimeConfigSource(value: unknown): PlatformRuntimeConfigSource {
+  return value === "database" || value === "environment" || value === "unset" ? value : "unset";
+}
+
+function mapPlatformRuntimeConfig(payload: unknown): PlatformRuntimeConfig {
+  const record = asRecord(payload);
+  const settings = Array.isArray(record.settings)
+    ? record.settings.map((item) => {
+        const row = asRecord(item);
+        return {
+          key: typeof row.key === "string" ? row.key : "",
+          value: typeof row.value === "string" ? row.value : null,
+          source: mapRuntimeConfigSource(row.source),
+          envName: typeof row.envName === "string" ? row.envName : typeof row.env_name === "string" ? row.env_name : "",
+        };
+      })
+    : [];
+
+  return {
+    settings,
+    updatedAt:
+      typeof record.updatedAt === "string"
+        ? record.updatedAt
+        : typeof record.updated_at === "string"
+          ? record.updated_at
+          : null,
+  };
+}
+
+function mapAccountProvisionResult(row: unknown): AccountProvisionResult {
+  const record = asRecord(row);
+  return {
+    userId: String(record.userId ?? record.user_id ?? ""),
+    email: String(record.email ?? ""),
+    tenantId: String(record.tenantId ?? record.tenant_id ?? ""),
+    tenantName: String(record.tenantName ?? record.tenant_name ?? ""),
+    tenantSlug: String(record.tenantSlug ?? record.tenant_slug ?? ""),
+    tenantIcon: String(record.tenantIcon ?? record.tenant_icon ?? ""),
+    role: String(record.role ?? "owner"),
+    folderName: String(record.folderName ?? record.folder_name ?? ""),
+  };
+}
+
 function mapRemoteOpsAlert(row: unknown): OpsAlert {
   const record = asRecord(row);
   return {
@@ -1893,6 +1974,23 @@ function createMockApi(): PlatformApi {
       await wait(80);
       return accessRoster;
     },
+    async listAdminTenants() {
+      await wait(80);
+      return [];
+    },
+    async createTenantAccount() {
+      throw new Error("Account provisioning requires Supabase.");
+    },
+    async addUserToTenant() {
+      throw new Error("Account provisioning requires Supabase.");
+    },
+    async getPlatformRuntimeConfig() {
+      await wait(80);
+      return { settings: [], updatedAt: null };
+    },
+    async savePlatformRuntimeConfig() {
+      throw new Error("Runtime settings require Supabase.");
+    },
   };
 }
 
@@ -2205,6 +2303,44 @@ function createRemoteApi(): PlatformApi {
     },
     async getAccessRoster() {
       return mock.getAccessRoster();
+    },
+    async listAdminTenants() {
+      try {
+        const rows = await invokePlatform<unknown[]>("list_admin_tenants");
+        return (rows ?? []).map(mapTenantAdminSummary);
+      } catch {
+        return [];
+      }
+    },
+    async createTenantAccount(input) {
+      const payload = await invokePlatform<unknown>("create_tenant_account", {
+        email: input.email,
+        password: input.password,
+        tenant_name: input.tenantName,
+        tenant_slug: input.tenantSlug ?? "",
+        tenant_icon: input.tenantIcon ?? "",
+        full_name: input.fullName ?? "",
+        role: input.role ?? "owner",
+      });
+      return mapAccountProvisionResult(payload);
+    },
+    async addUserToTenant(input) {
+      const payload = await invokePlatform<unknown>("add_user_to_tenant", {
+        email: input.email,
+        password: input.password,
+        tenant_slug: input.tenantSlug,
+        full_name: input.fullName ?? "",
+        role: input.role ?? "recruiter",
+      });
+      return mapAccountProvisionResult(payload);
+    },
+    async getPlatformRuntimeConfig() {
+      const payload = await invokePlatform<unknown>("get_platform_runtime_config");
+      return mapPlatformRuntimeConfig(payload);
+    },
+    async savePlatformRuntimeConfig(settings) {
+      const payload = await invokePlatform<unknown>("save_platform_runtime_config", { settings });
+      return mapPlatformRuntimeConfig(payload);
     },
   };
 }

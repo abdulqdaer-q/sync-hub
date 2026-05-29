@@ -11,6 +11,8 @@ import {
   LayoutDashboard,
   Search,
   SlidersHorizontal,
+  Settings2,
+  UserPlus,
   RefreshCw,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
@@ -26,6 +28,8 @@ const productRoutes = [
 
 const operationsRoutes = [
   { to: "/admin", label: "Platform Dashboard", icon: LayoutDashboard },
+  { to: "/admin/accounts", label: "Account provisioning", icon: UserPlus },
+  { to: "/admin/settings", label: "Runtime settings", icon: Settings2 },
   { to: "/admin/alerts", label: "Alerts", icon: Bell },
   { to: "/admin/manatal-sync", label: "Manatal Sync", icon: RefreshCw },
   { to: "/admin/search-simulator", label: "Search Simulator", icon: SlidersHorizontal },
@@ -99,7 +103,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 const active =
                   route.to === "/admin"
                     ? location.pathname === route.to || location.pathname === "/admin/dashboard"
-                    : route.to === "/admin/alerts"
+                    : route.to === "/admin/alerts" || route.to === "/admin/accounts" || route.to === "/admin/settings"
+                    ? location.pathname === route.to
+                    : route.to === "/admin/manatal-sync"
                     ? location.pathname === route.to
                     : route.to === "/admin/manatal-sync"
                     ? location.pathname === route.to
