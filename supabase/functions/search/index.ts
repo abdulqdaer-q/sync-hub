@@ -883,7 +883,7 @@ async function runFastProfileSearch(
   supabase: ReturnType<typeof createAuthedClient>,
   query: string,
   filters: SearchIntentPayload,
-  explicitFilters: SearchIntentPayload,
+  _explicitFilters: SearchIntentPayload,
   tenantIds: string[],
   limit: number,
   offset: number,

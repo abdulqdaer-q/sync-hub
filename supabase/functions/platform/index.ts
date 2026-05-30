@@ -21,6 +21,21 @@ const INSIGHTS_FALLBACK_MAX_ROWS = 20000;
 const DEFAULT_GCS_SIGNED_URL_SECONDS = 10 * 60;
 
 type JsonRecord = Record<string, unknown>;
+type SupabaseQueryResult = {
+  data?: Array<Record<string, unknown>> | null;
+  error?: unknown;
+  count?: number | null;
+};
+type SupabaseQueryLike = PromiseLike<SupabaseQueryResult> & {
+  select: (...args: unknown[]) => SupabaseQueryLike;
+  in: (...args: unknown[]) => SupabaseQueryLike;
+  eq: (...args: unknown[]) => SupabaseQueryLike;
+  not: (...args: unknown[]) => SupabaseQueryLike;
+  like: (...args: unknown[]) => SupabaseQueryLike;
+  ilike: (...args: unknown[]) => SupabaseQueryLike;
+  order: (...args: unknown[]) => SupabaseQueryLike;
+  limit: (...args: unknown[]) => SupabaseQueryLike;
+};
 type GcsServiceAccountCredentials = {
   client_email?: string;
   private_key?: string;
@@ -108,11 +123,6 @@ function asRecord(value: unknown): JsonRecord {
 function asNumber(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function toNumber(value: unknown, fallback = 0) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function isMissingRpcError(error: unknown) {
@@ -516,7 +526,7 @@ async function getWorkspaceStats(
 }
 
 function withTenantFilter(
-  query: any,
+  query: SupabaseQueryLike,
   tenantIds: string[],
   column = "tenant_id",
 ) {
@@ -527,9 +537,9 @@ async function countRows(
   supabase: ReturnType<typeof createAuthedClient>,
   table: string,
   tenantIds: string[],
-  apply?: (query: any) => any,
+  apply?: (query: SupabaseQueryLike) => SupabaseQueryLike,
 ) {
-  let query: any = supabase
+  let query = supabase
     .from(table)
     .select("*", { count: "exact", head: true });
   query = withTenantFilter(query, tenantIds);
@@ -550,16 +560,17 @@ function asPercent(numerator: number, denominator: number) {
   return Math.round((numerator / denominator) * 100);
 }
 
-function mapManatalStatusRow(row: any) {
+function mapManatalStatusRow(row: unknown) {
+  const record = asRecord(row);
   return {
-    manatalCandidateId: String(row.manatal_candidate_id ?? ""),
-    candidateName: String(row.manatal_full_name ?? "Unknown candidate"),
-    email: asString(row.manatal_email),
-    syncStatus: String(row.sync_status ?? "unknown"),
-    lastSyncedAt: asString(row.last_synced_at),
-    updatedAt: asString(row.updated_at),
-    sourceDocumentId: asString(row.source_document_id),
-    errorMessage: asString(row.error_message),
+    manatalCandidateId: String(record.manatal_candidate_id ?? ""),
+    candidateName: String(record.manatal_full_name ?? "Unknown candidate"),
+    email: asString(record.manatal_email),
+    syncStatus: String(record.sync_status ?? "unknown"),
+    lastSyncedAt: asString(record.last_synced_at),
+    updatedAt: asString(record.updated_at),
+    sourceDocumentId: asString(record.source_document_id),
+    errorMessage: asString(record.error_message),
   };
 }
 
@@ -626,7 +637,7 @@ async function getManatalSyncStatus(
       (query) => query.eq("sync_status", "skipped"),
     ),
     (() => {
-      let query: any = supabase
+      let query = supabase
         .from("manatal_candidate_sync")
         .select(
           "manatal_candidate_id, manatal_full_name, manatal_email, sync_status, last_synced_at, updated_at, source_document_id, error_message",
@@ -637,7 +648,7 @@ async function getManatalSyncStatus(
       return query;
     })(),
     (() => {
-      let query: any = supabase
+      let query = supabase
         .from("manatal_candidate_sync")
         .select("last_synced_at")
         .eq("sync_status", "synced")
@@ -648,7 +659,7 @@ async function getManatalSyncStatus(
       return query;
     })(),
     (() => {
-      let query: any = supabase
+      let query = supabase
         .from("manatal_candidate_sync")
         .select(
           "manatal_candidate_id, manatal_full_name, error_message, updated_at",

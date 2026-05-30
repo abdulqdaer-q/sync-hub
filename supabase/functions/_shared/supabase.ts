@@ -23,7 +23,7 @@ export function createSupabaseClient(request: Request): SupabaseClient {
   });
 }
 
-export async function ensureAuthenticated(request: Request): Promise<void> {
+export function ensureAuthenticated(request: Request): void {
   const authorization = request.headers.get("Authorization");
   if (!authorization) {
     throw new Error("Missing Authorization header");

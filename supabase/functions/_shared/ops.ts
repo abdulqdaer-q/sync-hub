@@ -1,9 +1,20 @@
 type SupabaseClientLike = {
-  from: (table: string) => any;
+  from: (table: string) => SupabaseQueryLike;
   rpc: (
     name: string,
     args: Record<string, unknown>,
   ) => Promise<{ data: unknown; error: unknown }>;
+};
+
+type SupabaseQueryResult = {
+  data?: Array<Record<string, unknown>> | null;
+  error?: unknown;
+};
+
+type SupabaseQueryLike = PromiseLike<SupabaseQueryResult> & {
+  select: (...args: unknown[]) => SupabaseQueryLike;
+  eq: (...args: unknown[]) => SupabaseQueryLike;
+  limit: (...args: unknown[]) => SupabaseQueryLike;
 };
 
 export function createTraceId() {

@@ -178,7 +178,7 @@ Deno.serve(async (req) => {
       : await buildQueryEmbedding(question);
 
     let candidateIds = requestedCandidateIds;
-    let scopeSource = requestedCandidateIds.length ? "explicit" : "retrieved";
+    const scopeSource = requestedCandidateIds.length ? "explicit" : "retrieved";
 
     if (!requestedCandidateIds.length && isCorpusCountQuestion(question)) {
       const [documentsCountResult, candidatesCountResult] = await Promise.all([
