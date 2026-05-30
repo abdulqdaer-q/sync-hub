@@ -11,7 +11,10 @@ import {
   buildPlatformRuntimeConfigView,
   savePlatformRuntimeSettings,
 } from "../_shared/platformRuntimeSettings.ts";
-import { normalizeLocationValue, normalizeSkillList } from "../_shared/searchTaxonomy.ts";
+import {
+  normalizeLocationValue,
+  normalizeSkillList,
+} from "../_shared/searchTaxonomy.ts";
 
 const SEARCH_PAGE_SIZE = 1000;
 const INSIGHTS_FALLBACK_MAX_ROWS = 20000;
@@ -86,12 +89,20 @@ function asString(value: unknown) {
 
 function asStringArray(value: unknown) {
   return Array.isArray(value)
-    ? Array.from(new Set(value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)))
+    ? Array.from(
+      new Set(
+        value
+          .map((item) => (typeof item === "string" ? item.trim() : ""))
+          .filter(Boolean),
+      ),
+    )
     : [];
 }
 
 function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
 }
 
 function asNumber(value: unknown) {
@@ -108,14 +119,23 @@ function isMissingRpcError(error: unknown) {
   const record = asRecord(error);
   const code = String(record.code ?? "");
   const message = describeError(error).toLowerCase();
-  return code === "PGRST202" || message.includes("could not find the function") || message.includes("schema cache");
+  return (
+    code === "PGRST202" ||
+    message.includes("could not find the function") ||
+    message.includes("schema cache")
+  );
 }
 
 function isBrowserOpenableSource(sourceUri: string | null) {
   return Boolean(sourceUri && /^(https?:)?\/\//i.test(sourceUri));
 }
 
-function parseIntegerEnv(name: string, fallback: number, min: number, max: number) {
+function parseIntegerEnv(
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+) {
   const parsed = Number(Deno.env.get(name));
   if (!Number.isFinite(parsed)) {
     return fallback;
@@ -124,7 +144,10 @@ function parseIntegerEnv(name: string, fallback: number, min: number, max: numbe
 }
 
 function rfc3986Encode(value: string) {
-  return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 function decodeBase64Secret(value: string, envName: string) {
@@ -142,7 +165,10 @@ function decodeBase64Secret(value: string, envName: string) {
 
 function normalizeSecretValue(value: string) {
   const trimmed = value.trim();
-  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
     return trimmed.slice(1, -1).trim();
   }
   return trimmed;
@@ -157,11 +183,15 @@ function encodePath(value: string) {
 }
 
 function bytesToHex(bytes: ArrayBuffer) {
-  return Array.from(new Uint8Array(bytes)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(bytes))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function sha256Hex(value: string) {
-  return bytesToHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  return bytesToHex(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
+  );
 }
 
 function pemToArrayBuffer(pem: string) {
@@ -185,35 +215,59 @@ async function signRsaSha256(privateKey: string, value: string) {
     false,
     ["sign"],
   );
-  return bytesToHex(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(value)));
+  return bytesToHex(
+    await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      new TextEncoder().encode(value),
+    ),
+  );
 }
 
 function getGcsBucketName() {
-  return asString(Deno.env.get("GCS_ORIGINALS_BUCKET")) ?? asString(Deno.env.get("CV_GCS_BUCKET")) ?? asString(Deno.env.get("CV_BUCKET_NAME"));
+  return (
+    asString(Deno.env.get("GCS_ORIGINALS_BUCKET")) ??
+      asString(Deno.env.get("CV_GCS_BUCKET")) ??
+      asString(Deno.env.get("CV_BUCKET_NAME"))
+  );
 }
 
 function getGcsCredentials() {
   const rawJson = asString(Deno.env.get("GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON"));
-  const rawJsonBase64 = asString(Deno.env.get("GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON_BASE64"));
+  const rawJsonBase64 = asString(
+    Deno.env.get("GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON_BASE64"),
+  );
   const raw = rawJson
     ? normalizeSecretValue(rawJson)
     : rawJsonBase64
-      ? decodeBase64Secret(rawJsonBase64, "GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON_BASE64")
-      : null;
+    ? decodeBase64Secret(
+      rawJsonBase64,
+      "GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON_BASE64",
+    )
+    : null;
   if (!raw) {
     const clientEmail = asString(Deno.env.get("GCS_SIGNED_URL_CLIENT_EMAIL"));
     const privateKey = asString(Deno.env.get("GCS_SIGNED_URL_PRIVATE_KEY"));
-    const privateKeyBase64 = asString(Deno.env.get("GCS_SIGNED_URL_PRIVATE_KEY_BASE64"));
+    const privateKeyBase64 = asString(
+      Deno.env.get("GCS_SIGNED_URL_PRIVATE_KEY_BASE64"),
+    );
     const normalizedPrivateKey = privateKey
       ? normalizePrivateKey(privateKey)
       : privateKeyBase64
-        ? normalizePrivateKey(decodeBase64Secret(privateKeyBase64, "GCS_SIGNED_URL_PRIVATE_KEY_BASE64"))
-        : null;
+      ? normalizePrivateKey(
+        decodeBase64Secret(
+          privateKeyBase64,
+          "GCS_SIGNED_URL_PRIVATE_KEY_BASE64",
+        ),
+      )
+      : null;
     if (!clientEmail && !normalizedPrivateKey) {
       return null;
     }
     if (!clientEmail || !normalizedPrivateKey) {
-      throw new Error("GCS signed URL credentials require GCS_SIGNED_URL_CLIENT_EMAIL and a private key secret.");
+      throw new Error(
+        "GCS signed URL credentials require GCS_SIGNED_URL_CLIENT_EMAIL and a private key secret.",
+      );
     }
     return {
       client_email: clientEmail,
@@ -222,7 +276,9 @@ function getGcsCredentials() {
   }
   const parsed = JSON.parse(raw) as GcsServiceAccountCredentials;
   if (!parsed.client_email || !parsed.private_key) {
-    throw new Error("GCS signed URL service account JSON must include client_email and private_key.");
+    throw new Error(
+      "GCS signed URL service account JSON must include client_email and private_key.",
+    );
   }
   return {
     client_email: parsed.client_email,
@@ -264,25 +320,37 @@ function resolveGcsLocation(document: OriginalDocumentRow) {
     return null;
   }
 
-  const objectName = storagePath.startsWith(`${configuredBucket}/`) ? storagePath.slice(configuredBucket.length + 1) : storagePath;
+  const objectName = storagePath.startsWith(`${configuredBucket}/`)
+    ? storagePath.slice(configuredBucket.length + 1)
+    : storagePath;
   return { bucket: configuredBucket, objectName };
 }
 
-async function createRemoteGcsSignedUrl(bucket: string, objectName: string): Promise<GcsSignedUrlResult | null> {
+async function createRemoteGcsSignedUrl(
+  bucket: string,
+  objectName: string,
+): Promise<GcsSignedUrlResult | null> {
   const signerUrl = asString(Deno.env.get("GCS_SIGNER_SERVICE_URL"));
   const signerSecret = asString(Deno.env.get("GCS_SIGNER_SHARED_SECRET"));
   if (!signerUrl && !signerSecret) {
     return null;
   }
   if (!signerUrl || !signerSecret) {
-    throw new Error("GCS signer service requires GCS_SIGNER_SERVICE_URL and GCS_SIGNER_SHARED_SECRET.");
+    throw new Error(
+      "GCS signer service requires GCS_SIGNER_SERVICE_URL and GCS_SIGNER_SHARED_SECRET.",
+    );
   }
 
-  const expiresSeconds = parseIntegerEnv("GCS_SIGNED_URL_EXPIRES_SECONDS", DEFAULT_GCS_SIGNED_URL_SECONDS, 60, 3600);
+  const expiresSeconds = parseIntegerEnv(
+    "GCS_SIGNED_URL_EXPIRES_SECONDS",
+    DEFAULT_GCS_SIGNED_URL_SECONDS,
+    60,
+    3600,
+  );
   const response = await fetch(`${signerUrl.replace(/\/+$/, "")}/sign`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${signerSecret}`,
+      Authorization: `Bearer ${signerSecret}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ bucket, objectName, expiresSeconds }),
@@ -290,7 +358,11 @@ async function createRemoteGcsSignedUrl(bucket: string, objectName: string): Pro
 
   const payload = asRecord(await response.json().catch(() => ({})));
   if (!response.ok) {
-    throw new Error(`GCS signer service failed (${response.status}): ${describeError(payload)}`);
+    throw new Error(
+      `GCS signer service failed (${response.status}): ${
+        describeError(payload)
+      }`,
+    );
   }
 
   const url = asString(payload.url);
@@ -314,9 +386,17 @@ async function createGcsSignedUrl(bucket: string, objectName: string) {
     );
   }
 
-  const expiresSeconds = parseIntegerEnv("GCS_SIGNED_URL_EXPIRES_SECONDS", DEFAULT_GCS_SIGNED_URL_SECONDS, 60, 3600);
+  const expiresSeconds = parseIntegerEnv(
+    "GCS_SIGNED_URL_EXPIRES_SECONDS",
+    DEFAULT_GCS_SIGNED_URL_SECONDS,
+    60,
+    3600,
+  );
   const now = new Date();
-  const timestamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const timestamp = now
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "Z");
   const datestamp = timestamp.slice(0, 8);
   const algorithm = "GOOG4-RSA-SHA256";
   const credentialScope = `${datestamp}/auto/storage/goog4_request`;
@@ -350,16 +430,22 @@ async function createGcsSignedUrl(bucket: string, objectName: string) {
   ].join("\n");
   const signature = await signRsaSha256(credentials.private_key, stringToSign);
   return {
-    url: `https://${host}${canonicalUri}?${canonicalQueryString}&X-Goog-Signature=${signature}`,
+    url:
+      `https://${host}${canonicalUri}?${canonicalQueryString}&X-Goog-Signature=${signature}`,
     expiresAt: new Date(now.getTime() + expiresSeconds * 1000).toISOString(),
   };
 }
 
 function dedupeSorted(values: string[]) {
-  return Array.from(new Set(values.filter(Boolean))).sort((left, right) => left.localeCompare(right));
+  return Array.from(new Set(values.filter(Boolean))).sort((left, right) =>
+    left.localeCompare(right)
+  );
 }
 
-async function fetchAllSearchCacheRows(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+async function fetchAllSearchCacheRows(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
   const rows: Array<{
     seniority: string | null;
     skills: string[] | null;
@@ -367,7 +453,7 @@ async function fetchAllSearchCacheRows(supabase: ReturnType<typeof createAuthedC
     location: string | null;
   }> = [];
 
-  for (let offset = 0; ; offset += SEARCH_PAGE_SIZE) {
+  for (let offset = 0;; offset += SEARCH_PAGE_SIZE) {
     let request = supabase
       .from("candidate_search_cache")
       .select("seniority, skills, companies, location")
@@ -391,27 +477,49 @@ async function fetchAllSearchCacheRows(supabase: ReturnType<typeof createAuthedC
   return rows;
 }
 
-async function getSearchFilterOptions(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+async function getSearchFilterOptions(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
   const rows = await fetchAllSearchCacheRows(supabase, tenantIds);
   return {
-    seniority: dedupeSorted(rows.map((row) => row.seniority ?? "").filter((value) => value && value !== "unclassified")),
-    skills: dedupeSorted(normalizeSkillList(rows.flatMap((row) => row.skills ?? []))),
+    seniority: dedupeSorted(
+      rows
+        .map((row) => row.seniority ?? "")
+        .filter((value) => value && value !== "unclassified"),
+    ),
+    skills: dedupeSorted(
+      normalizeSkillList(rows.flatMap((row) => row.skills ?? [])),
+    ),
     companies: dedupeSorted(rows.flatMap((row) => row.companies ?? [])),
-    locations: dedupeSorted(rows.map((row) => normalizeLocationValue(row.location)).filter((value): value is string => Boolean(value))),
+    locations: dedupeSorted(
+      rows
+        .map((row) => normalizeLocationValue(row.location))
+        .filter((value): value is string => Boolean(value)),
+    ),
   };
 }
 
-async function getWorkspaceStats(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+async function getWorkspaceStats(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
   const { data, error } = await supabase.rpc("workspace_stats_v1", {
     p_tenant_ids: tenantIds.length ? tenantIds : null,
   });
   if (error) {
     throw error;
   }
-  return Array.isArray(data) ? data[0] ?? { document_count: 0, candidate_count: 0, company_count: 0 } : data;
+  return Array.isArray(data)
+    ? (data[0] ?? { document_count: 0, candidate_count: 0, company_count: 0 })
+    : data;
 }
 
-function withTenantFilter(query: any, tenantIds: string[], column = "tenant_id") {
+function withTenantFilter(
+  query: any,
+  tenantIds: string[],
+  column = "tenant_id",
+) {
   return tenantIds.length ? query.in(column, tenantIds) : query;
 }
 
@@ -421,7 +529,9 @@ async function countRows(
   tenantIds: string[],
   apply?: (query: any) => any,
 ) {
-  let query: any = supabase.from(table).select("*", { count: "exact", head: true });
+  let query: any = supabase
+    .from(table)
+    .select("*", { count: "exact", head: true });
   query = withTenantFilter(query, tenantIds);
   if (apply) {
     query = apply(query);
@@ -453,7 +563,10 @@ function mapManatalStatusRow(row: any) {
   };
 }
 
-async function getManatalSyncStatus(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+async function getManatalSyncStatus(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
   const [
     sourceDocuments,
     gcsOriginals,
@@ -469,18 +582,55 @@ async function getManatalSyncStatus(supabase: ReturnType<typeof createAuthedClie
     lastFailureResult,
   ] = await Promise.all([
     countRows(supabase, "source_documents", tenantIds),
-    countRows(supabase, "source_documents", tenantIds, (query) => query.like("source_uri", "gs://%")),
-    countRows(supabase, "source_documents", tenantIds, (query) => query.ilike("source_uri", "%drive.google.com%")),
+    countRows(
+      supabase,
+      "source_documents",
+      tenantIds,
+      (query) => query.like("source_uri", "gs://%"),
+    ),
+    countRows(
+      supabase,
+      "source_documents",
+      tenantIds,
+      (query) => query.ilike("source_uri", "%drive.google.com%"),
+    ),
     countRows(supabase, "manatal_candidate_sync", tenantIds),
-    countRows(supabase, "manatal_candidate_sync", tenantIds, (query) => query.not("source_document_id", "is", null)),
-    countRows(supabase, "manatal_candidate_sync", tenantIds, (query) => query.eq("sync_status", "synced")),
-    countRows(supabase, "manatal_candidate_sync", tenantIds, (query) => query.eq("sync_status", "pending")),
-    countRows(supabase, "manatal_candidate_sync", tenantIds, (query) => query.eq("sync_status", "failed")),
-    countRows(supabase, "manatal_candidate_sync", tenantIds, (query) => query.eq("sync_status", "skipped")),
+    countRows(
+      supabase,
+      "manatal_candidate_sync",
+      tenantIds,
+      (query) => query.not("source_document_id", "is", null),
+    ),
+    countRows(
+      supabase,
+      "manatal_candidate_sync",
+      tenantIds,
+      (query) => query.eq("sync_status", "synced"),
+    ),
+    countRows(
+      supabase,
+      "manatal_candidate_sync",
+      tenantIds,
+      (query) => query.eq("sync_status", "pending"),
+    ),
+    countRows(
+      supabase,
+      "manatal_candidate_sync",
+      tenantIds,
+      (query) => query.eq("sync_status", "failed"),
+    ),
+    countRows(
+      supabase,
+      "manatal_candidate_sync",
+      tenantIds,
+      (query) => query.eq("sync_status", "skipped"),
+    ),
     (() => {
       let query: any = supabase
         .from("manatal_candidate_sync")
-        .select("manatal_candidate_id, manatal_full_name, manatal_email, sync_status, last_synced_at, updated_at, source_document_id, error_message")
+        .select(
+          "manatal_candidate_id, manatal_full_name, manatal_email, sync_status, last_synced_at, updated_at, source_document_id, error_message",
+        )
         .order("updated_at", { ascending: false })
         .limit(12);
       query = withTenantFilter(query, tenantIds);
@@ -500,7 +650,9 @@ async function getManatalSyncStatus(supabase: ReturnType<typeof createAuthedClie
     (() => {
       let query: any = supabase
         .from("manatal_candidate_sync")
-        .select("manatal_candidate_id, manatal_full_name, error_message, updated_at")
+        .select(
+          "manatal_candidate_id, manatal_full_name, error_message, updated_at",
+        )
         .eq("sync_status", "failed")
         .order("updated_at", { ascending: false })
         .limit(1);
@@ -541,11 +693,13 @@ async function getManatalSyncStatus(supabase: ReturnType<typeof createAuthedClie
     lastSyncedAt: asString((lastSyncedResult.data ?? [])[0]?.last_synced_at),
     lastFailure: lastFailureRow
       ? {
-          manatalCandidateId: String(lastFailureRow.manatal_candidate_id ?? ""),
-          candidateName: String(lastFailureRow.manatal_full_name ?? "Unknown candidate"),
-          errorMessage: String(lastFailureRow.error_message ?? ""),
-          updatedAt: asString(lastFailureRow.updated_at),
-        }
+        manatalCandidateId: String(lastFailureRow.manatal_candidate_id ?? ""),
+        candidateName: String(
+          lastFailureRow.manatal_full_name ?? "Unknown candidate",
+        ),
+        errorMessage: String(lastFailureRow.error_message ?? ""),
+        updatedAt: asString(lastFailureRow.updated_at),
+      }
       : null,
     recentRows: (recentResult.data ?? []).map(mapManatalStatusRow),
   };
@@ -578,7 +732,9 @@ function severityRank(severity: string) {
 }
 
 function statusForAlerts(alerts: OpsHealthRow[]) {
-  if (alerts.some((alert) => alert.severity === "P0" || alert.severity === "P1")) {
+  if (
+    alerts.some((alert) => alert.severity === "P0" || alert.severity === "P1")
+  ) {
     return "degraded";
   }
   if (alerts.some((alert) => alert.severity === "P2")) {
@@ -605,7 +761,10 @@ function percentile(values: number[], percentileValue: number) {
     return 0;
   }
   const sorted = values.slice().sort((left, right) => left - right);
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((percentileValue / 100) * sorted.length) - 1));
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil((percentileValue / 100) * sorted.length) - 1),
+  );
   return Math.round(sorted[index]);
 }
 
@@ -614,7 +773,10 @@ function formatHeartbeatAge(value: unknown) {
   if (!timestamp) {
     return "no heartbeat";
   }
-  const ageSeconds = Math.max(0, Math.round((Date.now() - new Date(timestamp).getTime()) / 1000));
+  const ageSeconds = Math.max(
+    0,
+    Math.round((Date.now() - new Date(timestamp).getTime()) / 1000),
+  );
   if (ageSeconds < 60) {
     return `${ageSeconds}s ago`;
   }
@@ -622,7 +784,10 @@ function formatHeartbeatAge(value: unknown) {
   return `${ageMinutes}m ago`;
 }
 
-async function getSystemHealth(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+async function getSystemHealth(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
   const [snapshotResult, eventsResult, workersResult] = await Promise.all([
     supabase.rpc("ops_health_snapshot_v1", {
       p_tenant_ids: tenantIds.length ? tenantIds : null,
@@ -659,8 +824,14 @@ async function getSystemHealth(supabase: ReturnType<typeof createAuthedClient>, 
     throw workersResult.error;
   }
 
-  const alerts = ((snapshotResult.data ?? []) as OpsHealthRow[]).sort((left, right) => severityRank(left.severity) - severityRank(right.severity));
-  const recentEvents = (eventsResult.data ?? []) as Array<{ event_name: string; payload: unknown; created_at: string }>;
+  const alerts = ((snapshotResult.data ?? []) as OpsHealthRow[]).sort(
+    (left, right) => severityRank(left.severity) - severityRank(right.severity),
+  );
+  const recentEvents = (eventsResult.data ?? []) as Array<{
+    event_name: string;
+    payload: unknown;
+    created_at: string;
+  }>;
   const durations = recentEvents
     .map((event) => asNumber(asRecord(event.payload).duration_ms))
     .filter((value): value is number => value !== null && value >= 0);
@@ -669,8 +840,13 @@ async function getSystemHealth(supabase: ReturnType<typeof createAuthedClient>, 
     const statusCode = asNumber(asRecord(event.payload).status_code);
     return statusCode !== null && statusCode >= 500;
   }).length;
-  const capacityAlerts = alerts.filter((alert) => alert.component === "capacity");
-  const capacityUsage = Math.max(0, ...capacityAlerts.map((alert) => Number(alert.current_value ?? 0)));
+  const capacityAlerts = alerts.filter(
+    (alert) => alert.component === "capacity",
+  );
+  const capacityUsage = Math.max(
+    0,
+    ...capacityAlerts.map((alert) => Number(alert.current_value ?? 0)),
+  );
   const workerRows = (workersResult.data ?? []) as Array<{
     tenant_id: string;
     device_name: string;
@@ -679,56 +855,85 @@ async function getSystemHealth(supabase: ReturnType<typeof createAuthedClient>, 
     metadata_json: unknown;
   }>;
 
-  const searchAlerts = alerts.filter((alert) => alert.component === "search" || alert.alert_key.includes("search"));
-  const edgeAlerts = alerts.filter((alert) => alert.component === "edge_function");
+  const searchAlerts = alerts.filter(
+    (alert) =>
+      alert.component === "search" || alert.alert_key.includes("search"),
+  );
+  const edgeAlerts = alerts.filter(
+    (alert) => alert.component === "edge_function",
+  );
   const workerAlerts = alerts.filter((alert) => alert.component === "worker");
-  const ingestionAlerts = alerts.filter((alert) => alert.component === "ingestion");
-  const dataQualityAlerts = alerts.filter((alert) => alert.component === "data_quality");
+  const ingestionAlerts = alerts.filter(
+    (alert) => alert.component === "ingestion",
+  );
+  const dataQualityAlerts = alerts.filter(
+    (alert) => alert.component === "data_quality",
+  );
 
   const services = [
     {
       name: "Edge Functions",
       status: statusForAlerts(edgeAlerts),
       latency: latencyMs ? `${latencyMs} ms p95` : "no samples",
-      detail: edgeAlerts[0]?.message ?? `${recentEvents.length} recent requests, ${eventsWithFailures} server errors.`,
+      detail: edgeAlerts[0]?.message ??
+        `${recentEvents.length} recent requests, ${eventsWithFailures} server errors.`,
     },
     {
       name: "Search",
       status: statusForAlerts(searchAlerts),
       latency: latencyMs ? `${latencyMs} ms p95` : "no samples",
-      detail: searchAlerts[0]?.message ?? "Search alerts are clear from the Supabase health snapshot.",
+      detail: searchAlerts[0]?.message ??
+        "Search alerts are clear from the Supabase health snapshot.",
     },
     {
       name: "Offline worker fleet",
       status: statusForAlerts(workerAlerts),
       latency: workerRows.length ? `${workerRows.length} registered` : "idle",
-      detail: workerAlerts[0]?.message ?? (workerRows.length ? "Active worker devices are sending heartbeats." : "No worker devices registered; worker monitoring is idle."),
+      detail: workerAlerts[0]?.message ??
+        (workerRows.length
+          ? "Active worker devices are sending heartbeats."
+          : "No worker devices registered; worker monitoring is idle."),
     },
     {
       name: "Ingestion",
       status: statusForAlerts(ingestionAlerts),
-      latency: ingestionAlerts[0]?.current_value !== null && ingestionAlerts[0]?.current_value !== undefined ? `${ingestionAlerts[0].current_value}` : "clear",
-      detail: ingestionAlerts[0]?.message ?? "No stuck or failing ingestion runs in the current alert window.",
+      latency: ingestionAlerts[0]?.current_value !== null &&
+          ingestionAlerts[0]?.current_value !== undefined
+        ? `${ingestionAlerts[0].current_value}`
+        : "clear",
+      detail: ingestionAlerts[0]?.message ??
+        "No stuck or failing ingestion runs in the current alert window.",
     },
     {
       name: "Data quality",
       status: statusForAlerts(dataQualityAlerts),
-      latency: dataQualityAlerts[0]?.current_value !== null && dataQualityAlerts[0]?.current_value !== undefined ? `${dataQualityAlerts[0].current_value}%` : "clear",
-      detail: dataQualityAlerts[0]?.message ?? "Recent parsing quality is within configured thresholds.",
+      latency: dataQualityAlerts[0]?.current_value !== null &&
+          dataQualityAlerts[0]?.current_value !== undefined
+        ? `${dataQualityAlerts[0].current_value}%`
+        : "clear",
+      detail: dataQualityAlerts[0]?.message ??
+        "Recent parsing quality is within configured thresholds.",
     },
     {
       name: "Supabase capacity",
       status: statusForAlerts(capacityAlerts),
-      latency: capacityUsage ? `${Math.round(capacityUsage)}%` : "within limits",
-      detail: capacityAlerts[0]?.message ?? "Database and storage capacity alerts are clear.",
+      latency: capacityUsage
+        ? `${Math.round(capacityUsage)}%`
+        : "within limits",
+      detail: capacityAlerts[0]?.message ??
+        "Database and storage capacity alerts are clear.",
     },
   ];
 
   const workerFleet = workerRows.map((worker) => {
     const metadata = asRecord(worker.metadata_json);
     const metrics = asRecord(metadata.last_metrics);
-    const queueDepth = asNumber(metrics.queue_depth) ?? asNumber(metrics.pending) ?? asNumber(metrics.failures) ?? 0;
-    const throughput = asNumber(metrics.documents_per_minute) ?? asNumber(metrics.processed_per_minute);
+    const queueDepth = asNumber(metrics.queue_depth) ??
+      asNumber(metrics.pending) ??
+      asNumber(metrics.failures) ??
+      0;
+    const throughput = asNumber(metrics.documents_per_minute) ??
+      asNumber(metrics.processed_per_minute);
     return {
       name: worker.device_name,
       region: formatHeartbeatAge(worker.last_seen_at),
@@ -740,29 +945,36 @@ async function getSystemHealth(supabase: ReturnType<typeof createAuthedClient>, 
   const alertLogs = alerts.slice(0, 6).map((alert) => ({
     level: alert.severity === "P0" || alert.severity === "P1" ? "warn" : "info",
     message: alert.message,
-    timestamp: new Date(alert.last_seen_at).toLocaleTimeString("en-US", { hour12: false }),
+    timestamp: new Date(alert.last_seen_at).toLocaleTimeString("en-US", {
+      hour12: false,
+    }),
   }));
 
   return {
     overallStatus: overallStatus(alerts),
     latencyMs,
-    uptime: alerts.some((alert) => alert.severity === "P0") ? "incident" : "live",
+    uptime: alerts.some((alert) => alert.severity === "P0")
+      ? "incident"
+      : "live",
     memory: Math.round(capacityUsage),
     services,
     workerFleet,
-    logs: alertLogs.length
-      ? alertLogs
-      : [
-          {
-            level: "ok",
-            message: "Supabase monitoring snapshot is clear.",
-            timestamp: new Date().toLocaleTimeString("en-US", { hour12: false }),
-          },
-        ],
+    logs: alertLogs.length ? alertLogs : [
+      {
+        level: "ok",
+        message: "Supabase monitoring snapshot is clear.",
+        timestamp: new Date().toLocaleTimeString("en-US", {
+          hour12: false,
+        }),
+      },
+    ],
   };
 }
 
-async function getOpsAlerts(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+async function getOpsAlerts(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
   const { data, error } = await supabase.rpc("ops_evaluate_alerts_v1", {
     p_tenant_ids: tenantIds.length ? tenantIds : null,
   });
@@ -777,72 +989,217 @@ const INSIGHTS_JOB_FAMILY_RULES = [
     label: "Full-Stack Engineering",
     roleTags: ["full-stack"],
     titleSignals: ["full stack", "full-stack"],
-    skillSignals: ["react", "angular", "vue", "node.js", "express", "django", "laravel", "postgresql", "mongodb", "sql", "apis"],
+    skillSignals: [
+      "react",
+      "angular",
+      "vue",
+      "node.js",
+      "express",
+      "django",
+      "laravel",
+      "postgresql",
+      "mongodb",
+      "sql",
+      "apis",
+    ],
   },
   {
     label: "Backend Engineering",
     roleTags: ["backend"],
     titleSignals: ["backend", "back-end", "api", "server", "platform"],
-    skillSignals: ["node.js", "nestjs", "express", "java", "spring", "python", "django", "fastapi", "laravel", "php", "asp.net", ".net", "postgresql", "mysql", "mongodb", "redis", "graphql", "rest apis"],
+    skillSignals: [
+      "node.js",
+      "nestjs",
+      "express",
+      "java",
+      "spring",
+      "python",
+      "django",
+      "fastapi",
+      "laravel",
+      "php",
+      "asp.net",
+      ".net",
+      "postgresql",
+      "mysql",
+      "mongodb",
+      "redis",
+      "graphql",
+      "rest apis",
+    ],
   },
   {
     label: "Frontend Engineering",
     roleTags: ["frontend"],
     titleSignals: ["frontend", "front-end", "ui engineer", "web developer"],
-    skillSignals: ["react", "next.js", "angular", "vue", "javascript", "typescript", "html", "css", "tailwind", "bootstrap", "redux"],
+    skillSignals: [
+      "react",
+      "next.js",
+      "angular",
+      "vue",
+      "javascript",
+      "typescript",
+      "html",
+      "css",
+      "tailwind",
+      "bootstrap",
+      "redux",
+    ],
   },
   {
     label: "Mobile Engineering",
     roleTags: ["mobile"],
     titleSignals: ["mobile", "android", "ios", "flutter", "react native"],
-    skillSignals: ["flutter", "dart", "android", "ios", "swift", "kotlin", "react native", "firebase"],
+    skillSignals: [
+      "flutter",
+      "dart",
+      "android",
+      "ios",
+      "swift",
+      "kotlin",
+      "react native",
+      "firebase",
+    ],
   },
   {
     label: "AI & Machine Learning",
     roleTags: ["ml"],
-    titleSignals: ["machine learning", "ml engineer", "ai engineer", "data scientist", "llm"],
-    skillSignals: ["machine learning", "deep learning", "tensorflow", "pytorch", "scikit", "keras", "opencv", "nlp", "llm", "computer vision"],
+    titleSignals: [
+      "machine learning",
+      "ml engineer",
+      "ai engineer",
+      "data scientist",
+      "llm",
+    ],
+    skillSignals: [
+      "machine learning",
+      "deep learning",
+      "tensorflow",
+      "pytorch",
+      "scikit",
+      "keras",
+      "opencv",
+      "nlp",
+      "llm",
+      "computer vision",
+    ],
   },
   {
     label: "Data & Analytics",
     roleTags: ["data"],
-    titleSignals: ["data analyst", "data engineer", "business intelligence", "bi developer", "analytics"],
-    skillSignals: ["sql", "power bi", "tableau", "excel", "pandas", "numpy", "etl", "data analysis", "data visualization"],
+    titleSignals: [
+      "data analyst",
+      "data engineer",
+      "business intelligence",
+      "bi developer",
+      "analytics",
+    ],
+    skillSignals: [
+      "sql",
+      "power bi",
+      "tableau",
+      "excel",
+      "pandas",
+      "numpy",
+      "etl",
+      "data analysis",
+      "data visualization",
+    ],
   },
   {
     label: "Cloud, DevOps & SRE",
     roleTags: ["devops"],
-    titleSignals: ["devops", "sre", "site reliability", "cloud", "infrastructure"],
-    skillSignals: ["docker", "kubernetes", "terraform", "aws", "azure", "google cloud", "gcp", "ci/cd", "linux", "jenkins", "ansible", "helm"],
+    titleSignals: [
+      "devops",
+      "sre",
+      "site reliability",
+      "cloud",
+      "infrastructure",
+    ],
+    skillSignals: [
+      "docker",
+      "kubernetes",
+      "terraform",
+      "aws",
+      "azure",
+      "google cloud",
+      "gcp",
+      "ci/cd",
+      "linux",
+      "jenkins",
+      "ansible",
+      "helm",
+    ],
   },
   {
     label: "Cybersecurity",
     roleTags: ["security"],
     titleSignals: ["security", "cyber", "soc", "penetration", "threat", "siem"],
-    skillSignals: ["cybersecurity", "security", "soc operations", "siem", "penetration testing", "vulnerability", "threat detection", "incident response"],
+    skillSignals: [
+      "cybersecurity",
+      "security",
+      "soc operations",
+      "siem",
+      "penetration testing",
+      "vulnerability",
+      "threat detection",
+      "incident response",
+    ],
   },
   {
     label: "QA & Test Automation",
     roleTags: ["qa"],
     titleSignals: ["qa", "quality assurance", "test automation", "tester"],
-    skillSignals: ["selenium", "playwright", "cypress", "jest", "testing", "test automation", "quality assurance"],
+    skillSignals: [
+      "selenium",
+      "playwright",
+      "cypress",
+      "jest",
+      "testing",
+      "test automation",
+      "quality assurance",
+    ],
   },
   {
     label: "Product & Design",
     roleTags: ["product", "design"],
-    titleSignals: ["product designer", "ui/ux", "ux designer", "product manager"],
-    skillSignals: ["figma", "ui/ux", "wireframing", "prototyping", "user research", "product management"],
+    titleSignals: [
+      "product designer",
+      "ui/ux",
+      "ux designer",
+      "product manager",
+    ],
+    skillSignals: [
+      "figma",
+      "ui/ux",
+      "wireframing",
+      "prototyping",
+      "user research",
+      "product management",
+    ],
   },
   {
     label: "Software Engineering",
     roleTags: ["generalist"],
     titleSignals: ["software", "developer", "engineer", "programmer"],
-    skillSignals: ["git", "github", "apis", "javascript", "python", "java", "sql", "problem solving"],
+    skillSignals: [
+      "git",
+      "github",
+      "apis",
+      "javascript",
+      "python",
+      "java",
+      "sql",
+      "problem solving",
+    ],
   },
 ];
 
 const INSIGHTS_SKILL_ALIAS_GROUPS = [
-  { skill: "React Native", aliases: ["react native", "react-native", "reactnative", "rn"] },
+  {
+    skill: "React Native",
+    aliases: ["react native", "react-native", "reactnative", "rn"],
+  },
   { skill: "React", aliases: ["react", "react.js", "reactjs"] },
   { skill: "Next.js", aliases: ["next.js", "nextjs", "next"] },
   { skill: "Node.js", aliases: ["node.js", "nodejs", "node js", "node"] },
@@ -853,15 +1210,30 @@ const INSIGHTS_SKILL_ALIAS_GROUPS = [
   { skill: "Docker", aliases: ["docker"] },
   { skill: "AWS", aliases: ["aws", "amazon web services"] },
   { skill: "Azure", aliases: ["azure", "microsoft azure"] },
-  { skill: "Google Cloud", aliases: ["google cloud", "gcp", "google cloud platform"] },
-  { skill: "CI/CD", aliases: ["ci/cd", "cicd", "ci cd", "continuous integration", "continuous deployment"] },
+  {
+    skill: "Google Cloud",
+    aliases: ["google cloud", "gcp", "google cloud platform"],
+  },
+  {
+    skill: "CI/CD",
+    aliases: [
+      "ci/cd",
+      "cicd",
+      "ci cd",
+      "continuous integration",
+      "continuous deployment",
+    ],
+  },
   { skill: "Python", aliases: ["python"] },
   { skill: "Java", aliases: ["java"] },
   { skill: "SQL", aliases: ["sql"] },
   { skill: "PostgreSQL", aliases: ["postgresql", "postgres", "postgre sql"] },
   { skill: "MySQL", aliases: ["mysql"] },
   { skill: "MongoDB", aliases: ["mongodb", "mongo db", "mongo"] },
-  { skill: "REST APIs", aliases: ["rest api", "rest apis", "restful api", "restful apis"] },
+  {
+    skill: "REST APIs",
+    aliases: ["rest api", "rest apis", "restful api", "restful apis"],
+  },
   { skill: "APIs", aliases: ["api", "apis"] },
   { skill: "GraphQL", aliases: ["graphql", "graph ql"] },
   { skill: "HTML", aliases: ["html"] },
@@ -898,63 +1270,106 @@ function incrementCount(map: Map<string, number>, key: string, amount = 1) {
   map.set(key, (map.get(key) ?? 0) + amount);
 }
 
-function distributionFromCounts(counts: Map<string, number>, total: number, limit?: number): InsightsDistributionItem[] {
+function distributionFromCounts(
+  counts: Map<string, number>,
+  total: number,
+  limit?: number,
+): InsightsDistributionItem[] {
   return Array.from(counts.entries())
     .map(([label, value]) => ({
       label,
       value,
       percent: total ? Number(((value / total) * 100).toFixed(1)) : 0,
     }))
-    .sort((left, right) => right.value - left.value || left.label.localeCompare(right.label))
+    .sort(
+      (left, right) =>
+        right.value - left.value || left.label.localeCompare(right.label),
+    )
     .slice(0, limit ?? counts.size);
 }
 
 function inferInsightsJobFamily(row: InsightsCandidateSearchCacheRow) {
   const roleTags = asStringArray(row.role_tags).map((tag) => tag.toLowerCase());
-  const roleText = [...roleTags, row.primary_role ?? "", row.current_title ?? "", row.headline ?? ""].join(" ").toLowerCase();
-  const titleText = [row.current_title ?? "", row.headline ?? ""].join(" ").toLowerCase();
+  const roleText = [
+    ...roleTags,
+    row.primary_role ?? "",
+    row.current_title ?? "",
+    row.headline ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const titleText = [row.current_title ?? "", row.headline ?? ""]
+    .join(" ")
+    .toLowerCase();
   const skillText = asStringArray(row.skills).join(" ").toLowerCase();
   let bestFamily = "Unclassified";
   let bestScore = 0;
 
   for (const rule of INSIGHTS_JOB_FAMILY_RULES) {
     let score = 0;
-    if (rule.roleTags.some((tag) => roleTags.includes(tag) || roleText.includes(tag))) {
+    if (
+      rule.roleTags.some(
+        (tag) => roleTags.includes(tag) || roleText.includes(tag),
+      )
+    ) {
       score += 90;
     }
     if (rule.titleSignals.some((signal) => titleText.includes(signal))) {
       score += 55;
     }
-    score += Math.min(60, rule.skillSignals.filter((signal) => skillText.includes(signal)).length * 12);
+    score += Math.min(
+      60,
+      rule.skillSignals.filter((signal) => skillText.includes(signal)).length *
+        12,
+    );
     if (score > bestScore) {
       bestScore = score;
       bestFamily = rule.label;
     }
   }
 
-  if (roleTags.includes("backend") && roleTags.includes("frontend") && bestScore < 120) {
+  if (
+    roleTags.includes("backend") &&
+    roleTags.includes("frontend") &&
+    bestScore < 120
+  ) {
     return "Full-Stack Engineering";
   }
   return bestScore >= 40 ? bestFamily : "Unclassified";
 }
 
 function normalizeInsightsSeniority(value: string | null | undefined) {
-  const normalized = String(value ?? "").trim().toLowerCase();
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
   return normalized || "unclassified";
 }
 
 function normalizePyramidSeniority(value: string | null | undefined) {
   const normalized = normalizeInsightsSeniority(value);
-  if (normalized === "staff-plus" || normalized === "principal" || normalized === "manager") {
+  if (
+    normalized === "staff-plus" ||
+    normalized === "principal" ||
+    normalized === "manager"
+  ) {
     return "lead";
   }
-  if (normalized === "junior" || normalized === "mid" || normalized === "senior" || normalized === "lead" || normalized === "executive") {
+  if (
+    normalized === "junior" ||
+    normalized === "mid" ||
+    normalized === "senior" ||
+    normalized === "lead" ||
+    normalized === "executive"
+  ) {
     return normalized;
   }
   return "junior";
 }
 
-function buildInsightsSparkline(rows: InsightsCandidateSearchCacheRow[], now = new Date()) {
+function buildInsightsSparkline(
+  rows: InsightsCandidateSearchCacheRow[],
+  now = new Date(),
+) {
   const bucketCount = 6;
   const bucketMs = 5 * 24 * 60 * 60 * 1000;
   const startMs = now.getTime() - bucketCount * bucketMs;
@@ -964,7 +1379,10 @@ function buildInsightsSparkline(rows: InsightsCandidateSearchCacheRow[], now = n
     if (!Number.isFinite(createdMs) || createdMs < startMs) {
       continue;
     }
-    const bucketIndex = Math.min(bucketCount - 1, Math.max(0, Math.floor((createdMs - startMs) / bucketMs)));
+    const bucketIndex = Math.min(
+      bucketCount - 1,
+      Math.max(0, Math.floor((createdMs - startMs) / bucketMs)),
+    );
     buckets[bucketIndex] += 1;
   }
   return buckets;
@@ -979,24 +1397,49 @@ function buildSkillCatalog(rows: InsightsCandidateSearchCacheRow[]) {
   }
   return Array.from(counts.entries())
     .map(([skill, count]) => ({ skill, count }))
-    .sort((left, right) => right.count - left.count || left.skill.localeCompare(right.skill));
+    .sort(
+      (left, right) =>
+        right.count - left.count || left.skill.localeCompare(right.skill),
+    );
 }
 
 function aliasGroupForSkill(skill: string) {
   const key = normalizeInsightsText(skill);
-  return INSIGHTS_SKILL_ALIAS_GROUPS.find((group) => [group.skill, ...group.aliases].some((alias) => normalizeInsightsText(alias) === key));
+  return INSIGHTS_SKILL_ALIAS_GROUPS.find((group) =>
+    [group.skill, ...group.aliases].some(
+      (alias) => normalizeInsightsText(alias) === key,
+    )
+  );
 }
 
-function resolveFallbackGapSkills(targetRole: string | null, explicitSkills: string[], skillCatalog: Array<{ skill: string; count: number }>) {
-  const catalogByNorm = new Map(skillCatalog.map((item) => [normalizeInsightsText(item.skill), item.skill]));
+function resolveFallbackGapSkills(
+  targetRole: string | null,
+  explicitSkills: string[],
+  skillCatalog: Array<{ skill: string; count: number }>,
+) {
+  const catalogByNorm = new Map(
+    skillCatalog.map((item) => [normalizeInsightsText(item.skill), item.skill]),
+  );
   const normalizedInput = normalizeInsightsText(targetRole ?? "");
-  const segments = new Set(normalizedInput.replace(/\b(?:and|with|plus|including|using|requires?|need|needed|for|or)\b/g, ",").split(/[,;&|/]+/).map((segment) => segment.trim()).filter(Boolean));
+  const segments = new Set(
+    normalizedInput
+      .replace(
+        /\b(?:and|with|plus|including|using|requires?|need|needed|for|or)\b/g,
+        ",",
+      )
+      .split(/[,;&|/]+/)
+      .map((segment) => segment.trim())
+      .filter(Boolean),
+  );
   const resolved: string[] = [];
   const seen = new Set<string>();
 
   function addSkill(skill: string) {
     const group = aliasGroupForSkill(skill);
-    const label = catalogByNorm.get(normalizeInsightsText(group?.skill ?? skill)) ?? group?.skill ?? skill.trim();
+    const label =
+      catalogByNorm.get(normalizeInsightsText(group?.skill ?? skill)) ??
+        group?.skill ??
+        skill.trim();
     const key = normalizeInsightsText(label);
     if (key && !seen.has(key)) {
       seen.add(key);
@@ -1005,17 +1448,32 @@ function resolveFallbackGapSkills(targetRole: string | null, explicitSkills: str
   }
 
   const aliasCandidates = [
-    ...INSIGHTS_SKILL_ALIAS_GROUPS.flatMap((group) => [group.skill, ...group.aliases].map((alias) => ({ skill: group.skill, alias }))),
+    ...INSIGHTS_SKILL_ALIAS_GROUPS.flatMap((group) =>
+      [group.skill, ...group.aliases].map((alias) => ({
+        skill: group.skill,
+        alias,
+      }))
+    ),
     ...skillCatalog.map((item) => ({ skill: item.skill, alias: item.skill })),
-  ].sort((left, right) => normalizeInsightsText(right.alias).length - normalizeInsightsText(left.alias).length);
+  ].sort(
+    (left, right) =>
+      normalizeInsightsText(right.alias).length -
+      normalizeInsightsText(left.alias).length,
+  );
 
   for (const candidate of aliasCandidates) {
     const alias = normalizeInsightsText(candidate.alias);
     if (!alias) {
       continue;
     }
-    const isReactInsideReactNative = alias === "react" && normalizedInput.includes("react native") && !segments.has("react");
-    if (!isReactInsideReactNative && normalizedInput && (` ${normalizedInput} `).includes(` ${alias} `)) {
+    const isReactInsideReactNative = alias === "react" &&
+      normalizedInput.includes("react native") &&
+      !segments.has("react");
+    if (
+      !isReactInsideReactNative &&
+      normalizedInput &&
+      ` ${normalizedInput} `.includes(` ${alias} `)
+    ) {
       addSkill(candidate.skill);
     }
   }
@@ -1030,17 +1488,26 @@ function resolveFallbackGapSkills(targetRole: string | null, explicitSkills: str
   return resolved.slice(0, 12);
 }
 
-function candidateHasFallbackSkill(candidateSkills: string[], targetSkill: string) {
+function candidateHasFallbackSkill(
+  candidateSkills: string[],
+  targetSkill: string,
+) {
   const group = aliasGroupForSkill(targetSkill);
   const aliases = group ? [group.skill, ...group.aliases] : [targetSkill];
   const candidateKeys = new Set<string>();
   for (const skill of candidateSkills) {
     const candidateGroup = aliasGroupForSkill(skill);
-    for (const alias of candidateGroup ? [candidateGroup.skill, ...candidateGroup.aliases] : [skill]) {
+    for (
+      const alias of candidateGroup
+        ? [candidateGroup.skill, ...candidateGroup.aliases]
+        : [skill]
+    ) {
       candidateKeys.add(normalizeInsightsText(alias));
     }
   }
-  return aliases.some((alias) => candidateKeys.has(normalizeInsightsText(alias)));
+  return aliases.some((alias) =>
+    candidateKeys.has(normalizeInsightsText(alias))
+  );
 }
 
 function buildFallbackGapAnalysis(
@@ -1049,7 +1516,11 @@ function buildFallbackGapAnalysis(
   explicitSkills: string[],
   skillCatalog = buildSkillCatalog(rows),
 ): InsightsGapAnalysis {
-  const targetSkills = resolveFallbackGapSkills(targetRole, explicitSkills, skillCatalog);
+  const targetSkills = resolveFallbackGapSkills(
+    targetRole,
+    explicitSkills,
+    skillCatalog,
+  );
   let fullyMatchingCandidates = 0;
   let partiallyMatchingCandidates = 0;
   let zeroMatchCandidates = 0;
@@ -1060,7 +1531,9 @@ function buildFallbackGapAnalysis(
     if (!targetSkills.length) {
       continue;
     }
-    const matchedSkills = targetSkills.filter((skill) => candidateHasFallbackSkill(skills, skill));
+    const matchedSkills = targetSkills.filter((skill) =>
+      candidateHasFallbackSkill(skills, skill)
+    );
     if (matchedSkills.length === targetSkills.length) {
       fullyMatchingCandidates += 1;
     } else if (matchedSkills.length > 0) {
@@ -1082,17 +1555,34 @@ function buildFallbackGapAnalysis(
     partiallyMatchingCandidates,
     zeroMatchCandidates,
     missingSkills: Array.from(missingSkills.entries())
-      .map(([skill, missingFromPartialCandidates]) => ({ skill, missingFromPartialCandidates }))
-      .sort((left, right) => right.missingFromPartialCandidates - left.missingFromPartialCandidates || left.skill.localeCompare(right.skill)),
+      .map(([skill, missingFromPartialCandidates]) => ({
+        skill,
+        missingFromPartialCandidates,
+      }))
+      .sort(
+        (left, right) =>
+          right.missingFromPartialCandidates -
+            left.missingFromPartialCandidates ||
+          left.skill.localeCompare(right.skill),
+      ),
   };
 }
 
-async function fetchInsightsFallbackRows(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+async function fetchInsightsFallbackRows(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
   const rows: InsightsCandidateSearchCacheRow[] = [];
-  for (let offset = 0; offset < INSIGHTS_FALLBACK_MAX_ROWS; offset += SEARCH_PAGE_SIZE) {
+  for (
+    let offset = 0;
+    offset < INSIGHTS_FALLBACK_MAX_ROWS;
+    offset += SEARCH_PAGE_SIZE
+  ) {
     let request = supabase
       .from("candidate_search_cache")
-      .select("tenant_id,candidate_id,current_title,headline,location,years_experience,seniority,primary_role,role_tags,skills,created_at,updated_at")
+      .select(
+        "tenant_id,candidate_id,current_title,headline,location,years_experience,seniority,primary_role,role_tags,skills,created_at,updated_at",
+      )
       .order("created_at", { ascending: false })
       .range(offset, offset + SEARCH_PAGE_SIZE - 1);
 
@@ -1113,32 +1603,81 @@ async function fetchInsightsFallbackRows(supabase: ReturnType<typeof createAuthe
   return rows;
 }
 
-function buildFallbackGapUseCases(skillCatalog: Array<{ skill: string; count: number }>) {
+function buildFallbackGapUseCases(
+  skillCatalog: Array<{ skill: string; count: number }>,
+) {
   const catalog = skillCatalog.map((item) => item.skill);
   const findSkill = (aliases: string[]) => {
     const keys = new Set(aliases.map(normalizeInsightsText));
     return catalog.find((skill) => keys.has(normalizeInsightsText(skill)));
   };
   const templates = [
-    { id: "employer-brief", title: "Employer brief", detail: "Check whether the pool can satisfy a live role demand.", groups: [["React"], ["React Native"], ["TypeScript", "JavaScript"]] },
-    { id: "training-cohort", title: "Training cohort", detail: "Find partial candidates that could convert with focused upskilling.", groups: [["Kubernetes"], ["Terraform"], ["Docker"], ["AWS", "Azure", "Google Cloud"]] },
-    { id: "funding-evidence", title: "Funding evidence", detail: "Quantify scarce capabilities for program and grant narratives.", groups: [["SQL"], ["Power BI"], ["Tableau", "Excel"], ["Python"]] },
-    { id: "delivery-risk", title: "Delivery risk", detail: "Spot backend/API supply depth before committing to delivery targets.", groups: [["Node.js"], ["REST APIs", "APIs"], ["PostgreSQL", "SQL"], ["GraphQL"]] },
+    {
+      id: "employer-brief",
+      title: "Employer brief",
+      detail: "Check whether the pool can satisfy a live role demand.",
+      groups: [["React"], ["React Native"], ["TypeScript", "JavaScript"]],
+    },
+    {
+      id: "training-cohort",
+      title: "Training cohort",
+      detail:
+        "Find partial candidates that could convert with focused upskilling.",
+      groups: [
+        ["Kubernetes"],
+        ["Terraform"],
+        ["Docker"],
+        ["AWS", "Azure", "Google Cloud"],
+      ],
+    },
+    {
+      id: "funding-evidence",
+      title: "Funding evidence",
+      detail: "Quantify scarce capabilities for program and grant narratives.",
+      groups: [["SQL"], ["Power BI"], ["Tableau", "Excel"], ["Python"]],
+    },
+    {
+      id: "delivery-risk",
+      title: "Delivery risk",
+      detail:
+        "Spot backend/API supply depth before committing to delivery targets.",
+      groups: [
+        ["Node.js"],
+        ["REST APIs", "APIs"],
+        ["PostgreSQL", "SQL"],
+        ["GraphQL"],
+      ],
+    },
   ];
   return templates
     .map((template) => {
-      const skills = template.groups.map(findSkill).filter((skill): skill is string => Boolean(skill));
-      return { id: template.id, title: template.title, detail: template.detail, skills, query: skills.join(" and ") };
+      const skills = template.groups
+        .map(findSkill)
+        .filter((skill): skill is string => Boolean(skill));
+      return {
+        id: template.id,
+        title: template.title,
+        detail: template.detail,
+        skills,
+        query: skills.join(" and "),
+      };
     })
     .filter((item) => item.skills.length >= 2);
 }
 
-function buildFallbackInsightsDashboard(rows: InsightsCandidateSearchCacheRow[], topSkills: number, targetRole: string | null, targetSkills: string[]) {
+function buildFallbackInsightsDashboard(
+  rows: InsightsCandidateSearchCacheRow[],
+  topSkills: number,
+  targetRole: string | null,
+  targetSkills: string[],
+) {
   const now = new Date();
   const currentWindowStart = now.getTime() - 30 * 24 * 60 * 60 * 1000;
   const previousWindowStart = now.getTime() - 60 * 24 * 60 * 60 * 1000;
   const total = rows.length;
-  const added30 = rows.filter((row) => Date.parse(row.created_at ?? "") >= currentWindowStart).length;
+  const added30 = rows.filter(
+    (row) => Date.parse(row.created_at ?? "") >= currentWindowStart,
+  ).length;
   const previousAdded30 = rows.filter((row) => {
     const createdMs = Date.parse(row.created_at ?? "");
     return createdMs >= previousWindowStart && createdMs < currentWindowStart;
@@ -1146,7 +1685,16 @@ function buildFallbackInsightsDashboard(rows: InsightsCandidateSearchCacheRow[],
   const seniorityCounts = new Map<string, number>();
   const locationCounts = new Map<string, number>();
   const jobFamilyCounts = new Map<string, number>();
-  const pyramidCounts = new Map<string, { junior: number; mid: number; senior: number; lead: number; executive: number }>();
+  const pyramidCounts = new Map<
+    string,
+    {
+      junior: number;
+      mid: number;
+      senior: number;
+      lead: number;
+      executive: number;
+    }
+  >();
   let classifiedCount = 0;
   let skillTotal = 0;
 
@@ -1163,7 +1711,13 @@ function buildFallbackInsightsDashboard(rows: InsightsCandidateSearchCacheRow[],
     }
     skillTotal += skills.length;
     const pyramidSeniority = normalizePyramidSeniority(row.seniority);
-    const pyramid = pyramidCounts.get(jobFamily) ?? { junior: 0, mid: 0, senior: 0, lead: 0, executive: 0 };
+    const pyramid = pyramidCounts.get(jobFamily) ?? {
+      junior: 0,
+      mid: 0,
+      senior: 0,
+      lead: 0,
+      executive: 0,
+    };
     pyramid[pyramidSeniority] += 1;
     pyramidCounts.set(jobFamily, pyramid);
   }
@@ -1175,10 +1729,46 @@ function buildFallbackInsightsDashboard(rows: InsightsCandidateSearchCacheRow[],
   return {
     generatedAt: now.toISOString(),
     metrics: [
-      { key: "total_cvs_indexed", label: "Total CVs Indexed", value: total, deltaValue, deltaPercent: previousAdded30 ? Number(((deltaValue / previousAdded30) * 100).toFixed(1)) : null, trend, sparkline: buildInsightsSparkline(rows, now) },
-      { key: "cvs_added_30d", label: "CVs Added (Last 30 Days)", value: added30, deltaValue, deltaPercent: previousAdded30 ? Number(((deltaValue / previousAdded30) * 100).toFixed(1)) : null, trend, sparkline: buildInsightsSparkline(rows, now) },
-      { key: "job_family_coverage", label: "Job Family Coverage", value: total ? Number(((classifiedCount / total) * 100).toFixed(1)) : 0, deltaValue: 0, deltaPercent: null, trend: "flat", sparkline: buildInsightsSparkline(rows, now) },
-      { key: "avg_skills_per_profile", label: "Avg Skills per Profile", value: total ? Number((skillTotal / total).toFixed(1)) : 0, deltaValue: 0, deltaPercent: null, trend: "flat", sparkline: buildInsightsSparkline(rows, now) },
+      {
+        key: "total_cvs_indexed",
+        label: "Total CVs Indexed",
+        value: total,
+        deltaValue,
+        deltaPercent: previousAdded30
+          ? Number(((deltaValue / previousAdded30) * 100).toFixed(1))
+          : null,
+        trend,
+        sparkline: buildInsightsSparkline(rows, now),
+      },
+      {
+        key: "cvs_added_30d",
+        label: "CVs Added (Last 30 Days)",
+        value: added30,
+        deltaValue,
+        deltaPercent: previousAdded30
+          ? Number(((deltaValue / previousAdded30) * 100).toFixed(1))
+          : null,
+        trend,
+        sparkline: buildInsightsSparkline(rows, now),
+      },
+      {
+        key: "job_family_coverage",
+        label: "Job Family Coverage",
+        value: total ? Number(((classifiedCount / total) * 100).toFixed(1)) : 0,
+        deltaValue: 0,
+        deltaPercent: null,
+        trend: "flat",
+        sparkline: buildInsightsSparkline(rows, now),
+      },
+      {
+        key: "avg_skills_per_profile",
+        label: "Avg Skills per Profile",
+        value: total ? Number((skillTotal / total).toFixed(1)) : 0,
+        deltaValue: 0,
+        deltaPercent: null,
+        trend: "flat",
+        sparkline: buildInsightsSparkline(rows, now),
+      },
     ],
     profilesBySeniority: distributionFromCounts(seniorityCounts, total),
     profilesByLocation: distributionFromCounts(locationCounts, total, 12),
@@ -1188,17 +1778,37 @@ function buildFallbackInsightsDashboard(rows: InsightsCandidateSearchCacheRow[],
     seniorityPyramid: Array.from(pyramidCounts.entries())
       .map(([jobFamily, values]) => ({ jobFamily, ...values }))
       .sort((left, right) => {
-        const leftTotal = left.junior + left.mid + left.senior + left.lead + left.executive;
-        const rightTotal = right.junior + right.mid + right.senior + right.lead + right.executive;
-        return rightTotal - leftTotal || left.jobFamily.localeCompare(right.jobFamily);
+        const leftTotal = left.junior + left.mid + left.senior + left.lead +
+          left.executive;
+        const rightTotal = right.junior +
+          right.mid +
+          right.senior +
+          right.lead +
+          right.executive;
+        return (
+          rightTotal - leftTotal ||
+          left.jobFamily.localeCompare(right.jobFamily)
+        );
       }),
-    gapAnalysis: buildFallbackGapAnalysis(rows, targetRole, targetSkills, skillCatalog),
+    gapAnalysis: buildFallbackGapAnalysis(
+      rows,
+      targetRole,
+      targetSkills,
+      skillCatalog,
+    ),
   };
 }
 
-async function getInsightsDashboard(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[], body: JsonRecord) {
+async function getInsightsDashboard(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+  body: JsonRecord,
+) {
   const startedAt = Date.now();
-  const topSkills = Math.max(1, Math.min(200, Math.trunc(asNumber(body.top_skills) ?? 50)));
+  const topSkills = Math.max(
+    1,
+    Math.min(200, Math.trunc(asNumber(body.top_skills) ?? 50)),
+  );
   const targetSkills = asStringArray(body.target_skills);
   const targetRole = asString(body.target_role);
   const traceId = asString(body.trace_id);
@@ -1212,7 +1822,12 @@ async function getInsightsDashboard(supabase: ReturnType<typeof createAuthedClie
   if (error) {
     if (isMissingRpcError(error)) {
       const rows = await fetchInsightsFallbackRows(supabase, tenantIds);
-      return buildFallbackInsightsDashboard(rows, topSkills, targetRole, targetSkills);
+      return buildFallbackInsightsDashboard(
+        rows,
+        topSkills,
+        targetRole,
+        targetSkills,
+      );
     }
     throw error;
   }
@@ -1236,12 +1851,19 @@ async function getInsightsDashboard(supabase: ReturnType<typeof createAuthedClie
       row_count: null,
       trace_id: traceId,
     })
-    .then(() => null, () => null);
+    .then(
+      () => null,
+      () => null,
+    );
 
   return data;
 }
 
-async function getInsightsGapAnalysis(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[], body: JsonRecord) {
+async function getInsightsGapAnalysis(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+  body: JsonRecord,
+) {
   const startedAt = Date.now();
   const targetSkills = asStringArray(body.target_skills);
   const targetRole = asString(body.target_role);
@@ -1278,12 +1900,18 @@ async function getInsightsGapAnalysis(supabase: ReturnType<typeof createAuthedCl
       row_count: null,
       trace_id: traceId,
     })
-    .then(() => null, () => null);
+    .then(
+      () => null,
+      () => null,
+    );
 
   return data;
 }
 
-async function acknowledgeOpsAlert(supabase: ReturnType<typeof createAuthedClient>, dedupeKey: string) {
+async function acknowledgeOpsAlert(
+  supabase: ReturnType<typeof createAuthedClient>,
+  dedupeKey: string,
+) {
   if (!dedupeKey) {
     throw new Error("dedupe_key is required");
   }
@@ -1325,8 +1953,7 @@ async function getAuthContext(supabase: ReturnType<typeof createAuthedClient>) {
     throw membershipResult.error;
   }
 
-  const platformAdminQueryFailed =
-    platformAdminResult.error &&
+  const platformAdminQueryFailed = platformAdminResult.error &&
     !/platform_admins/i.test(platformAdminResult.error.message) &&
     platformAdminResult.error.code !== "PGRST205";
   if (platformAdminQueryFailed) {
@@ -1339,10 +1966,18 @@ async function getAuthContext(supabase: ReturnType<typeof createAuthedClient>) {
     return { memberships: [], is_platform_admin: false };
   }
 
-  const tenantIds = membershipRows.map((membership) => membership.tenant_id).filter(Boolean);
+  const tenantIds = membershipRows
+    .map((membership) => membership.tenant_id)
+    .filter(Boolean);
   const tenantResult = isPlatformAdmin
-    ? await supabase.from("tenants").select("id, slug, name, icon_url").order("name")
-    : await supabase.from("tenants").select("id, slug, name, icon_url").in("id", tenantIds);
+    ? await supabase
+      .from("tenants")
+      .select("id, slug, name, icon_url")
+      .order("name")
+    : await supabase
+      .from("tenants")
+      .select("id, slug, name, icon_url")
+      .in("id", tenantIds);
 
   if (tenantResult.error) {
     throw tenantResult.error;
@@ -1386,7 +2021,10 @@ async function getAuthContext(supabase: ReturnType<typeof createAuthedClient>) {
   };
 }
 
-async function bootstrapTenant(supabase: ReturnType<typeof createAuthedClient>, body: JsonRecord) {
+async function bootstrapTenant(
+  supabase: ReturnType<typeof createAuthedClient>,
+  body: JsonRecord,
+) {
   const name = asString(body.name);
   const slug = asString(body.slug);
   if (!name || !slug) {
@@ -1402,7 +2040,10 @@ async function bootstrapTenant(supabase: ReturnType<typeof createAuthedClient>, 
   return { ok: true };
 }
 
-async function getCandidateDetail(supabase: ReturnType<typeof createAuthedClient>, candidateId: string) {
+async function getCandidateDetail(
+  supabase: ReturnType<typeof createAuthedClient>,
+  candidateId: string,
+) {
   const [dossier, chunks] = await Promise.all([
     supabase
       .from("candidate_dossier_v1")
@@ -1445,7 +2086,9 @@ async function getCandidateDetail(supabase: ReturnType<typeof createAuthedClient
     }
     const syncResult = await syncQuery;
     if (!syncResult.error) {
-      manatalCandidateId = asString((syncResult.data ?? [])[0]?.manatal_candidate_id);
+      manatalCandidateId = asString(
+        (syncResult.data ?? [])[0]?.manatal_candidate_id,
+      );
     }
   }
 
@@ -1466,7 +2109,11 @@ function asInteger(value: unknown, fallback: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
-async function getParsingOverview(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[], body: JsonRecord) {
+async function getParsingOverview(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+  body: JsonRecord,
+) {
   const limit = asInteger(body.limit, 100, 0, 500);
   const offset = asInteger(body.offset, 0, 0, 100000);
   const needsReviewOnly = body.needs_review_only === true;
@@ -1484,10 +2131,16 @@ async function getParsingOverview(supabase: ReturnType<typeof createAuthedClient
   return data;
 }
 
-async function getParsingDocument(supabase: ReturnType<typeof createAuthedClient>, documentId: string, tenantIds: string[]) {
+async function getParsingDocument(
+  supabase: ReturnType<typeof createAuthedClient>,
+  documentId: string,
+  tenantIds: string[],
+) {
   let documentQuery = supabase
     .from("source_documents")
-    .select("id, tenant_id, candidate_id, source_type, original_filename, mime_type, source_uri, storage_path, created_at, updated_at")
+    .select(
+      "id, tenant_id, candidate_id, source_type, original_filename, mime_type, source_uri, storage_path, created_at, updated_at",
+    )
     .eq("id", documentId);
 
   if (tenantIds.length) {
@@ -1503,26 +2156,33 @@ async function getParsingDocument(supabase: ReturnType<typeof createAuthedClient
   }
 
   const document = documentResult.data as JsonRecord;
-  const [candidateResult, profileByDocumentResult, runsResult] = await Promise.all([
-    document.candidate_id
-      ? supabase
+  const [candidateResult, profileByDocumentResult, runsResult] = await Promise
+    .all([
+      document.candidate_id
+        ? supabase
           .from("candidates")
-          .select("id, tenant_id, name, headline, current_title, location, years_experience, seniority, primary_role, top_skills, email, phone, links, summary_short, status")
+          .select(
+            "id, tenant_id, name, headline, current_title, location, years_experience, seniority, primary_role, top_skills, email, phone, links, summary_short, status",
+          )
           .eq("id", document.candidate_id)
           .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
-    supabase
-      .from("candidate_profiles")
-      .select("tenant_id, candidate_id, source_document_id, profile_json, timeline_json, skill_matrix_json, raw_text, confidence, missing_fields, parse_warnings, created_at, updated_at")
-      .eq("source_document_id", documentId)
-      .maybeSingle(),
-    supabase
-      .from("processing_runs")
-      .select("tenant_id, source_document_id, status, parser_version, model_version, prompt_version, chunk_version, embedding_version, warnings, error_code, error_message, created_at, updated_at, metadata_json")
-      .eq("source_document_id", documentId)
-      .order("created_at", { ascending: false })
-      .limit(20),
-  ]);
+        : Promise.resolve({ data: null, error: null }),
+      supabase
+        .from("candidate_profiles")
+        .select(
+          "tenant_id, candidate_id, source_document_id, profile_json, timeline_json, skill_matrix_json, raw_text, confidence, missing_fields, parse_warnings, created_at, updated_at",
+        )
+        .eq("source_document_id", documentId)
+        .maybeSingle(),
+      supabase
+        .from("processing_runs")
+        .select(
+          "tenant_id, source_document_id, status, parser_version, model_version, prompt_version, chunk_version, embedding_version, warnings, error_code, error_message, created_at, updated_at, metadata_json",
+        )
+        .eq("source_document_id", documentId)
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ]);
 
   if (candidateResult.error) {
     throw candidateResult.error;
@@ -1538,7 +2198,9 @@ async function getParsingDocument(supabase: ReturnType<typeof createAuthedClient
   if (!profile && document.candidate_id) {
     const profileByCandidateResult = await supabase
       .from("candidate_profiles")
-      .select("tenant_id, candidate_id, source_document_id, profile_json, timeline_json, skill_matrix_json, raw_text, confidence, missing_fields, parse_warnings, created_at, updated_at")
+      .select(
+        "tenant_id, candidate_id, source_document_id, profile_json, timeline_json, skill_matrix_json, raw_text, confidence, missing_fields, parse_warnings, created_at, updated_at",
+      )
       .eq("candidate_id", document.candidate_id)
       .maybeSingle();
     if (profileByCandidateResult.error) {
@@ -1555,7 +2217,11 @@ async function getParsingDocument(supabase: ReturnType<typeof createAuthedClient
   };
 }
 
-async function getOriginalDocumentUrl(supabase: ReturnType<typeof createAuthedClient>, body: JsonRecord, tenantIds: string[]) {
+async function getOriginalDocumentUrl(
+  supabase: ReturnType<typeof createAuthedClient>,
+  body: JsonRecord,
+  tenantIds: string[],
+) {
   await getCurrentUserId(supabase);
 
   const documentId = asString(body.document_id);
@@ -1568,7 +2234,9 @@ async function getOriginalDocumentUrl(supabase: ReturnType<typeof createAuthedCl
 
   let query = supabase
     .from("source_documents")
-    .select("id, tenant_id, candidate_id, source_uri, storage_path, original_filename");
+    .select(
+      "id, tenant_id, candidate_id, source_uri, storage_path, original_filename",
+    );
 
   if (documentId) {
     query = query.eq("id", documentId);
@@ -1592,14 +2260,19 @@ async function getOriginalDocumentUrl(supabase: ReturnType<typeof createAuthedCl
     throw error;
   }
   if (!data) {
-    throw new Error("Original CV was not found or is not available to this user.");
+    throw new Error(
+      "Original CV was not found or is not available to this user.",
+    );
   }
 
   const document = data as OriginalDocumentRow;
   const gcsLocation = resolveGcsLocation(document);
   if (gcsLocation) {
     try {
-      const signedUrl = await createGcsSignedUrl(gcsLocation.bucket, gcsLocation.objectName);
+      const signedUrl = await createGcsSignedUrl(
+        gcsLocation.bucket,
+        gcsLocation.objectName,
+      );
       return {
         url: signedUrl.url,
         source: "gcs_signed_url",
@@ -1656,7 +2329,10 @@ const parserProfileSelect = [
   "updated_at",
 ].join(", ");
 
-async function getParserProfiles(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+async function getParserProfiles(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
   let query = supabase
     .from("parser_profiles")
     .select(parserProfileSelect)
@@ -1674,7 +2350,10 @@ async function getParserProfiles(supabase: ReturnType<typeof createAuthedClient>
   return data ?? [];
 }
 
-async function saveParserProfile(supabase: ReturnType<typeof createAuthedClient>, body: JsonRecord) {
+async function saveParserProfile(
+  supabase: ReturnType<typeof createAuthedClient>,
+  body: JsonRecord,
+) {
   const profile = (body.profile ?? {}) as JsonRecord;
   const tenantId = asString(body.tenant_id);
   if (!tenantId) {
@@ -1694,7 +2373,8 @@ async function saveParserProfile(supabase: ReturnType<typeof createAuthedClient>
     chunk_version: asString(profile.chunkVersion) ?? "v1",
     embedding_provider: asString(profile.embeddingProvider) ?? "gemini",
     embedding_model: asString(profile.embeddingModel) ?? "gemini-embedding-001",
-    embedding_version: asString(profile.embeddingVersion) ?? "gemini-embedding-001-768-v1",
+    embedding_version: asString(profile.embeddingVersion) ??
+      "gemini-embedding-001-768-v1",
     chunking_profile: asString(profile.chunkingProfile) ?? "default",
     ocr_enabled: Boolean(profile.ocrEnabled),
     allow_heuristic_fallback: false,
@@ -1704,8 +2384,17 @@ async function saveParserProfile(supabase: ReturnType<typeof createAuthedClient>
 
   const profileId = asString(profile.id);
   const mutation = profileId
-    ? supabase.from("parser_profiles").update(payload).eq("id", profileId).select(parserProfileSelect).single()
-    : supabase.from("parser_profiles").insert(payload).select(parserProfileSelect).single();
+    ? supabase
+      .from("parser_profiles")
+      .update(payload)
+      .eq("id", profileId)
+      .select(parserProfileSelect)
+      .single()
+    : supabase
+      .from("parser_profiles")
+      .insert(payload)
+      .select(parserProfileSelect)
+      .single();
 
   const { data, error } = await mutation;
   if (error) {
@@ -1714,8 +2403,13 @@ async function saveParserProfile(supabase: ReturnType<typeof createAuthedClient>
   return data;
 }
 
-async function publishParserProfile(supabase: ReturnType<typeof createAuthedClient>, profileId: string) {
-  const { data, error } = await supabase.rpc("publish_parser_profile_v1", { p_profile_id: profileId });
+async function publishParserProfile(
+  supabase: ReturnType<typeof createAuthedClient>,
+  profileId: string,
+) {
+  const { data, error } = await supabase.rpc("publish_parser_profile_v1", {
+    p_profile_id: profileId,
+  });
   if (error) {
     throw error;
   }
@@ -1743,7 +2437,9 @@ const shortlistSelect = [
   "updated_at",
 ].join(", ");
 
-async function getCurrentUserId(supabase: ReturnType<typeof createAuthedClient>) {
+async function getCurrentUserId(
+  supabase: ReturnType<typeof createAuthedClient>,
+) {
   const {
     data: { user },
     error,
@@ -1757,7 +2453,11 @@ async function getCurrentUserId(supabase: ReturnType<typeof createAuthedClient>)
   return user.id;
 }
 
-async function getCandidateCvSource(supabase: ReturnType<typeof createAuthedClient>, tenantId: string, candidateId: string) {
+async function getCandidateCvSource(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantId: string,
+  candidateId: string,
+) {
   const { data, error } = await supabase
     .from("source_documents")
     .select("source_uri, original_filename")
@@ -1775,7 +2475,10 @@ async function getCandidateCvSource(supabase: ReturnType<typeof createAuthedClie
   return data;
 }
 
-async function getShortlistItems(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+async function getShortlistItems(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
   const userId = await getCurrentUserId(supabase);
   let query = supabase
     .from("candidate_shortlist_items")
@@ -1794,7 +2497,10 @@ async function getShortlistItems(supabase: ReturnType<typeof createAuthedClient>
   return data ?? [];
 }
 
-async function saveShortlistItem(supabase: ReturnType<typeof createAuthedClient>, body: JsonRecord) {
+async function saveShortlistItem(
+  supabase: ReturnType<typeof createAuthedClient>,
+  body: JsonRecord,
+) {
   const userId = await getCurrentUserId(supabase);
   const item = asRecord(body.item);
   const tenantId = asString(item.tenant_id);
@@ -1817,9 +2523,12 @@ async function saveShortlistItem(supabase: ReturnType<typeof createAuthedClient>
     seniority: asString(item.seniority),
     primary_role: asString(item.primary_role),
     top_skills: asStringArray(item.top_skills).slice(0, 24),
-    match_rate: matchRate === null ? null : Math.max(0, Math.min(100, Math.round(matchRate))),
+    match_rate: matchRate === null
+      ? null
+      : Math.max(0, Math.min(100, Math.round(matchRate))),
     cv_url: asString(cvSource?.source_uri) ?? asString(item.cv_url),
-    original_filename: asString(cvSource?.original_filename) ?? asString(item.original_filename),
+    original_filename: asString(cvSource?.original_filename) ??
+      asString(item.original_filename),
     source_query: asString(item.source_query) ?? "",
     search_snapshot: asRecord(item.search_snapshot),
     notes: asString(item.notes) ?? "",
@@ -1836,7 +2545,10 @@ async function saveShortlistItem(supabase: ReturnType<typeof createAuthedClient>
   return data;
 }
 
-async function deleteShortlistItem(supabase: ReturnType<typeof createAuthedClient>, body: JsonRecord) {
+async function deleteShortlistItem(
+  supabase: ReturnType<typeof createAuthedClient>,
+  body: JsonRecord,
+) {
   const userId = await getCurrentUserId(supabase);
   const candidateId = asString(body.candidate_id);
   const tenantId = asString(body.tenant_id);
@@ -1861,7 +2573,10 @@ async function deleteShortlistItem(supabase: ReturnType<typeof createAuthedClien
   return { ok: true };
 }
 
-async function clearShortlistItems(supabase: ReturnType<typeof createAuthedClient>, tenantIds: string[]) {
+async function clearShortlistItems(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+) {
   const userId = await getCurrentUserId(supabase);
   let query = supabase
     .from("candidate_shortlist_items")
@@ -1889,7 +2604,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const body = await req.json() as JsonRecord;
+    const body = (await req.json()) as JsonRecord;
     const action = asString(body.action);
     const tenantIds = asStringArray(body.tenant_ids);
     const supabase = createAuthedClient(req);
@@ -1900,35 +2615,69 @@ Deno.serve(async (req) => {
       case "bootstrap_tenant":
         return jsonResponse(200, await bootstrapTenant(supabase, body));
       case "search_filter_options":
-        return jsonResponse(200, await getSearchFilterOptions(supabase, tenantIds));
+        return jsonResponse(
+          200,
+          await getSearchFilterOptions(supabase, tenantIds),
+        );
       case "workspace_stats":
         return jsonResponse(200, await getWorkspaceStats(supabase, tenantIds));
       case "manatal_sync_status":
-        return jsonResponse(200, await getManatalSyncStatus(supabase, tenantIds));
+        return jsonResponse(
+          200,
+          await getManatalSyncStatus(supabase, tenantIds),
+        );
       case "system_health":
         return jsonResponse(200, await getSystemHealth(supabase, tenantIds));
       case "ops_alerts":
         return jsonResponse(200, await getOpsAlerts(supabase, tenantIds));
       case "insights_dashboard":
-        return jsonResponse(200, await getInsightsDashboard(supabase, tenantIds, body));
+        return jsonResponse(
+          200,
+          await getInsightsDashboard(supabase, tenantIds, body),
+        );
       case "insights_gap_analysis":
-        return jsonResponse(200, await getInsightsGapAnalysis(supabase, tenantIds, body));
+        return jsonResponse(
+          200,
+          await getInsightsGapAnalysis(supabase, tenantIds, body),
+        );
       case "ops_ack_alert":
-        return jsonResponse(200, await acknowledgeOpsAlert(supabase, asString(body.dedupe_key) ?? ""));
+        return jsonResponse(
+          200,
+          await acknowledgeOpsAlert(supabase, asString(body.dedupe_key) ?? ""),
+        );
       case "candidate_detail":
-        return jsonResponse(200, await getCandidateDetail(supabase, asString(body.candidate_id) ?? ""));
+        return jsonResponse(
+          200,
+          await getCandidateDetail(supabase, asString(body.candidate_id) ?? ""),
+        );
       case "parsing_overview":
-        return jsonResponse(200, await getParsingOverview(supabase, tenantIds, body));
+        return jsonResponse(
+          200,
+          await getParsingOverview(supabase, tenantIds, body),
+        );
       case "parsing_document":
-        return jsonResponse(200, await getParsingDocument(supabase, asString(body.document_id) ?? "", tenantIds));
+        return jsonResponse(
+          200,
+          await getParsingDocument(
+            supabase,
+            asString(body.document_id) ?? "",
+            tenantIds,
+          ),
+        );
       case "original_document_url":
-        return jsonResponse(200, await getOriginalDocumentUrl(supabase, body, tenantIds));
+        return jsonResponse(
+          200,
+          await getOriginalDocumentUrl(supabase, body, tenantIds),
+        );
       case "parser_profiles":
         return jsonResponse(200, await getParserProfiles(supabase, tenantIds));
       case "save_parser_profile":
         return jsonResponse(200, await saveParserProfile(supabase, body));
       case "publish_parser_profile":
-        return jsonResponse(200, await publishParserProfile(supabase, asString(body.profile_id) ?? ""));
+        return jsonResponse(
+          200,
+          await publishParserProfile(supabase, asString(body.profile_id) ?? ""),
+        );
       case "shortlist_items":
         return jsonResponse(200, await getShortlistItems(supabase, tenantIds));
       case "save_shortlist_item":
@@ -1936,7 +2685,10 @@ Deno.serve(async (req) => {
       case "delete_shortlist_item":
         return jsonResponse(200, await deleteShortlistItem(supabase, body));
       case "clear_shortlist_items":
-        return jsonResponse(200, await clearShortlistItems(supabase, tenantIds));
+        return jsonResponse(
+          200,
+          await clearShortlistItems(supabase, tenantIds),
+        );
       case "list_admin_tenants": {
         await assertPlatformAdmin(supabase);
         const admin = createServiceClient();
@@ -1960,13 +2712,22 @@ Deno.serve(async (req) => {
         const user = await assertPlatformAdmin(supabase);
         const settings = asRecord(body.settings);
         try {
-          return jsonResponse(200, await savePlatformRuntimeSettings(settings, user.id));
+          return jsonResponse(
+            200,
+            await savePlatformRuntimeSettings(settings, user.id),
+          );
         } catch (error) {
           const message = describeError(error);
           try {
-            const parsed = JSON.parse(message) as { code?: string; fields?: Record<string, string> };
+            const parsed = JSON.parse(message) as {
+              code?: string;
+              fields?: Record<string, string>;
+            };
             if (parsed.code === "validation_error") {
-              return jsonResponse(400, { error: "validation_error", fields: parsed.fields ?? {} });
+              return jsonResponse(400, {
+                error: "validation_error",
+                fields: parsed.fields ?? {},
+              });
             }
           } catch {
             // fall through
@@ -1979,7 +2740,10 @@ Deno.serve(async (req) => {
     }
   } catch (error) {
     const message = describeError(error);
-    if (message === "Authentication is required." || message === "Platform admin access is required.") {
+    if (
+      message === "Authentication is required." ||
+      message === "Platform admin access is required."
+    ) {
       return jsonResponse(403, { error: "forbidden", details: message });
     }
     return jsonResponse(500, { error: "unexpected_error", details: message });

@@ -1,4 +1,7 @@
-import { getRuntimeSetting, type RuntimeSettingKey } from "./platformRuntimeSettings.ts";
+import {
+  getRuntimeSetting,
+  type RuntimeSettingKey,
+} from "./platformRuntimeSettings.ts";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -32,25 +35,25 @@ export type TextGenerationResult = {
 
 type LlmConfig =
   | {
-      provider: "openai";
-      apiKey: string;
-      model: string;
-      baseUrl: string;
-      timeoutMs: number;
-    }
+    provider: "openai";
+    apiKey: string;
+    model: string;
+    baseUrl: string;
+    timeoutMs: number;
+  }
   | {
-      provider: "gemini";
-      apiKey: string;
-      model: string;
-      baseUrl: string;
-      timeoutMs: number;
-    }
+    provider: "gemini";
+    apiKey: string;
+    model: string;
+    baseUrl: string;
+    timeoutMs: number;
+  }
   | {
-      provider: "ollama";
-      model: string;
-      baseUrl: string;
-      timeoutMs: number;
-    };
+    provider: "ollama";
+    model: string;
+    baseUrl: string;
+    timeoutMs: number;
+  };
 
 function envText(name: string) {
   const value = Deno.env.get(name)?.trim();
@@ -80,7 +83,9 @@ async function resolveGeminiModelId() {
   return await resolveRuntimeOrEnv("gemini_model_id", "GEMINI_MODEL_ID");
 }
 
-async function buildGeminiConfig(timeoutMs: number): Promise<Extract<LlmConfig, { provider: "gemini" }> | null> {
+async function buildGeminiConfig(
+  timeoutMs: number,
+): Promise<Extract<LlmConfig, { provider: "gemini" }> | null> {
   const apiKey = envText("GEMINI_API_KEY");
   const modelId = await resolveGeminiModelId();
   if (!apiKey || !modelId) {
@@ -91,7 +96,8 @@ async function buildGeminiConfig(timeoutMs: number): Promise<Extract<LlmConfig, 
     provider: "gemini",
     apiKey,
     model: modelId,
-    baseUrl: envText("GEMINI_BASE_URL") ?? "https://generativelanguage.googleapis.com/v1beta",
+    baseUrl: envText("GEMINI_BASE_URL") ??
+      "https://generativelanguage.googleapis.com/v1beta",
     timeoutMs,
   };
 }
@@ -108,12 +114,17 @@ async function resolveLlmTimeoutMs() {
 }
 
 async function resolveLlmConfig(): Promise<LlmConfig | null> {
-  const provider = (await resolveRuntimeOrEnv("llm_provider", "LLM_PROVIDER")) ?? null;
+  const provider =
+    (await resolveRuntimeOrEnv("llm_provider", "LLM_PROVIDER")) ?? null;
   const timeoutMs = await resolveLlmTimeoutMs();
   const defaultLocalOllamaModel = isLocalRuntime() ? "qwen3:30b-a3b" : null;
   const geminiConfig = await buildGeminiConfig(timeoutMs);
-  const openaiModel = (await resolveRuntimeOrEnv("openai_model", "OPENAI_MODEL")) ?? "gpt-4.1-mini";
-  const ollamaModel = (await resolveRuntimeOrEnv("ollama_model", "OLLAMA_MODEL")) ?? defaultLocalOllamaModel;
+  const openaiModel =
+    (await resolveRuntimeOrEnv("openai_model", "OPENAI_MODEL")) ??
+      "gpt-4.1-mini";
+  const ollamaModel =
+    (await resolveRuntimeOrEnv("ollama_model", "OLLAMA_MODEL")) ??
+      defaultLocalOllamaModel;
 
   if ((provider === "openai" || !provider) && envText("OPENAI_API_KEY")) {
     return {
@@ -133,7 +144,8 @@ async function resolveLlmConfig(): Promise<LlmConfig | null> {
     return {
       provider: "ollama",
       model: ollamaModel,
-      baseUrl: envText("OLLAMA_BASE_URL") ?? "http://host.docker.internal:11434",
+      baseUrl: envText("OLLAMA_BASE_URL") ??
+        "http://host.docker.internal:11434",
       timeoutMs,
     };
   }
@@ -156,7 +168,8 @@ async function resolveLlmConfig(): Promise<LlmConfig | null> {
     return {
       provider: "ollama",
       model: ollamaModel,
-      baseUrl: envText("OLLAMA_BASE_URL") ?? "http://host.docker.internal:11434",
+      baseUrl: envText("OLLAMA_BASE_URL") ??
+        "http://host.docker.internal:11434",
       timeoutMs,
     };
   }
@@ -169,7 +182,10 @@ export async function isLlmConfigured() {
 }
 
 function extractOpenAiText(payload: Record<string, unknown>) {
-  if (typeof payload.output_text === "string" && payload.output_text.trim().length > 0) {
+  if (
+    typeof payload.output_text === "string" &&
+    payload.output_text.trim().length > 0
+  ) {
     return payload.output_text;
   }
 
@@ -196,12 +212,15 @@ function extractOpenAiText(payload: Record<string, unknown>) {
 }
 
 function extractGeminiText(payload: Record<string, unknown>) {
-  const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+  const candidates = Array.isArray(payload.candidates)
+    ? payload.candidates
+    : [];
   for (const candidate of candidates) {
     if (!candidate || typeof candidate !== "object") {
       continue;
     }
-    const content = (candidate as { content?: Record<string, unknown> }).content;
+    const content = (candidate as { content?: Record<string, unknown> })
+      .content;
     const parts = Array.isArray(content?.parts) ? content.parts : [];
     for (const part of parts) {
       if (!part || typeof part !== "object") {
@@ -220,7 +239,7 @@ function extractGeminiText(payload: Record<string, unknown>) {
 async function parseResponseBody(response: Response) {
   const text = await response.text();
   try {
-    return text ? JSON.parse(text) as Record<string, unknown> : {};
+    return text ? (JSON.parse(text) as Record<string, unknown>) : {};
   } catch {
     return { raw: text };
   }
@@ -234,24 +253,29 @@ async function callOpenAiText(
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
-    const response = await fetch(`${config.baseUrl.replace(/\/$/, "")}/responses`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
+    const response = await fetch(
+      `${config.baseUrl.replace(/\/$/, "")}/responses`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.model,
+          instructions: request.systemPrompt,
+          input: request.userPrompt,
+          temperature: request.temperature ?? 0.2,
+        }),
+        signal: controller.signal,
       },
-      body: JSON.stringify({
-        model: config.model,
-        instructions: request.systemPrompt,
-        input: request.userPrompt,
-        temperature: request.temperature ?? 0.2,
-      }),
-      signal: controller.signal,
-    });
+    );
 
     const payload = await parseResponseBody(response);
     if (!response.ok) {
-      throw new Error(`openai_error:${response.status}:${JSON.stringify(payload)}`);
+      throw new Error(
+        `openai_error:${response.status}:${JSON.stringify(payload)}`,
+      );
     }
 
     const text = extractOpenAiText(payload)?.trim();
@@ -278,7 +302,11 @@ async function callGeminiText(
 
   try {
     const response = await fetch(
-      `${config.baseUrl.replace(/\/$/, "")}/models/${config.model}:generateContent?key=${encodeURIComponent(config.apiKey)}`,
+      `${
+        config.baseUrl.replace(/\/$/, "")
+      }/models/${config.model}:generateContent?key=${
+        encodeURIComponent(config.apiKey)
+      }`,
       {
         method: "POST",
         headers: {
@@ -304,7 +332,9 @@ async function callGeminiText(
 
     const payload = await parseResponseBody(response);
     if (!response.ok) {
-      throw new Error(`gemini_error:${response.status}:${JSON.stringify(payload)}`);
+      throw new Error(
+        `gemini_error:${response.status}:${JSON.stringify(payload)}`,
+      );
     }
 
     const text = extractGeminiText(payload)?.trim();
@@ -330,41 +360,47 @@ async function callOllamaText(
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
-    const response = await fetch(`${config.baseUrl.replace(/\/$/, "")}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: config.model,
-        stream: false,
-        options: {
-          temperature: request.temperature ?? 0.2,
+    const response = await fetch(
+      `${config.baseUrl.replace(/\/$/, "")}/api/chat`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-        messages: [
-          {
-            role: "system",
-            content: request.systemPrompt,
+        body: JSON.stringify({
+          model: config.model,
+          stream: false,
+          options: {
+            temperature: request.temperature ?? 0.2,
           },
-          {
-            role: "user",
-            content: request.userPrompt,
-          },
-        ],
-      }),
-      signal: controller.signal,
-    });
+          messages: [
+            {
+              role: "system",
+              content: request.systemPrompt,
+            },
+            {
+              role: "user",
+              content: request.userPrompt,
+            },
+          ],
+        }),
+        signal: controller.signal,
+      },
+    );
 
     const payload = await parseResponseBody(response);
     if (!response.ok) {
-      throw new Error(`ollama_error:${response.status}:${JSON.stringify(payload)}`);
+      throw new Error(
+        `ollama_error:${response.status}:${JSON.stringify(payload)}`,
+      );
     }
 
     const message = payload.message;
-    const text =
-      message && typeof message === "object" && typeof (message as { content?: unknown }).content === "string"
-        ? (message as { content: string }).content.trim()
-        : null;
+    const text = message &&
+        typeof message === "object" &&
+        typeof (message as { content?: unknown }).content === "string"
+      ? (message as { content: string }).content.trim()
+      : null;
     if (!text) {
       throw new Error("ollama_error:missing_output_text");
     }
@@ -379,37 +415,45 @@ async function callOllamaText(
   }
 }
 
-async function callOpenAi<T>(config: Extract<LlmConfig, { provider: "openai" }>, request: StructuredGenerationRequest): Promise<StructuredGenerationResult<T>> {
+async function callOpenAi<T>(
+  config: Extract<LlmConfig, { provider: "openai" }>,
+  request: StructuredGenerationRequest,
+): Promise<StructuredGenerationResult<T>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
-    const response = await fetch(`${config.baseUrl.replace(/\/$/, "")}/responses`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.model,
-        instructions: request.systemPrompt,
-        input: request.userPrompt,
-        temperature: request.temperature ?? 0,
-        text: {
-          format: {
-            type: "json_schema",
-            name: request.schemaName,
-            schema: request.schema,
-            strict: true,
-          },
+    const response = await fetch(
+      `${config.baseUrl.replace(/\/$/, "")}/responses`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.apiKey}`,
         },
-      }),
-      signal: controller.signal,
-    });
+        body: JSON.stringify({
+          model: config.model,
+          instructions: request.systemPrompt,
+          input: request.userPrompt,
+          temperature: request.temperature ?? 0,
+          text: {
+            format: {
+              type: "json_schema",
+              name: request.schemaName,
+              schema: request.schema,
+              strict: true,
+            },
+          },
+        }),
+        signal: controller.signal,
+      },
+    );
 
     const payload = await parseResponseBody(response);
     if (!response.ok) {
-      throw new Error(`openai_error:${response.status}:${JSON.stringify(payload)}`);
+      throw new Error(
+        `openai_error:${response.status}:${JSON.stringify(payload)}`,
+      );
     }
 
     const text = extractOpenAiText(payload);
@@ -427,13 +471,20 @@ async function callOpenAi<T>(config: Extract<LlmConfig, { provider: "openai" }>,
   }
 }
 
-async function callGemini<T>(config: Extract<LlmConfig, { provider: "gemini" }>, request: StructuredGenerationRequest): Promise<StructuredGenerationResult<T>> {
+async function callGemini<T>(
+  config: Extract<LlmConfig, { provider: "gemini" }>,
+  request: StructuredGenerationRequest,
+): Promise<StructuredGenerationResult<T>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
     const response = await fetch(
-      `${config.baseUrl.replace(/\/$/, "")}/models/${config.model}:generateContent?key=${encodeURIComponent(config.apiKey)}`,
+      `${
+        config.baseUrl.replace(/\/$/, "")
+      }/models/${config.model}:generateContent?key=${
+        encodeURIComponent(config.apiKey)
+      }`,
       {
         method: "POST",
         headers: {
@@ -461,7 +512,9 @@ async function callGemini<T>(config: Extract<LlmConfig, { provider: "gemini" }>,
 
     const payload = await parseResponseBody(response);
     if (!response.ok) {
-      throw new Error(`gemini_error:${response.status}:${JSON.stringify(payload)}`);
+      throw new Error(
+        `gemini_error:${response.status}:${JSON.stringify(payload)}`,
+      );
     }
 
     const text = extractGeminiText(payload);
@@ -479,47 +532,57 @@ async function callGemini<T>(config: Extract<LlmConfig, { provider: "gemini" }>,
   }
 }
 
-async function callOllama<T>(config: Extract<LlmConfig, { provider: "ollama" }>, request: StructuredGenerationRequest): Promise<StructuredGenerationResult<T>> {
+async function callOllama<T>(
+  config: Extract<LlmConfig, { provider: "ollama" }>,
+  request: StructuredGenerationRequest,
+): Promise<StructuredGenerationResult<T>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
-    const response = await fetch(`${config.baseUrl.replace(/\/$/, "")}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: config.model,
-        stream: false,
-        format: request.schema,
-        options: {
-          temperature: request.temperature ?? 0,
+    const response = await fetch(
+      `${config.baseUrl.replace(/\/$/, "")}/api/chat`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-        messages: [
-          {
-            role: "system",
-            content: request.systemPrompt,
+        body: JSON.stringify({
+          model: config.model,
+          stream: false,
+          format: request.schema,
+          options: {
+            temperature: request.temperature ?? 0,
           },
-          {
-            role: "user",
-            content: `${request.userPrompt}\n\nReturn valid JSON that matches the provided schema.`,
-          },
-        ],
-      }),
-      signal: controller.signal,
-    });
+          messages: [
+            {
+              role: "system",
+              content: request.systemPrompt,
+            },
+            {
+              role: "user",
+              content:
+                `${request.userPrompt}\n\nReturn valid JSON that matches the provided schema.`,
+            },
+          ],
+        }),
+        signal: controller.signal,
+      },
+    );
 
     const payload = await parseResponseBody(response);
     if (!response.ok) {
-      throw new Error(`ollama_error:${response.status}:${JSON.stringify(payload)}`);
+      throw new Error(
+        `ollama_error:${response.status}:${JSON.stringify(payload)}`,
+      );
     }
 
     const message = payload.message;
-    const text =
-      message && typeof message === "object" && typeof (message as { content?: unknown }).content === "string"
-        ? (message as { content: string }).content
-        : null;
+    const text = message &&
+        typeof message === "object" &&
+        typeof (message as { content?: unknown }).content === "string"
+      ? (message as { content: string }).content
+      : null;
     if (!text) {
       throw new Error("ollama_error:missing_output_text");
     }
@@ -534,7 +597,9 @@ async function callOllama<T>(config: Extract<LlmConfig, { provider: "ollama" }>,
   }
 }
 
-export async function generateStructuredObject<T>(request: StructuredGenerationRequest): Promise<StructuredGenerationResult<T> | null> {
+export async function generateStructuredObject<T>(
+  request: StructuredGenerationRequest,
+): Promise<StructuredGenerationResult<T> | null> {
   const config = await resolveLlmConfig();
   if (!config) {
     return null;
@@ -550,7 +615,9 @@ export async function generateStructuredObject<T>(request: StructuredGenerationR
   return callOllama<T>(config, request);
 }
 
-export async function generateText(request: TextGenerationRequest): Promise<TextGenerationResult | null> {
+export async function generateText(
+  request: TextGenerationRequest,
+): Promise<TextGenerationResult | null> {
   const config = await resolveLlmConfig();
   if (!config) {
     return null;

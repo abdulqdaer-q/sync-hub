@@ -34,10 +34,14 @@ Deno.serve(async (req) => {
     const candidateIds = body.candidate_ids ?? [];
 
     if (!Array.isArray(candidateIds) || candidateIds.length < 2) {
-      return jsonResponse(400, { error: "candidate_ids must contain at least two ids" });
+      return jsonResponse(400, {
+        error: "candidate_ids must contain at least two ids",
+      });
     }
 
-    const queryFingerprint = `${(body.q ?? "").trim().toLowerCase()}|${candidateIds.slice().sort().join("|")}`;
+    const queryFingerprint = `${(body.q ?? "").trim().toLowerCase()}|${
+      candidateIds.slice().sort().join("|")
+    }`;
     const supabase = createAuthedClient(req);
 
     const artifactLookup = await supabase
@@ -59,11 +63,16 @@ Deno.serve(async (req) => {
 
     const dossiers = await supabase
       .from("candidate_dossier_v1")
-      .select("tenant_id, candidate_id, name, current_title, years_experience, seniority, top_skills, short_summary, long_summary, strengths, risks, recommended_roles")
+      .select(
+        "tenant_id, candidate_id, name, current_title, years_experience, seniority, top_skills, short_summary, long_summary, strengths, risks, recommended_roles",
+      )
       .in("candidate_id", candidateIds);
 
     if (dossiers.error) {
-      return jsonResponse(400, { error: "compare_failed", details: dossiers.error.message });
+      return jsonResponse(400, {
+        error: "compare_failed",
+        details: dossiers.error.message,
+      });
     }
 
     const rows = (dossiers.data ?? []) as DossierRow[];
@@ -78,8 +87,16 @@ Deno.serve(async (req) => {
     const items = rows
       .map((row) => {
         const roleTerms = normalizeTextSet(row.recommended_roles);
-        const matchedSkills = (row.top_skills ?? []).filter((skill) => overlap.includes(skill.toLowerCase()));
-        const score = Number((Number(row.years_experience ?? 0) + matchedSkills.length * 0.4 + roleTerms.size * 0.25).toFixed(3));
+        const matchedSkills = (row.top_skills ?? []).filter((skill) =>
+          overlap.includes(skill.toLowerCase())
+        );
+        const score = Number(
+          (
+            Number(row.years_experience ?? 0) +
+            matchedSkills.length * 0.4 +
+            roleTerms.size * 0.25
+          ).toFixed(3),
+        );
         return {
           tenant_id: row.tenant_id,
           candidate_id: row.candidate_id,
@@ -89,7 +106,10 @@ Deno.serve(async (req) => {
           seniority: row.seniority,
           score,
           matched_skills: matchedSkills,
-          gaps: (body.required_skills ?? []).filter((skill: string) => !normalizeTextSet(row.top_skills).has(skill.toLowerCase())),
+          gaps: (body.required_skills ?? []).filter(
+            (skill: string) =>
+              !normalizeTextSet(row.top_skills).has(skill.toLowerCase()),
+          ),
           strengths: row.strengths ?? [],
           risks: row.risks ?? [],
           summary: row.short_summary ?? row.long_summary ?? "",
@@ -107,6 +127,9 @@ Deno.serve(async (req) => {
       },
     });
   } catch (error) {
-    return jsonResponse(500, { error: "unexpected_error", details: `${error}` });
+    return jsonResponse(500, {
+      error: "unexpected_error",
+      details: `${error}`,
+    });
   }
 });

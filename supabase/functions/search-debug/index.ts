@@ -2,11 +2,22 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { createAuthedClient } from "../_shared/client.ts";
 import { generateStructuredObject } from "../_shared/llm.ts";
 import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
-import { buildSearchIntentConfig, resolveSearchFilters, type SearchIntentFacetOptions, type SearchIntentPayload } from "../_shared/searchIntent.ts";
-import { normalizeLocationValue, normalizeSeniorityValue, normalizeSkillList } from "../_shared/searchTaxonomy.ts";
+import {
+  buildSearchIntentConfig,
+  resolveSearchFilters,
+  type SearchIntentFacetOptions,
+  type SearchIntentPayload,
+} from "../_shared/searchIntent.ts";
+import {
+  normalizeLocationValue,
+  normalizeSeniorityValue,
+  normalizeSkillList,
+} from "../_shared/searchTaxonomy.ts";
 
 function asString(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
 }
 
 function asNumber(value: unknown) {
@@ -18,7 +29,9 @@ function asNumber(value: unknown) {
 
 function asStringArray(value: unknown) {
   return Array.isArray(value)
-    ? value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
+    ? value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean)
     : [];
 }
 
@@ -59,8 +72,10 @@ function wait(ms: number) {
 }
 
 function calibratedMatchRate(row: Record<string, unknown>) {
-  const subscores = row.subscores && typeof row.subscores === "object" && !Array.isArray(row.subscores)
-    ? row.subscores as Record<string, unknown>
+  const subscores = row.subscores &&
+      typeof row.subscores === "object" &&
+      !Array.isArray(row.subscores)
+    ? (row.subscores as Record<string, unknown>)
     : {};
   const rawScore = Math.max(0, toFiniteNumber(row.score_raw ?? row.score));
   const retrievalSignal = Math.max(
@@ -70,25 +85,30 @@ function calibratedMatchRate(row: Record<string, unknown>) {
   );
   const weightedSignal = Math.max(
     rawScore,
-    (0.5 * retrievalSignal)
-      + (0.14 * toFiniteNumber(subscores.role_match))
-      + (0.12 * toFiniteNumber(subscores.skill_match))
-      + (0.08 * toFiniteNumber(subscores.experience_match))
-      + (0.06 * toFiniteNumber(subscores.seniority_match))
-      + (0.07 * toFiniteNumber(subscores.name_match))
-      + (0.07 * toFiniteNumber(subscores.contact_match))
-      + (0.03 * toFiniteNumber(subscores.company_match)),
+    0.5 * retrievalSignal +
+      0.14 * toFiniteNumber(subscores.role_match) +
+      0.12 * toFiniteNumber(subscores.skill_match) +
+      0.08 * toFiniteNumber(subscores.experience_match) +
+      0.06 * toFiniteNumber(subscores.seniority_match) +
+      0.07 * toFiniteNumber(subscores.name_match) +
+      0.07 * toFiniteNumber(subscores.contact_match) +
+      0.03 * toFiniteNumber(subscores.company_match),
   );
 
   if (weightedSignal <= 0) {
     return 0;
   }
-  return Math.min(99, Math.max(1, Math.round((1 - Math.exp(-3.2 * weightedSignal)) * 100)));
+  return Math.min(
+    99,
+    Math.max(1, Math.round((1 - Math.exp(-3.2 * weightedSignal)) * 100)),
+  );
 }
 
 function attachMatchRates(rows: unknown[]) {
   return rows.map((row) => {
-    const record = row && typeof row === "object" && !Array.isArray(row) ? row as Record<string, unknown> : {};
+    const record = row && typeof row === "object" && !Array.isArray(row)
+      ? (row as Record<string, unknown>)
+      : {};
     const rawScore = toFiniteNumber(record.score_raw ?? record.score);
     const providedRate = Number(record.match_rate);
     const matchRate = Number.isFinite(providedRate) && providedRate >= 0
@@ -110,8 +130,12 @@ function normalizeExplicitFilters(filters: Record<string, unknown>) {
   return {
     role: asString(filters.role),
     seniority: normalizeSeniorityValue(asString(filters.seniority)) ?? null,
-    min_years_experience: minYearsRaw !== null && minYearsRaw > 0 ? minYearsRaw : null,
-    location: normalizeLocationValue(asString(filters.location), { allowFallback: false }) ?? null,
+    min_years_experience: minYearsRaw !== null && minYearsRaw > 0
+      ? minYearsRaw
+      : null,
+    location: normalizeLocationValue(asString(filters.location), {
+      allowFallback: false,
+    }) ?? null,
     skills: normalizeSkillList(asStringArray(filters.skills)),
     companies: asStringArray(filters.companies),
   };
@@ -126,7 +150,9 @@ async function extractIntentWithLlm(
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const result = await generateStructuredObject<SearchIntentPayload>(buildSearchIntentConfig(query, filters, facets));
+      const result = await generateStructuredObject<SearchIntentPayload>(
+        buildSearchIntentConfig(query, filters, facets),
+      );
       return result?.object ?? null;
     } catch (error) {
       lastError = error;
@@ -144,7 +170,9 @@ async function extractIntentWithLlm(
 const SEARCH_REST_PAGE_SIZE = 1000;
 
 function dedupeSorted(values: string[]) {
-  return Array.from(new Set(values.filter(Boolean))).sort((left, right) => left.localeCompare(right));
+  return Array.from(new Set(values.filter(Boolean))).sort((left, right) =>
+    left.localeCompare(right)
+  );
 }
 
 async function fetchSearchIntentFacets(
@@ -157,7 +185,7 @@ async function fetchSearchIntentFacets(
     location: string | null;
   }> = [];
 
-  for (let offset = 0; ; offset += SEARCH_REST_PAGE_SIZE) {
+  for (let offset = 0;; offset += SEARCH_REST_PAGE_SIZE) {
     let request = supabase
       .from("candidate_search_cache")
       .select("skills, companies, location")
@@ -180,11 +208,15 @@ async function fetchSearchIntentFacets(
   }
 
   return {
-    skills: dedupeSorted(normalizeSkillList(rows.flatMap((row) => row.skills ?? []))),
+    skills: dedupeSorted(
+      normalizeSkillList(rows.flatMap((row) => row.skills ?? [])),
+    ),
     companies: dedupeSorted(rows.flatMap((row) => row.companies ?? [])),
     locations: dedupeSorted(
       rows
-        .map((row) => normalizeLocationValue(row.location, { allowFallback: false }))
+        .map((row) =>
+          normalizeLocationValue(row.location, { allowFallback: false })
+        )
         .filter((location): location is string => Boolean(location)),
     ),
   };
@@ -204,7 +236,9 @@ Deno.serve(async (req) => {
     const supabase = createAuthedClient(req);
     const query = String(body.q ?? "");
     const tenantIds = asStringArray(body.tenant_ids);
-    const requestFilters = normalizeExplicitFilters((body.filters ?? {}) as Record<string, unknown>);
+    const requestFilters = normalizeExplicitFilters(
+      (body.filters ?? {}) as Record<string, unknown>,
+    );
     const limit = typeof body.limit === "number" ? body.limit : 20;
     const offset = typeof body.offset === "number" ? body.offset : 0;
 
@@ -215,7 +249,9 @@ Deno.serve(async (req) => {
 
     try {
       intentFacets = await fetchSearchIntentFacets(supabase, tenantIds);
-      llmIntent = requiresIntentExtraction ? await extractIntentWithLlm(query, requestFilters, intentFacets) : null;
+      llmIntent = requiresIntentExtraction
+        ? await extractIntentWithLlm(query, requestFilters, intentFacets)
+        : null;
       if (llmIntent) {
         intentSource = "llm";
       }
@@ -229,25 +265,33 @@ Deno.serve(async (req) => {
     if (requiresIntentExtraction && !llmIntent) {
       return jsonResponse(503, {
         error: "intent_llm_unavailable",
-        details: "LLM intent extraction is required for natural-language search.",
+        details:
+          "LLM intent extraction is required for natural-language search.",
       });
     }
 
-    const resolvedIntent = resolveSearchFilters(query, {
-      role: requestFilters.role ?? null,
-      seniority: requestFilters.seniority ?? null,
-      min_years_experience: requestFilters.min_years_experience ?? null,
-      location: requestFilters.location ?? null,
-      skills: requestFilters.skills,
-      companies: requestFilters.companies,
-    }, llmIntent, intentFacets);
+    const resolvedIntent = resolveSearchFilters(
+      query,
+      {
+        role: requestFilters.role ?? null,
+        seniority: requestFilters.seniority ?? null,
+        min_years_experience: requestFilters.min_years_experience ?? null,
+        location: requestFilters.location ?? null,
+        skills: requestFilters.skills,
+        companies: requestFilters.companies,
+      },
+      llmIntent,
+      intentFacets,
+    );
 
     const queryEmbeddingPayload = Array.isArray(body.query_embedding)
       ? {
-          embedding: body.query_embedding,
-          embeddingVersion: typeof body.embedding_version === "string" ? body.embedding_version : null,
-          provider: "client",
-        }
+        embedding: body.query_embedding,
+        embeddingVersion: typeof body.embedding_version === "string"
+          ? body.embedding_version
+          : null,
+        provider: "client",
+      }
       : await buildQueryEmbedding(query);
 
     const rpcPayload = {
@@ -270,20 +314,31 @@ Deno.serve(async (req) => {
       p_filter_location: requestFilters.location ?? null,
     };
 
-    let { data, error } = await supabase.rpc("search_candidates_with_rate_v1", rpcPayload);
+    let { data, error } = await supabase.rpc(
+      "search_candidates_with_rate_v1",
+      rpcPayload,
+    );
 
-    if (error && `${error.message}`.includes("search_candidates_with_rate_v1")) {
+    if (
+      error &&
+      `${error.message}`.includes("search_candidates_with_rate_v1")
+    ) {
       const fallback = await supabase.rpc("search_candidates_v1", rpcPayload);
       data = fallback.data;
       error = fallback.error;
     }
 
     if (error) {
-      return jsonResponse(400, { error: "search_debug_failed", details: error.message });
+      return jsonResponse(400, {
+        error: "search_debug_failed",
+        details: error.message,
+      });
     }
 
     const strictFilters = Object.entries(requestFilters)
-      .filter(([, value]) => Array.isArray(value) ? value.length > 0 : value !== null && value !== "")
+      .filter(([, value]) =>
+        Array.isArray(value) ? value.length > 0 : value !== null && value !== ""
+      )
       .map(([key]) => key);
 
     const results = attachMatchRates(data ?? []);
@@ -302,14 +357,26 @@ Deno.serve(async (req) => {
         embedding: {
           provider: queryEmbeddingPayload.provider,
           version: queryEmbeddingPayload.embeddingVersion,
-          dimensions: Array.isArray(queryEmbeddingPayload.embedding) ? queryEmbeddingPayload.embedding.length : 0,
-          preview: Array.isArray(queryEmbeddingPayload.embedding) ? queryEmbeddingPayload.embedding.slice(0, 12) : [],
+          dimensions: Array.isArray(queryEmbeddingPayload.embedding)
+            ? queryEmbeddingPayload.embedding.length
+            : 0,
+          preview: Array.isArray(queryEmbeddingPayload.embedding)
+            ? queryEmbeddingPayload.embedding.slice(0, 12)
+            : [],
         },
         rpc_payload: {
           ...rpcPayload,
           p_query_embedding: undefined,
-          p_query_embedding_dimensions: Array.isArray(queryEmbeddingPayload.embedding) ? queryEmbeddingPayload.embedding.length : 0,
-          p_query_embedding_preview: Array.isArray(queryEmbeddingPayload.embedding) ? queryEmbeddingPayload.embedding.slice(0, 12) : [],
+          p_query_embedding_dimensions: Array.isArray(
+              queryEmbeddingPayload.embedding,
+            )
+            ? queryEmbeddingPayload.embedding.length
+            : 0,
+          p_query_embedding_preview: Array.isArray(
+              queryEmbeddingPayload.embedding,
+            )
+            ? queryEmbeddingPayload.embedding.slice(0, 12)
+            : [],
         },
         uses_lexical: query.trim().length > 0,
         uses_semantic: Boolean(queryEmbeddingPayload.embedding),
@@ -330,6 +397,9 @@ Deno.serve(async (req) => {
       raw_response: response,
     });
   } catch (error) {
-    return jsonResponse(500, { error: "unexpected_error", details: `${error}` });
+    return jsonResponse(500, {
+      error: "unexpected_error",
+      details: `${error}`,
+    });
   }
 });

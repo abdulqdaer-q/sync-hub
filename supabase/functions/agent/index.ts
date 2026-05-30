@@ -39,14 +39,20 @@ const MAX_CONTEXT_BLOCKS = 6;
 
 function isCorpusCountQuestion(question: string) {
   const normalized = question.toLowerCase();
-  return /(how many|number of|count of|count)\b/.test(normalized) &&
-    /\b(cv|cvs|resume|resumes|candidate|candidates|profile|profiles)\b/.test(normalized);
+  return (
+    /(how many|number of|count of|count)\b/.test(normalized) &&
+    /\b(cv|cvs|resume|resumes|candidate|candidates|profile|profiles)\b/.test(
+      normalized,
+    )
+  );
 }
 
 function isWorkspaceQuestion(question: string) {
   const normalized = question.toLowerCase();
   return /\b(cv|cvs|resume|resumes|candidate|candidates|profile|profiles|recruit|recruiter|hire|hiring|shortlist|compare|match|skill|skills|experience|seniority|role|roles|backend|frontend|full[\s-]?stack|devops|graphql|react|node|engineer|engineers)\b/
-    .test(normalized);
+    .test(
+      normalized,
+    );
 }
 
 function normalizeMessages(value: unknown): ChatMessage[] {
@@ -61,7 +67,11 @@ function normalizeMessages(value: unknown): ChatMessage[] {
       }
       const role = (item as { role?: unknown }).role;
       const content = (item as { content?: unknown }).content;
-      if ((role === "user" || role === "assistant") && typeof content === "string" && content.trim()) {
+      if (
+        (role === "user" || role === "assistant") &&
+        typeof content === "string" &&
+        content.trim()
+      ) {
         return {
           role,
           content: content.trim(),
@@ -74,7 +84,10 @@ function normalizeMessages(value: unknown): ChatMessage[] {
 }
 
 function evidenceSignal(row: EvidenceRow) {
-  return Math.max(Number(row.semantic_similarity) || 0, Number(row.lexical_score) || 0);
+  return Math.max(
+    Number(row.semantic_similarity) || 0,
+    Number(row.lexical_score) || 0,
+  );
 }
 
 function limitEvidenceRows(rows: EvidenceRow[], limit: number) {
@@ -96,17 +109,31 @@ function normalizeTenantIds(value: unknown): string[] {
     return [];
   }
 
-  return Array.from(new Set(value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)));
+  return Array.from(
+    new Set(
+      value
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
 }
 
-function buildFallbackAnswer(question: string, dossiers: DossierRow[], evidence: EvidenceRow[]) {
+function buildFallbackAnswer(
+  question: string,
+  dossiers: DossierRow[],
+  evidence: EvidenceRow[],
+) {
   if (!dossiers.length) {
     return `I could not retrieve grounded candidate evidence for: "${question}". Try adding a role, skill, seniority, or location.`;
   }
 
   const summaries = dossiers
     .slice(0, 3)
-    .map((row) => row.short_summary || `${row.name} is profiled as ${row.current_title ?? "candidate"}.`)
+    .map(
+      (row) =>
+        row.short_summary ||
+        `${row.name} is profiled as ${row.current_title ?? "candidate"}.`,
+    )
     .filter(Boolean);
   const excerpts = evidence
     .slice(0, 2)
@@ -131,7 +158,9 @@ Deno.serve(async (req) => {
     const messages = normalizeMessages(body.messages);
     const tenantIds = normalizeTenantIds(body.tenant_ids);
     const requestedCandidateIds = Array.isArray(body.candidate_ids)
-      ? body.candidate_ids.map((item: unknown) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
+      ? body.candidate_ids
+        .map((item: unknown) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean)
       : [];
 
     if (!question) {
@@ -141,9 +170,11 @@ Deno.serve(async (req) => {
     const supabase = createAuthedClient(req);
     const questionEmbeddingPayload = Array.isArray(body.question_embedding)
       ? {
-          embedding: body.question_embedding,
-          embeddingVersion: typeof body.embedding_version === "string" ? body.embedding_version : null,
-        }
+        embedding: body.question_embedding,
+        embeddingVersion: typeof body.embedding_version === "string"
+          ? body.embedding_version
+          : null,
+      }
       : await buildQueryEmbedding(question);
 
     let candidateIds = requestedCandidateIds;
@@ -152,28 +183,43 @@ Deno.serve(async (req) => {
     if (!requestedCandidateIds.length && isCorpusCountQuestion(question)) {
       const [documentsCountResult, candidatesCountResult] = await Promise.all([
         tenantIds.length
-          ? supabase.from("source_documents").select("id", { count: "exact", head: true }).in("tenant_id", tenantIds)
-          : supabase.from("source_documents").select("id", { count: "exact", head: true }),
+          ? supabase
+            .from("source_documents")
+            .select("id", { count: "exact", head: true })
+            .in("tenant_id", tenantIds)
+          : supabase
+            .from("source_documents")
+            .select("id", { count: "exact", head: true }),
         tenantIds.length
-          ? supabase.from("candidates").select("id", { count: "exact", head: true }).in("tenant_id", tenantIds)
-          : supabase.from("candidates").select("id", { count: "exact", head: true }),
+          ? supabase
+            .from("candidates")
+            .select("id", { count: "exact", head: true })
+            .in("tenant_id", tenantIds)
+          : supabase
+            .from("candidates")
+            .select("id", { count: "exact", head: true }),
       ]);
 
       if (documentsCountResult.error) {
-        return jsonResponse(400, { error: "workspace_count_failed", details: documentsCountResult.error.message });
+        return jsonResponse(400, {
+          error: "workspace_count_failed",
+          details: documentsCountResult.error.message,
+        });
       }
       if (candidatesCountResult.error) {
-        return jsonResponse(400, { error: "workspace_count_failed", details: candidatesCountResult.error.message });
+        return jsonResponse(400, {
+          error: "workspace_count_failed",
+          details: candidatesCountResult.error.message,
+        });
       }
 
       const documentsCount = documentsCountResult.count ?? 0;
       const candidatesCount = candidatesCountResult.count ?? 0;
 
       return jsonResponse(200, {
-        answer:
-          documentsCount === candidatesCount
-            ? `There are ${documentsCount} CVs indexed in the current scope.`
-            : `There are ${documentsCount} CVs indexed in the current scope, representing ${candidatesCount} candidate profiles.`,
+        answer: documentsCount === candidatesCount
+          ? `There are ${documentsCount} CVs indexed in the current scope.`
+          : `There are ${documentsCount} CVs indexed in the current scope, representing ${candidatesCount} candidate profiles.`,
         citations: [],
         context_blocks: [],
         meta: {
@@ -209,7 +255,8 @@ Deno.serve(async (req) => {
           answerSource = generated.provider;
         }
       } catch {
-        answer = "I can answer general questions, but I do not have grounded workspace evidence for this topic unless it relates to the indexed candidate corpus.";
+        answer =
+          "I can answer general questions, but I do not have grounded workspace evidence for this topic unless it relates to the indexed candidate corpus.";
       }
 
       return jsonResponse(200, {
@@ -228,22 +275,28 @@ Deno.serve(async (req) => {
     }
 
     if (!candidateIds.length) {
-      const { data: searchRows, error: searchError } = await supabase.rpc("search_candidates_v1", {
-        p_q: question,
-        p_query_embedding: questionEmbeddingPayload.embedding,
-        p_limit: body.candidate_limit ?? 4,
-        p_offset: 0,
-        p_role: null,
-        p_seniority: null,
-        p_min_years: null,
-        p_skills: [],
-        p_embedding_version: questionEmbeddingPayload.embeddingVersion,
-        p_rank_version: body.rank_version ?? "agent-v1",
-        p_tenant_ids: tenantIds.length ? tenantIds : null,
-      });
+      const { data: searchRows, error: searchError } = await supabase.rpc(
+        "search_candidates_v1",
+        {
+          p_q: question,
+          p_query_embedding: questionEmbeddingPayload.embedding,
+          p_limit: body.candidate_limit ?? 4,
+          p_offset: 0,
+          p_role: null,
+          p_seniority: null,
+          p_min_years: null,
+          p_skills: [],
+          p_embedding_version: questionEmbeddingPayload.embeddingVersion,
+          p_rank_version: body.rank_version ?? "agent-v1",
+          p_tenant_ids: tenantIds.length ? tenantIds : null,
+        },
+      );
 
       if (searchError) {
-        return jsonResponse(400, { error: "candidate_scope_failed", details: searchError.message });
+        return jsonResponse(400, {
+          error: "candidate_scope_failed",
+          details: searchError.message,
+        });
       }
 
       candidateIds = Array.from(
@@ -263,17 +316,25 @@ Deno.serve(async (req) => {
         .in("tenant_id", tenantIds);
 
       if (scopedCandidates.error) {
-        return jsonResponse(400, { error: "scope_validation_failed", details: scopedCandidates.error.message });
+        return jsonResponse(400, {
+          error: "scope_validation_failed",
+          details: scopedCandidates.error.message,
+        });
       }
 
       candidateIds = Array.from(
-        new Set(((scopedCandidates.data ?? []) as Array<{ candidate_id: string }>).map((row) => row.candidate_id).filter(Boolean)),
+        new Set(
+          ((scopedCandidates.data ?? []) as Array<{ candidate_id: string }>)
+            .map((row) => row.candidate_id)
+            .filter(Boolean),
+        ),
       );
     }
 
     if (!candidateIds.length) {
       return jsonResponse(200, {
-        answer: `I could not retrieve grounded candidates for: "${question}". Try adding a clearer role, skill, seniority, or location.`,
+        answer:
+          `I could not retrieve grounded candidates for: "${question}". Try adding a clearer role, skill, seniority, or location.`,
         citations: [],
         context_blocks: [],
         meta: {
@@ -290,7 +351,9 @@ Deno.serve(async (req) => {
     const [dossiers, evidence] = await Promise.all([
       supabase
         .from("candidate_dossier_v1")
-        .select("candidate_id, name, current_title, years_experience, seniority, top_skills, short_summary, strengths, risks")
+        .select(
+          "candidate_id, name, current_title, years_experience, seniority, top_skills, short_summary, strengths, risks",
+        )
         .in("candidate_id", candidateIds),
       supabase.rpc("retrieve_candidate_evidence_v1", {
         p_candidate_ids: candidateIds,
@@ -302,10 +365,16 @@ Deno.serve(async (req) => {
     ]);
 
     if (dossiers.error) {
-      return jsonResponse(400, { error: "agent_failed", details: dossiers.error.message });
+      return jsonResponse(400, {
+        error: "agent_failed",
+        details: dossiers.error.message,
+      });
     }
     if (evidence.error) {
-      return jsonResponse(400, { error: "evidence_failed", details: evidence.error.message });
+      return jsonResponse(400, {
+        error: "evidence_failed",
+        details: evidence.error.message,
+      });
     }
 
     const dossierRows = (dossiers.data ?? []) as DossierRow[];
@@ -358,6 +427,9 @@ Deno.serve(async (req) => {
       },
     });
   } catch (error) {
-    return jsonResponse(500, { error: "unexpected_error", details: `${error}` });
+    return jsonResponse(500, {
+      error: "unexpected_error",
+      details: `${error}`,
+    });
   }
 });

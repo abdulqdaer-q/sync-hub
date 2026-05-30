@@ -12,7 +12,9 @@ function jsonResponse(status: number, payload: JsonRecord) {
 }
 
 function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
 }
 
 function asString(value: unknown) {
@@ -20,7 +22,9 @@ function asString(value: unknown) {
 }
 
 function candidateIdFromPayload(payload: JsonRecord) {
-  const direct = asString(payload.candidate_id) ?? asString(payload.candidate_pk) ?? asString(payload.id);
+  const direct = asString(payload.candidate_id) ??
+    asString(payload.candidate_pk) ??
+    asString(payload.id);
   if (direct) {
     return direct;
   }
@@ -33,7 +37,9 @@ function candidateIdFromPayload(payload: JsonRecord) {
   ];
 
   for (const record of nestedCandidates) {
-    const nested = asString(record.candidate_id) ?? asString(record.candidate_pk) ?? asString(record.id);
+    const nested = asString(record.candidate_id) ??
+      asString(record.candidate_pk) ??
+      asString(record.id);
     if (nested) {
       return nested;
     }
@@ -43,7 +49,11 @@ function candidateIdFromPayload(payload: JsonRecord) {
 }
 
 function requestSecret(req: Request, url: URL) {
-  return req.headers.get("x-webhook-secret") ?? req.headers.get("x-manatal-webhook-secret") ?? url.searchParams.get("secret");
+  return (
+    req.headers.get("x-webhook-secret") ??
+      req.headers.get("x-manatal-webhook-secret") ??
+      url.searchParams.get("secret")
+  );
 }
 
 Deno.serve(async (req) => {
@@ -57,14 +67,16 @@ Deno.serve(async (req) => {
     return jsonResponse(401, { error: "invalid_webhook_secret" });
   }
 
-  const tenantId = url.searchParams.get("tenant_id") ?? Deno.env.get("MANATAL_WEBHOOK_TENANT_ID") ?? "";
+  const tenantId = url.searchParams.get("tenant_id") ??
+    Deno.env.get("MANATAL_WEBHOOK_TENANT_ID") ??
+    "";
   if (!tenantId) {
     return jsonResponse(400, { error: "tenant_id_required" });
   }
 
   let payload: JsonRecord;
   try {
-    payload = await req.json() as JsonRecord;
+    payload = (await req.json()) as JsonRecord;
   } catch (_error) {
     return jsonResponse(400, { error: "invalid_json" });
   }
@@ -87,9 +99,8 @@ Deno.serve(async (req) => {
     },
   });
 
-  const { error } = await supabase
-    .from("manatal_candidate_sync")
-    .upsert({
+  const { error } = await supabase.from("manatal_candidate_sync").upsert(
+    {
       tenant_id: tenantId,
       manatal_candidate_id: candidateId,
       sync_status: "pending",
@@ -98,7 +109,9 @@ Deno.serve(async (req) => {
         webhook_payload: payload,
         queued_at: new Date().toISOString(),
       },
-    }, { onConflict: "tenant_id,manatal_candidate_id" });
+    },
+    { onConflict: "tenant_id,manatal_candidate_id" },
+  );
 
   if (error) {
     return jsonResponse(500, { error: "queue_failed", details: error.message });

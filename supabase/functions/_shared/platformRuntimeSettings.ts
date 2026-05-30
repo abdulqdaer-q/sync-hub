@@ -22,7 +22,10 @@ const RUNTIME_SETTING_ENV: Record<RuntimeSettingKey, string> = {
   gemini_embedding_model: "GEMINI_EMBEDDING_MODEL",
 };
 
-let cachedSettings: { expiresAt: number; values: Record<string, string> } | null = null;
+let cachedSettings: {
+  expiresAt: number;
+  values: Record<string, string>;
+} | null = null;
 
 function envText(name: string) {
   const value = Deno.env.get(name)?.trim();
@@ -37,7 +40,9 @@ export function invalidatePlatformRuntimeSettingsCache() {
   cachedSettings = null;
 }
 
-export async function loadPlatformRuntimeSettings(): Promise<Record<string, string>> {
+export async function loadPlatformRuntimeSettings(): Promise<
+  Record<string, string>
+> {
   if (cachedSettings && Date.now() < cachedSettings.expiresAt) {
     return cachedSettings.values;
   }
@@ -45,7 +50,9 @@ export async function loadPlatformRuntimeSettings(): Promise<Record<string, stri
   const values: Record<string, string> = {};
   try {
     const client = createServiceClient();
-    const { data, error } = await client.from("platform_runtime_settings").select("key, value");
+    const { data, error } = await client
+      .from("platform_runtime_settings")
+      .select("key, value");
     if (!error && Array.isArray(data)) {
       for (const row of data) {
         const key = typeof row.key === "string" ? row.key.trim() : "";
@@ -66,13 +73,18 @@ export async function loadPlatformRuntimeSettings(): Promise<Record<string, stri
   return values;
 }
 
-export async function getRuntimeSetting(key: RuntimeSettingKey): Promise<string | null> {
+export async function getRuntimeSetting(
+  key: RuntimeSettingKey,
+): Promise<string | null> {
   const settings = await loadPlatformRuntimeSettings();
   const value = settings[key]?.trim();
   return value && value.length > 0 ? value : null;
 }
 
-export function validateRuntimeSettingValue(key: RuntimeSettingKey, value: string) {
+export function validateRuntimeSettingValue(
+  key: RuntimeSettingKey,
+  value: string,
+) {
   const normalized = value.trim();
   if (!normalized) {
     return "Value is required.";
@@ -124,7 +136,9 @@ export async function buildPlatformRuntimeConfigView(): Promise<{
       .order("updated_at", { ascending: false })
       .limit(1);
     const latest = Array.isArray(data) ? data[0] : null;
-    updatedAt = typeof latest?.updated_at === "string" ? latest.updated_at : null;
+    updatedAt = typeof latest?.updated_at === "string"
+      ? latest.updated_at
+      : null;
   } catch {
     updatedAt = null;
   }
@@ -137,8 +151,8 @@ export async function buildPlatformRuntimeConfigView(): Promise<{
     const source: SettingSource = databaseValue
       ? "database"
       : environmentValue
-        ? "environment"
-        : "unset";
+      ? "environment"
+      : "unset";
 
     return {
       key,
@@ -164,8 +178,15 @@ export async function savePlatformRuntimeSettings(
     }
 
     const raw = updates[key];
-    if (raw === null || raw === undefined || (typeof raw === "string" && raw.trim().length === 0)) {
-      const { error } = await client.from("platform_runtime_settings").delete().eq("key", key);
+    if (
+      raw === null ||
+      raw === undefined ||
+      (typeof raw === "string" && raw.trim().length === 0)
+    ) {
+      const { error } = await client
+        .from("platform_runtime_settings")
+        .delete()
+        .eq("key", key);
       if (error) {
         errors[key] = error.message;
       }
@@ -197,7 +218,9 @@ export async function savePlatformRuntimeSettings(
   }
 
   if (Object.keys(errors).length > 0) {
-    throw new Error(JSON.stringify({ code: "validation_error", fields: errors }));
+    throw new Error(
+      JSON.stringify({ code: "validation_error", fields: errors }),
+    );
   }
 
   invalidatePlatformRuntimeSettingsCache();

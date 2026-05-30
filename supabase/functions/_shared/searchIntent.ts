@@ -1,4 +1,8 @@
-import { normalizeLocationValue, normalizeSeniorityValue, normalizeSkillList } from "./searchTaxonomy.ts";
+import {
+  normalizeLocationValue,
+  normalizeSeniorityValue,
+  normalizeSkillList,
+} from "./searchTaxonomy.ts";
 
 type SearchFilters = {
   role?: string | null;
@@ -59,11 +63,7 @@ function normalizeSkills(skills: string[] | null | undefined) {
 
 function normalizeCompanies(companies: string[] | null | undefined) {
   return Array.from(
-    new Set(
-      (companies ?? [])
-        .map((company) => company.trim())
-        .filter(Boolean),
-    ),
+    new Set((companies ?? []).map((company) => company.trim()).filter(Boolean)),
   );
 }
 
@@ -81,27 +81,42 @@ function dedupe(values: string[]) {
 
 function buildAllowedSkills(facets?: SearchIntentFacetOptions | null) {
   const allowedSkills = normalizeSkills(facets?.skills);
-  const allowedByKey = new Map(allowedSkills.map((skill) => [normalizeFacetKey(skill), skill] as const));
+  const allowedByKey = new Map(
+    allowedSkills.map((skill) => [normalizeFacetKey(skill), skill] as const),
+  );
   return { allowedSkills, allowedByKey };
 }
 
 function buildAllowedCompanies(facets?: SearchIntentFacetOptions | null) {
   const allowedCompanies = normalizeCompanies(facets?.companies);
-  const allowedByKey = new Map(allowedCompanies.map((company) => [normalizeFacetKey(company), company] as const));
+  const allowedByKey = new Map(
+    allowedCompanies.map(
+      (company) => [normalizeFacetKey(company), company] as const,
+    ),
+  );
   return { allowedCompanies, allowedByKey };
 }
 
 function buildAllowedLocations(facets?: SearchIntentFacetOptions | null) {
   const allowedLocations = dedupe(
     (facets?.locations ?? [])
-      .map((location) => normalizeLocationValue(location, { allowFallback: false }))
+      .map((location) =>
+        normalizeLocationValue(location, { allowFallback: false })
+      )
       .filter((location): location is string => Boolean(location)),
   );
-  const allowedByKey = new Map(allowedLocations.map((location) => [normalizeFacetKey(location), location] as const));
+  const allowedByKey = new Map(
+    allowedLocations.map(
+      (location) => [normalizeFacetKey(location), location] as const,
+    ),
+  );
   return { allowedLocations, allowedByKey };
 }
 
-function limitSkillsToFacets(skills: string[] | null | undefined, facets?: SearchIntentFacetOptions | null) {
+function limitSkillsToFacets(
+  skills: string[] | null | undefined,
+  facets?: SearchIntentFacetOptions | null,
+) {
   const normalizedSkills = normalizeSkills(skills);
   if (!facets) {
     return normalizedSkills;
@@ -115,7 +130,10 @@ function limitSkillsToFacets(skills: string[] | null | undefined, facets?: Searc
   );
 }
 
-function limitCompaniesToFacets(companies: string[] | null | undefined, facets?: SearchIntentFacetOptions | null) {
+function limitCompaniesToFacets(
+  companies: string[] | null | undefined,
+  facets?: SearchIntentFacetOptions | null,
+) {
   const normalizedCompanies = normalizeCompanies(companies);
   if (!facets) {
     return normalizedCompanies;
@@ -129,8 +147,12 @@ function limitCompaniesToFacets(companies: string[] | null | undefined, facets?:
   );
 }
 
-function limitLocationToFacets(location: string | null | undefined, facets?: SearchIntentFacetOptions | null) {
-  const normalizedLocation = normalizeLocationValue(location, { allowFallback: false }) ?? null;
+function limitLocationToFacets(
+  location: string | null | undefined,
+  facets?: SearchIntentFacetOptions | null,
+) {
+  const normalizedLocation =
+    normalizeLocationValue(location, { allowFallback: false }) ?? null;
   if (!normalizedLocation || !facets) {
     return normalizedLocation;
   }
@@ -139,7 +161,11 @@ function limitLocationToFacets(location: string | null | undefined, facets?: Sea
   return allowedByKey.get(normalizeFacetKey(normalizedLocation)) ?? null;
 }
 
-export function buildSearchIntentConfig(query: string, filters: SearchFilters = {}, facets?: SearchIntentFacetOptions | null) {
+export function buildSearchIntentConfig(
+  query: string,
+  filters: SearchFilters = {},
+  facets?: SearchIntentFacetOptions | null,
+) {
   const allowedLocations = buildAllowedLocations(facets).allowedLocations;
 
   return {
@@ -232,7 +258,9 @@ export function buildSearchIntentConfig(query: string, filters: SearchFilters = 
 }
 
 function normalizePositiveYears(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
 }
 
 function normalizeRoleFilter(value: string | null | undefined) {
@@ -253,20 +281,31 @@ export function resolveSearchFilters(
   void query;
   const requestSkills = limitSkillsToFacets(requestFilters.skills, facets);
   const llmSkills = limitSkillsToFacets(llmIntent?.skills, facets);
-  const requestCompanies = limitCompaniesToFacets(requestFilters.companies, facets);
+  const requestCompanies = limitCompaniesToFacets(
+    requestFilters.companies,
+    facets,
+  );
   const llmCompanies = limitCompaniesToFacets(llmIntent?.companies, facets);
 
   return deriveSearchFilters("", {
     role: normalizeRoleFilter(llmIntent?.role ?? requestFilters.role ?? null),
     seniority: llmIntent?.seniority ?? requestFilters.seniority ?? null,
-    min_years_experience: llmIntent?.min_years_experience ?? requestFilters.min_years_experience ?? null,
-    location: limitLocationToFacets(llmIntent?.location ?? requestFilters.location ?? null, facets),
+    min_years_experience: llmIntent?.min_years_experience ??
+      requestFilters.min_years_experience ??
+      null,
+    location: limitLocationToFacets(
+      llmIntent?.location ?? requestFilters.location ?? null,
+      facets,
+    ),
     skills: mergeUnique(requestSkills, llmSkills),
     companies: mergeUnique(requestCompanies, llmCompanies),
   });
 }
 
-export function deriveSearchFilters(query: string, filters: SearchFilters = {}) {
+export function deriveSearchFilters(
+  query: string,
+  filters: SearchFilters = {},
+) {
   void query;
   const explicitSkills = normalizeSkills(filters.skills);
   const explicitCompanies = normalizeCompanies(filters.companies);
@@ -275,7 +314,9 @@ export function deriveSearchFilters(query: string, filters: SearchFilters = {}) 
     role: normalizeRoleFilter(filters.role),
     seniority: normalizeSeniorityValue(filters.seniority) ?? null,
     min_years_experience: normalizePositiveYears(filters.min_years_experience),
-    location: normalizeLocationValue(filters.location, { allowFallback: false }) ?? null,
+    location:
+      normalizeLocationValue(filters.location, { allowFallback: false }) ??
+        null,
     skills: explicitSkills,
     companies: explicitCompanies,
   };

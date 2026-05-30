@@ -31,6 +31,7 @@ export function buildDeterministicQueryEmbedding(query: string) {
     vector[index] += sign * weight;
   }
 
-  const norm = Math.sqrt(vector.reduce((sum, value) => sum + (value * value), 0)) || 1;
+  const norm =
+    Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
   return vector.map((value) => Number((value / norm).toFixed(8)));
 }

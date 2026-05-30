@@ -1,4 +1,7 @@
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import {
+  createClient,
+  type SupabaseClient,
+} from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -18,7 +21,9 @@ export function createServiceClient() {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured for account provisioning.");
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured for account provisioning.",
+    );
   }
 
   return createClient(supabaseUrl, serviceRoleKey, {
@@ -47,7 +52,11 @@ export async function assertPlatformAdmin(supabase: SupabaseClient) {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (error && !/platform_admins/i.test(error.message) && error.code !== "PGRST205") {
+  if (
+    error &&
+    !/platform_admins/i.test(error.message) &&
+    error.code !== "PGRST205"
+  ) {
     throw error;
   }
   if (!data?.user_id) {
@@ -85,12 +94,17 @@ async function createAuthUser(
 }
 
 export async function listAdminTenants(admin: SupabaseClient) {
-  const [tenantsResult, membershipsResult, candidatesResult, documentsResult] = await Promise.all([
-    admin.from("tenants").select("id, slug, name, icon_url, created_at").order("created_at", { ascending: false }).limit(10000),
-    admin.from("tenant_memberships").select("tenant_id").limit(10000),
-    admin.from("candidates").select("tenant_id").limit(10000),
-    admin.from("source_documents").select("tenant_id").limit(10000),
-  ]);
+  const [tenantsResult, membershipsResult, candidatesResult, documentsResult] =
+    await Promise.all([
+      admin
+        .from("tenants")
+        .select("id, slug, name, icon_url, created_at")
+        .order("created_at", { ascending: false })
+        .limit(10000),
+      admin.from("tenant_memberships").select("tenant_id").limit(10000),
+      admin.from("candidates").select("tenant_id").limit(10000),
+      admin.from("source_documents").select("tenant_id").limit(10000),
+    ]);
 
   if (tenantsResult.error) {
     throw tenantsResult.error;
@@ -134,13 +148,24 @@ export async function listAdminTenants(admin: SupabaseClient) {
   }));
 }
 
-export async function createTenantAccount(admin: SupabaseClient, body: JsonRecord) {
+export async function createTenantAccount(
+  admin: SupabaseClient,
+  body: JsonRecord,
+) {
   const email = typeof body.email === "string" ? body.email.trim() : "";
   const password = typeof body.password === "string" ? body.password : "";
-  const tenantName = typeof body.tenant_name === "string" ? body.tenant_name.trim() : "";
-  const tenantSlugInput = typeof body.tenant_slug === "string" ? body.tenant_slug.trim() : "";
-  const tenantIcon = typeof body.tenant_icon === "string" ? body.tenant_icon.trim() : "";
-  const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
+  const tenantName = typeof body.tenant_name === "string"
+    ? body.tenant_name.trim()
+    : "";
+  const tenantSlugInput = typeof body.tenant_slug === "string"
+    ? body.tenant_slug.trim()
+    : "";
+  const tenantIcon = typeof body.tenant_icon === "string"
+    ? body.tenant_icon.trim()
+    : "";
+  const fullName = typeof body.full_name === "string"
+    ? body.full_name.trim()
+    : "";
   const role = normalizeRole(body.role, "owner");
 
   if (!email) {
@@ -155,7 +180,9 @@ export async function createTenantAccount(admin: SupabaseClient, body: JsonRecor
 
   const tenantSlug = tenantSlugInput || slugify(tenantName);
   if (!tenantSlug) {
-    throw new Error("Could not derive a tenant slug. Pass tenant_slug explicitly.");
+    throw new Error(
+      "Could not derive a tenant slug. Pass tenant_slug explicitly.",
+    );
   }
 
   const userId = await createAuthUser(admin, email, password, fullName);
@@ -175,12 +202,14 @@ export async function createTenantAccount(admin: SupabaseClient, body: JsonRecor
     throw tenantError;
   }
 
-  const { error: membershipError } = await admin.from("tenant_memberships").insert({
-    tenant_id: tenant.id,
-    user_id: userId,
-    role,
-    status: "active",
-  });
+  const { error: membershipError } = await admin
+    .from("tenant_memberships")
+    .insert({
+      tenant_id: tenant.id,
+      user_id: userId,
+      role,
+      status: "active",
+    });
   if (membershipError) {
     throw membershipError;
   }
@@ -200,8 +229,12 @@ export async function createTenantAccount(admin: SupabaseClient, body: JsonRecor
 export async function addUserToTenant(admin: SupabaseClient, body: JsonRecord) {
   const email = typeof body.email === "string" ? body.email.trim() : "";
   const password = typeof body.password === "string" ? body.password : "";
-  const tenantSlug = typeof body.tenant_slug === "string" ? body.tenant_slug.trim() : "";
-  const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
+  const tenantSlug = typeof body.tenant_slug === "string"
+    ? body.tenant_slug.trim()
+    : "";
+  const fullName = typeof body.full_name === "string"
+    ? body.full_name.trim()
+    : "";
   const role = normalizeRole(body.role, "recruiter");
 
   if (!email) {
@@ -228,12 +261,14 @@ export async function addUserToTenant(admin: SupabaseClient, body: JsonRecord) {
 
   const userId = await createAuthUser(admin, email, password, fullName);
 
-  const { error: membershipError } = await admin.from("tenant_memberships").insert({
-    tenant_id: tenant.id,
-    user_id: userId,
-    role,
-    status: "active",
-  });
+  const { error: membershipError } = await admin
+    .from("tenant_memberships")
+    .insert({
+      tenant_id: tenant.id,
+      user_id: userId,
+      role,
+      status: "active",
+    });
   if (membershipError) {
     throw membershipError;
   }

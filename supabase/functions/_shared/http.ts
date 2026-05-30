@@ -15,7 +15,11 @@ export function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   });
 }
 
-export function errorResponse(status: number, message: string, details?: unknown): Response {
+export function errorResponse(
+  status: number,
+  message: string,
+  details?: unknown,
+): Response {
   return jsonResponse(
     {
       error: {
@@ -27,7 +31,9 @@ export function errorResponse(status: number, message: string, details?: unknown
   );
 }
 
-export function parseJsonBody(request: Request): Promise<Record<string, unknown>> {
+export function parseJsonBody(
+  request: Request,
+): Promise<Record<string, unknown>> {
   return request.json() as Promise<Record<string, unknown>>;
 }
 

@@ -1,6 +1,9 @@
 type SupabaseClientLike = {
   from: (table: string) => any;
-  rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+  rpc: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: unknown }>;
 };
 
 export function createTraceId() {
@@ -12,8 +15,13 @@ export function withTraceHeader(response: Response, traceId: string) {
   return response;
 }
 
-async function resolveTelemetryTenant(supabase: SupabaseClientLike, tenantIds: string[]) {
-  const explicitTenant = tenantIds.find((tenantId) => tenantId.trim().length > 0);
+async function resolveTelemetryTenant(
+  supabase: SupabaseClientLike,
+  tenantIds: string[],
+) {
+  const explicitTenant = tenantIds.find(
+    (tenantId) => tenantId.trim().length > 0,
+  );
   if (explicitTenant) {
     return explicitTenant;
   }
@@ -28,10 +36,7 @@ async function resolveTelemetryTenant(supabase: SupabaseClientLike, tenantIds: s
     return membershipTenant;
   }
 
-  const tenants = await supabase
-    .from("tenants")
-    .select("id")
-    .limit(1);
+  const tenants = await supabase.from("tenants").select("id").limit(1);
   const tenantId = tenants.data?.[0]?.id;
   return !tenants.error && typeof tenantId === "string" ? tenantId : null;
 }
@@ -48,7 +53,10 @@ export async function recordEdgeRequest(
   },
 ) {
   try {
-    const tenantId = await resolveTelemetryTenant(supabase, options.tenantIds ?? []);
+    const tenantId = await resolveTelemetryTenant(
+      supabase,
+      options.tenantIds ?? [],
+    );
     if (!tenantId) {
       return;
     }
