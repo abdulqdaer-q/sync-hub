@@ -808,9 +808,10 @@ Deno.serve(async (req) => {
 
     return jsonResponse(400, { error: "unknown_action" });
   } catch (error) {
+    console.error("public_jobs_failed", error);
     return jsonResponse(400, {
       error: "public_jobs_failed",
-      details: error instanceof Error ? error.message : String(error),
+      details: "An unexpected error occurred.",
     });
   }
 });
