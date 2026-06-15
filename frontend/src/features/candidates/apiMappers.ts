@@ -55,23 +55,17 @@ const externalProfiles = asRecord(
   profile.external_profiles,
 );
   const cvUrl = buildCandidateCvUrl(row.source_uri);
-  const timeline = asArray(row.timeline_json).map((entry) => {
+ const timeline = asArray(row.timeline_json).map((entry) => {
   const record = asRecord(entry);
+
+  const description = String(record.description ?? "");
 
   return {
     employer: String(record.company ?? "Unknown company"),
     role: String(record.role ?? "Unknown role"),
-
-    start: record.start_date
-      ? String(record.start_date)
-      : "",
-
-    end: record.end_date
-      ? String(record.end_date)
-      : "",
-
-    scope: String(record.description ?? ""),
-
+    start: String(record.start_date ?? ""),
+    end: String(record.end_date ?? ""),
+    scope: description,
     highlights: Array.isArray(record.highlights)
       ? record.highlights.map(String)
       : [],
