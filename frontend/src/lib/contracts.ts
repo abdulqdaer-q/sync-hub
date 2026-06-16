@@ -61,6 +61,7 @@ export type CandidateDetail = CandidateSearchResult & {
   timeline: TimelineEntry[];
   evidence: EvidenceSnippet[];
   cvPreview: string[];
+
   status?: CandidateAvailabilityStatus | null;
 jobReadinessLevel?: JobReadinessLevel | null;
 preferredWorkMode?: PreferredWorkMode | null;
