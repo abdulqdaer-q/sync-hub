@@ -437,6 +437,52 @@ export function CandidateDossierPage() {
 
           <Panel className="table-card">
             <div className="stack">
+              <h3>Candidate profile</h3>
+
+              {candidate.jobReadinessLevel ? (
+                <p>
+                  <strong>Job Readiness:</strong> {candidate.jobReadinessLevel}
+                </p>
+              ) : null}
+
+              {candidate.preferredWorkMode ? (
+                <p>
+                  <strong>Preferred Work Mode:</strong> {candidate.preferredWorkMode}
+                </p>
+              ) : null}
+
+              {candidate.englishProficiency ? (
+                <p>
+                  <strong>English:</strong> {candidate.englishProficiency}
+                </p>
+              ) : null}
+
+              {candidate.noticePeriod ? (
+                <p>
+                  <strong>Notice Period:</strong> {candidate.noticePeriod}
+                </p>
+              ) : null}
+
+              {candidate.currentLocationCity ? (
+                <p>
+                  <strong>City:</strong> {candidate.currentLocationCity}
+                </p>
+              ) : null}
+
+              <p>
+                <strong>Relocation:</strong>{" "}
+                {candidate.willingnessToRelocate === null ||
+                candidate.willingnessToRelocate === undefined
+                  ? "Not specified"
+                  : candidate.willingnessToRelocate
+                    ? "Yes"
+                    : "No"}
+              </p>
+            </div>
+          </Panel>
+
+          <Panel className="table-card">
+            <div className="stack">
               <h3>Strengths</h3>
               <ul className="bullet-list">
                 {candidate.strengths.map((item) => (

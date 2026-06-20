@@ -53,6 +53,7 @@ export type CandidateDetail = CandidateSearchResult & {
   storagePath?: string | null;
   cvUrl?: string | null;
   manatalCandidateId?: string | null;
+
   links: string[];
   education: string[];
   certifications: string[];
@@ -61,6 +62,18 @@ export type CandidateDetail = CandidateSearchResult & {
   timeline: TimelineEntry[];
   evidence: EvidenceSnippet[];
   cvPreview: string[];
+
+  status?: string | null;
+  jobReadinessLevel?: string | null;
+  preferredWorkMode?: string | null;
+  noticePeriod?: string | null;
+  englishProficiency?: string | null;
+  expectedSalary?: string | null;
+  syncAffiliation?: string | null;
+  externalProfiles?: Record<string, string> | null;
+  employmentTypePreference?: string[] | null;
+  currentLocationCity?: string | null;
+  willingnessToRelocate?: boolean | null;
 };
 
 export type SearchFilters = {
