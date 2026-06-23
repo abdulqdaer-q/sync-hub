@@ -23,6 +23,7 @@ import type {
 
 const candidates: CandidateDetail[] = [
   {
+    
     candidateId: "elena-rostova",
     name: "Elena Rostova",
     currentTitle: "Senior Backend Platform Engineer",
@@ -206,9 +207,11 @@ const candidates: CandidateDetail[] = [
         excerpt: "Built cross-region synchronization jobs and change-data capture workers for customer profile data.",
         relevance: 0.88,
       },
+      
     ],
     cvPreview: ["Executive summary", "Backend architecture experience", "Migration programs", "Core technology stack"],
   },
+
   {
     candidateId: "layla-haddad",
     name: "Layla Haddad",
@@ -349,7 +352,7 @@ export const insightsDashboardSnapshot: InsightsDashboardSnapshot = {
     { label: "junior", value: 506 },
     { label: "senior", value: 384 },
     { label: "unclassified", value: 186 },
-    { label: "staff-plus", value: 45 },
+    { label: "staff", value: 45 },
   ],
   profilesByLocation: [
     { label: "Damascus, Syria", value: 1021 },
@@ -927,7 +930,9 @@ function seniorityRank(value: string | null | undefined) {
     case "senior":
     case "mid-senior":
       return 3;
+    case "staff":
     case "staff-plus":
+    case "lead":
       return 4;
     default:
       return 0;

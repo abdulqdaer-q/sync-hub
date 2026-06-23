@@ -95,6 +95,24 @@ function buildContactMailto(
   return `mailto:${candidate.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
+function ProfileAttribute({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  if (!value) {
+    return null;
+  }
+
+  return (
+    <p>
+      <strong>{label}:</strong> {value}
+    </p>
+  );
+}
+
 function DossierSkeleton() {
   return (
     <div className="page-stack dossier-skeleton" aria-busy="true" aria-label="Loading candidate dossier">
@@ -438,6 +456,56 @@ export function CandidateDossierPage() {
           <Panel className="table-card">
             <div className="stack">
               <h3>Candidate profile</h3>
+               <h3>Candidate profile</h3>
+
+<ProfileAttribute
+  label="Status"
+  value={candidate.status}
+/>
+
+<ProfileAttribute
+  label="Job Readiness"
+  value={candidate.jobReadinessLevel}
+/>
+
+<ProfileAttribute
+  label="Preferred Work Mode"
+  value={candidate.preferredWorkMode}
+/>
+
+<ProfileAttribute
+  label="English Proficiency"
+  value={candidate.englishProficiency}
+/>
+
+<ProfileAttribute
+  label="Notice Period"
+  value={candidate.noticePeriod}
+/>
+
+<ProfileAttribute
+  label="Location"
+  value={candidate.currentLocationCity}
+/>
+
+<ProfileAttribute
+  label="Experience"
+  value={
+    candidate.yearsExperience
+      ? `${candidate.yearsExperience} years`
+      : null
+  }
+/>
+
+<p>
+  <strong>Relocation:</strong>{" "}
+  {candidate.willingnessToRelocate === null ||
+  candidate.willingnessToRelocate === undefined
+    ? "Not specified"
+    : candidate.willingnessToRelocate
+      ? "Yes"
+      : "No"}
+</p>
 
               {candidate.jobReadinessLevel ? (
                 <p>
