@@ -23,7 +23,7 @@ import type {
 
 const candidates: CandidateDetail[] = [
   {
-    
+
     candidateId: "elena-rostova",
     name: "Elena Rostova",
     currentTitle: "Senior Backend Platform Engineer",
@@ -207,7 +207,7 @@ const candidates: CandidateDetail[] = [
         excerpt: "Built cross-region synchronization jobs and change-data capture workers for customer profile data.",
         relevance: 0.88,
       },
-      
+
     ],
     cvPreview: ["Executive summary", "Backend architecture experience", "Migration programs", "Core technology stack"],
   },
