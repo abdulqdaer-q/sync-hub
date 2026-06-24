@@ -20,14 +20,36 @@ export default defineConfig({
   },
 
   build: {
-    target: 'esnext',
-
+    target: "es2022",
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules')) {
-            return 'vendor';
+          if (!id.includes("node_modules")) {
+            return undefined;
           }
+
+          if (id.includes("/@supabase/")) {
+            return "supabase";
+          }
+
+          if (id.includes("/@tanstack/")) {
+            return "query";
+          }
+
+          if (id.includes("/lucide-react/")) {
+            return "icons";
+          }
+
+          if (
+            id.includes("/react/") ||
+            id.includes("/react-dom/") ||
+            id.includes("/react-router") ||
+            id.includes("/scheduler/")
+          ) {
+            return "react-vendor";
+          }
+
+          return "vendor";
         },
       },
     },
