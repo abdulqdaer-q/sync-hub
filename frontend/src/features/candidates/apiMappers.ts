@@ -51,7 +51,12 @@ export function buildCandidateCvUrl(sourceUri?: string | null) {
 }
 
 export function mapRemoteCandidate(row: CandidateDossierRow, chunks: CandidateChunkRow[]): CandidateDetail {
-  const profile = asRecord(row.profile_json);
+  const profile = {
+  ...asRecord(row.profile_json),
+  ...asRecord((row as CandidateDossierRow & { metadata?: unknown }).metadata),
+};
+
+console.log("CANDIDATE PROFILE", row.name, profile);
   const fallbackSkills = toStringArray(row.top_skills);
 
 const normalizedProfile = {
@@ -207,12 +212,12 @@ noticePeriod:
 
 englishProficiency:
   typeof normalizedProfile.english_proficiency === "string"
-    ? (profile.english_proficiency as EnglishProficiency)
+    ? (normalizedProfile.english_proficiency as EnglishProficiency)
     : "fluent",
 
 syncAffiliation:
   typeof normalizedProfile.sync_affiliation === "string"
-    ? (profile.sync_affiliation as SyncAffiliation)
+    ? (normalizedProfile.sync_affiliation as SyncAffiliation)
     : null,
 
 internalVettingNotes:
@@ -229,7 +234,6 @@ willingnessToRelocate:
  typeof normalizedProfile.willingness_to_relocate === "boolean"
  ? normalizedProfile.willingness_to_relocate
  : undefined,
- 
 externalProfiles:
   Object.keys(externalProfiles).length
     ? {
@@ -278,7 +282,6 @@ lastInteractionDate:
  ? expectedSalary.currency
  : "USD",
 },
-  
     links: toStringArray(row.links),
     education,
     certifications: toStringArray(profile.certifications),
