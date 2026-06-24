@@ -59,14 +59,43 @@ const normalizedProfile = {
     typeof profile.status === "string"
       ? profile.status
       : "active",
-  job_readiness_level: profile.job_readiness_level ?? "L2",
-  preferred_work_mode: profile.preferred_work_mode ?? "hybrid",
-  primary_skills: profile.primary_skills ?? fallbackSkills,
-  notice_period: profile.notice_period ?? "2_weeks",
-  english_proficiency: profile.english_proficiency ?? "fluent",
-  sync_affiliation: profile.sync_affiliation ?? "member",
+
+  job_readiness_level:
+  profile.job_readiness_level ??
+  profile.jobReadinessLevel ??
+  (
+    row.seniority === "staff" ||
+    row.seniority === "senior"
+      ? "L4"
+      : row.seniority === "mid"
+        ? "L3"
+        : "L2"
+  ),
+
+  preferred_work_mode:
+    profile.preferred_work_mode ??
+    profile.preferredWorkMode ??
+    "hybrid",
+
+  primary_skills:
+    profile.primary_skills ??
+    fallbackSkills,
+
+  notice_period:
+    profile.notice_period ??
+    "2_weeks",
+
+  english_proficiency:
+    profile.english_proficiency ??
+    "fluent",
+
+  sync_affiliation:
+    profile.sync_affiliation ??
+    "member",
+
   willingness_to_relocate:
-    profile.willingness_to_relocate ?? false,
+    profile.willingness_to_relocate ??
+    false,
 };
   const expectedSalary = asRecord(
   profile.expected_salary,
