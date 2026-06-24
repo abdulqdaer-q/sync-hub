@@ -52,9 +52,26 @@ export function buildCandidateCvUrl(sourceUri?: string | null) {
 
 export function mapRemoteCandidate(row: CandidateDossierRow, chunks: CandidateChunkRow[]): CandidateDetail {
   const profile = asRecord(row.profile_json);
+  const fallbackSkills = toStringArray(row.top_skills);
+
+const normalizedProfile = {
+  status:
+    typeof profile.status === "string"
+      ? profile.status
+      : "active",
+  job_readiness_level: profile.job_readiness_level ?? "L2",
+  preferred_work_mode: profile.preferred_work_mode ?? "hybrid",
+  primary_skills: profile.primary_skills ?? fallbackSkills,
+  notice_period: profile.notice_period ?? "2_weeks",
+  english_proficiency: profile.english_proficiency ?? "fluent",
+  sync_affiliation: profile.sync_affiliation ?? "member",
+  willingness_to_relocate:
+    profile.willingness_to_relocate ?? false,
+};
   const expectedSalary = asRecord(
   profile.expected_salary,
 );
+
 
 const externalProfiles = asRecord(
   profile.external_profiles,
@@ -129,14 +146,9 @@ const externalProfiles = asRecord(
     storagePath: row.storage_path,
     cvUrl,
     manatalCandidateId: row.manatal_candidate_id ?? null,
-    status:
-  typeof profile.status === "string"
-    ? (profile.status as CandidateAvailabilityStatus)
-    : null,
-
 jobReadinessLevel:
-  typeof profile.job_readiness_level === "string"
-    ? (profile.job_readiness_level as JobReadinessLevel)
+  typeof normalizedProfile.job_readiness_level === "string"
+    ? (normalizedProfile.job_readiness_level as JobReadinessLevel)
     : row.seniority === "staff" || row.seniority === "senior"
       ? "L4"
       : row.seniority === "mid"
@@ -185,7 +197,9 @@ currentLocationCity:
     : row.location ?? null,
 
 willingnessToRelocate:
-  Boolean(profile.willingness_to_relocate),
+ typeof profile.willingness_to_relocate === "boolean"
+ ? profile.willingness_to_relocate
+ : undefined,
 externalProfiles:
   Object.keys(externalProfiles).length
     ? {
@@ -226,6 +240,15 @@ lastInteractionDate:
     ? profile.last_interaction_date
     : null,
 
+   expectedSalary:
+{
+ amount: toNumber(expectedSalary.amount,0),
+ currency:
+ typeof expectedSalary.currency === "string"
+ ? expectedSalary.currency
+ : "USD",
+},
+  
     links: toStringArray(row.links),
     education,
     certifications: toStringArray(profile.certifications),

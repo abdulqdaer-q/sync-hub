@@ -788,6 +788,7 @@ export function CandidateDossierPage() {
             href={candidate.externalProfiles.linkedin}
             target="_blank"
           >
+            rel="noreferrer noopener"
             LinkedIn
           </a>
         )}
@@ -798,6 +799,7 @@ export function CandidateDossierPage() {
             href={candidate.externalProfiles.github}
             target="_blank"
           >
+            rel="noreferrer noopener"
             GitHub
           </a>
         )}
@@ -808,6 +810,7 @@ export function CandidateDossierPage() {
             href={candidate.externalProfiles.portfolio}
             target="_blank"
           >
+            rel="noreferrer noopener"
             Portfolio
           </a>
         )}
