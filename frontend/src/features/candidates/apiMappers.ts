@@ -1,5 +1,19 @@
-import type { CandidateDetail } from "@/lib/contracts";
+import type {
+  CandidateDetail,
+  CandidateAvailabilityStatus,
+  JobReadinessLevel,
+  PreferredWorkMode,
+  NoticePeriod,
+  EnglishProficiency,
+  SyncAffiliation,
+  EmploymentType,
+  CandidateListGroupBy,
+  CandidateListItem,
+  CandidateListOptions,
+  CandidateListResponse,
+} from "@/lib/contracts";
 import { asArray, asRecord, toNumber, toStringArray, type JsonRecord } from "@/lib/api/json";
+import { invokePlatform } from "@/lib/api/platformClient";
 import type { CandidateChunkRow, CandidateDossierRow } from "@/lib/api/platformRows";
 
 export function hueFromId(seed: string) {
@@ -37,7 +51,65 @@ export function buildCandidateCvUrl(sourceUri?: string | null) {
 }
 
 export function mapRemoteCandidate(row: CandidateDossierRow, chunks: CandidateChunkRow[]): CandidateDetail {
-  const profile = asRecord(row.profile_json);
+  const profile = {
+  ...asRecord(row.profile_json),
+  ...asRecord((row as CandidateDossierRow & { metadata?: unknown }).metadata),
+};
+
+console.log("CANDIDATE PROFILE", row.name, profile);
+  const fallbackSkills = toStringArray(row.top_skills);
+
+const normalizedProfile = {
+  status:
+    typeof profile.status === "string"
+      ? profile.status
+      : "active",
+
+  job_readiness_level:
+  profile.job_readiness_level ??
+  profile.jobReadinessLevel ??
+  (
+    row.seniority === "staff" ||
+    row.seniority === "senior"
+      ? "L4"
+      : row.seniority === "mid"
+        ? "L3"
+        : "L2"
+  ),
+
+  preferred_work_mode:
+    profile.preferred_work_mode ??
+    profile.preferredWorkMode ??
+    "hybrid",
+
+  primary_skills:
+    profile.primary_skills ??
+    fallbackSkills,
+
+  notice_period:
+    profile.notice_period ??
+    "2_weeks",
+
+  english_proficiency:
+    profile.english_proficiency ??
+    "fluent",
+
+  sync_affiliation:
+    profile.sync_affiliation ??
+    "member",
+
+  willingness_to_relocate:
+    profile.willingness_to_relocate ??
+    false,
+};
+  const expectedSalary = asRecord(
+  profile.expected_salary,
+);
+
+
+const externalProfiles = asRecord(
+  profile.external_profiles,
+);
   const cvUrl = buildCandidateCvUrl(row.source_uri);
   const timeline = asArray(row.timeline_json).map((entry) => {
     const record = asRecord(entry);
@@ -108,6 +180,108 @@ export function mapRemoteCandidate(row: CandidateDossierRow, chunks: CandidateCh
     storagePath: row.storage_path,
     cvUrl,
     manatalCandidateId: row.manatal_candidate_id ?? null,
+jobReadinessLevel:
+  typeof normalizedProfile.job_readiness_level === "string"
+    ? (normalizedProfile.job_readiness_level as JobReadinessLevel)
+    : row.seniority === "staff" || row.seniority === "senior"
+      ? "L4"
+      : row.seniority === "mid"
+        ? "L3"
+        : "L2",
+
+preferredWorkMode:
+  typeof normalizedProfile.preferred_work_mode === "string"
+    ? (normalizedProfile.preferred_work_mode as PreferredWorkMode)
+    : "hybrid",
+
+    yearsOfExperience:
+  toNumber(
+    profile.years_of_experience,
+    row.years_experience ?? undefined,
+  ),
+
+primarySkills:
+  toStringArray(profile.primary_skills).length
+    ? toStringArray(profile.primary_skills)
+    : toStringArray(row.top_skills),
+
+noticePeriod:
+  typeof normalizedProfile.notice_period === "string"
+    ? (normalizedProfile.notice_period as NoticePeriod)
+    : "1_month",
+
+englishProficiency:
+  typeof normalizedProfile.english_proficiency === "string"
+    ? (normalizedProfile.english_proficiency as EnglishProficiency)
+    : "fluent",
+
+syncAffiliation:
+  typeof normalizedProfile.sync_affiliation === "string"
+    ? (normalizedProfile.sync_affiliation as SyncAffiliation)
+    : null,
+
+internalVettingNotes:
+  typeof profile.internal_vetting_notes === "string"
+    ? profile.internal_vetting_notes
+    : null,
+
+currentLocationCity:
+  typeof profile.current_location_city === "string"
+    ? profile.current_location_city
+    : row.location ?? null,
+
+willingnessToRelocate:
+ typeof normalizedProfile.willingness_to_relocate === "boolean"
+ ? normalizedProfile.willingness_to_relocate
+ : undefined,
+externalProfiles:
+  Object.keys(externalProfiles).length
+    ? {
+        linkedin:
+          externalProfiles.linkedin
+            ? String(
+                externalProfiles.linkedin,
+              )
+            : null,
+
+        github:
+          externalProfiles.github
+            ? String(
+                externalProfiles.github,
+              )
+            : null,
+
+        portfolio:
+          externalProfiles.portfolio
+            ? String(
+                externalProfiles.portfolio,
+              )
+            : null,
+      }
+    : null,
+aiProfileSummary:
+  profile.ai_profile_summary
+    ? String(profile.ai_profile_summary)
+    : null,
+
+employmentTypePreference:
+  toStringArray(
+    profile.employment_type_preference,
+  ) as EmploymentType[],
+
+lastInteractionDate:
+  typeof profile.last_interaction_date === "string"
+    ? profile.last_interaction_date
+    : null,
+
+   expectedSalary:
+{
+ amount: toNumber(expectedSalary.amount,0),
+ currency:
+ typeof expectedSalary.currency === "string"
+ ? expectedSalary.currency
+ : "USD",
+},
     links: toStringArray(row.links),
     education,
     certifications: toStringArray(profile.certifications),
@@ -131,4 +305,72 @@ export function mapRemoteCandidate(row: CandidateDossierRow, chunks: CandidateCh
       cvUrl ? `Drive link: ${cvUrl}` : "",
     ].filter(Boolean),
   };
+}
+
+function mapRemoteCandidateListItem(row: JsonRecord): CandidateListItem {
+  return {
+    tenantId: String(row.tenantId ?? ""),
+    candidateId: String(row.candidateId ?? ""),
+    name: String(row.name ?? "Unnamed candidate"),
+    email: typeof row.email === "string" ? row.email : null,
+    location: String(row.location ?? ""),
+    primaryRole: String(row.primaryRole ?? ""),
+    appliedRole: typeof row.appliedRole === "string" ? row.appliedRole : null,
+    stage: String(row.stage ?? "Unknown"),
+    stageKey: String(row.stageKey ?? "unknown"),
+    source: String(row.source ?? "unknown"),
+    seniority: String(row.seniority ?? ""),
+    updatedAt: String(row.updatedAt ?? ""),
+    groupKey: typeof row.groupKey === "string" ? row.groupKey : null,
+    groupLabel: typeof row.groupLabel === "string" ? row.groupLabel : null,
+  };
+}
+
+export function mapRemoteCandidateListResponse(payload: JsonRecord): CandidateListResponse {
+  const groupByRaw = String(payload.groupBy ?? "");
+  const groupBy = (groupByRaw === "status" || groupByRaw === "role" || groupByRaw === "source" || groupByRaw === "location"
+    ? groupByRaw
+    : "") as CandidateListGroupBy | "";
+  const filterOptions = asRecord(payload.filterOptions);
+  return {
+    items: asArray(payload.items).map((item) => mapRemoteCandidateListItem(asRecord(item))),
+    itemsTotalCount: toNumber(payload.itemsTotalCount),
+    pageLimit: toNumber(payload.pageLimit),
+    pageOffset: toNumber(payload.pageOffset),
+    groupBy: groupBy || null,
+    groups: asArray(payload.groups).map((item) => {
+      const row = asRecord(item);
+      return {
+        key: String(row.key ?? ""),
+        label: String(row.label ?? ""),
+        count: toNumber(row.count),
+      };
+    }),
+    filterOptions: {
+      statuses: toStringArray(filterOptions.statuses),
+      roles: toStringArray(filterOptions.roles),
+      sources: toStringArray(filterOptions.sources),
+      locations: toStringArray(filterOptions.locations),
+    },
+  };
+}
+
+export async function fetchCandidatesListRpc(tenantIds: string[], options: CandidateListOptions = {}): Promise<CandidateListResponse> {
+  const pageSize = Math.max(1, Math.min(200, Math.trunc(options.pageSize ?? 50)));
+  const pageIndex = Math.max(0, Math.trunc(options.pageIndex ?? 0));
+  const filters = options.filters ?? {};
+  const payload = await invokePlatform<JsonRecord>("candidates_list", {
+    tenant_ids: tenantIds,
+    limit: pageSize,
+    offset: pageIndex * pageSize,
+    query: filters.query?.trim() || null,
+    status: filters.status || null,
+    role: filters.role || null,
+    source: filters.source || null,
+    location: filters.location || null,
+    updated_from: filters.updatedFrom || null,
+    updated_to: filters.updatedTo || null,
+    group_by: filters.groupBy || null,
+  });
+  return mapRemoteCandidateListResponse(payload);
 }

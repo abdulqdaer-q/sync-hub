@@ -14,10 +14,12 @@ import {
   Settings2,
   SlidersHorizontal,
   UserPlus,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import {EmptyState} from "@/components/ui";
 import {CandidateDossierPage} from "@/screens/CandidateDossierPage";
+import {CandidateListingPage} from "@/features/candidates";
 import {IntelligentComparisonPage} from "@/screens/IntelligentComparisonPage";
 import {IntelligenceHubPage} from "@/screens/sync-ai";
 import {InsightsDashboardPage} from "@/screens/InsightsDashboardPage";
@@ -64,6 +66,12 @@ export const protectedRoutes: RegisteredRoute[] = [
     element: <SearchDiscoveryPage/>,
     title: "Talent Pool",
     subtitle: "Hybrid retrieval over structured profiles and chunk-level evidence",
+  },
+  {
+    path: "candidates",
+    element: <CandidateListingPage/>,
+    title: "Candidates",
+    subtitle: "Browse, filter, and group your talent pool without semantic ranking",
   },
   {
     path: "chat",
@@ -202,6 +210,12 @@ export const workspaceNavigation: NavigationItem[] = [
     label: "Talent Pool",
     icon: Search,
     match: (path) => path === "/search" || path.startsWith("/search/"),
+  },
+  {
+    to: "/candidates",
+    label: "Candidates",
+    icon: Users,
+    match: (path) => path === "/candidates" || path.startsWith("/candidates/"),
   },
   {
     to: "/jobs",

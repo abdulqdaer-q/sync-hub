@@ -53,6 +53,7 @@ export type CandidateDetail = CandidateSearchResult & {
   storagePath?: string | null;
   cvUrl?: string | null;
   manatalCandidateId?: string | null;
+
   links: string[];
   education: string[];
   certifications: string[];
@@ -61,6 +62,40 @@ export type CandidateDetail = CandidateSearchResult & {
   timeline: TimelineEntry[];
   evidence: EvidenceSnippet[];
   cvPreview: string[];
+
+  status?: CandidateAvailabilityStatus | null;
+
+  jobReadinessLevel?: JobReadinessLevel | null;
+
+  preferredWorkMode?: PreferredWorkMode | null;
+
+  yearsOfExperience?: number | null;
+
+  primarySkills?: string[];
+
+  noticePeriod?: NoticePeriod | null;
+
+  englishProficiency?: EnglishProficiency | null;
+
+  expectedSalary?: ExpectedSalary | null;
+
+  isPreScreened?: boolean;
+
+  syncAffiliation?: SyncAffiliation | null;
+
+  internalVettingNotes?: string | null;
+
+  currentLocationCity?: string | null;
+
+  willingnessToRelocate?: boolean;
+
+  externalProfiles?: ExternalProfiles | null;
+
+  aiProfileSummary?: string | null;
+
+  employmentTypePreference?: EmploymentType[];
+
+  lastInteractionDate?: string | null;
 };
 
 export type SearchFilters = {
@@ -97,6 +132,65 @@ export type SearchResponse = {
     intentSource?: "llm" | "explicit";
     intent?: SearchFilters;
   };
+};
+
+export type CandidateListGroupBy = "status" | "role" | "source" | "location";
+
+export type CandidateListItem = {
+  tenantId: string;
+  candidateId: string;
+  name: string;
+  email?: string | null;
+  location: string;
+  primaryRole: string;
+  appliedRole?: string | null;
+  stage: string;
+  stageKey: string;
+  source: string;
+  seniority: string;
+  updatedAt: string;
+  groupKey?: string | null;
+  groupLabel?: string | null;
+};
+
+export type CandidateListGroup = {
+  key: string;
+  label: string;
+  count: number;
+};
+
+export type CandidateListFilterOptions = {
+  statuses: string[];
+  roles: string[];
+  sources: string[];
+  locations: string[];
+};
+
+export type CandidateListFilters = {
+  query?: string;
+  status?: string;
+  role?: string;
+  source?: string;
+  location?: string;
+  updatedFrom?: string;
+  updatedTo?: string;
+  groupBy?: CandidateListGroupBy | "";
+};
+
+export type CandidateListOptions = {
+  pageSize?: number;
+  pageIndex?: number;
+  filters?: CandidateListFilters;
+};
+
+export type CandidateListResponse = {
+  items: CandidateListItem[];
+  itemsTotalCount: number;
+  pageLimit: number;
+  pageOffset: number;
+  groupBy: CandidateListGroupBy | "" | null;
+  groups: CandidateListGroup[];
+  filterOptions: CandidateListFilterOptions;
 };
 
 export type CandidateShortlistItem = {
@@ -914,4 +1008,56 @@ export type AccessRoster = {
     summary: string;
     permissions: string[];
   }>;
+};
+export type CandidateAvailabilityStatus =
+  | "active"
+  | "passive"
+  | "unavailable";
+
+export type JobReadinessLevel =
+  | "L1"
+  | "L2"
+  | "L3"
+  | "L4"
+  | "L5";
+
+export type PreferredWorkMode =
+  | "onsite"
+  | "remote"
+  | "hybrid";
+
+export type NoticePeriod =
+  | "immediate"
+  | "2_weeks"
+  | "1_month"
+  | "2_months"
+  | "3_months";
+
+export type EnglishProficiency =
+  | "basic"
+  | "intermediate"
+  | "fluent"
+  | "native";
+
+export type EmploymentType =
+  | "full_time"
+  | "part_time"
+  | "contract"
+  | "freelance";
+
+export type SyncAffiliation =
+  | "member"
+  | "bootcamp_graduate"
+  | "mentor"
+  | "partner";
+
+export type ExpectedSalary = {
+  amount: number;
+  currency: string;
+};
+
+export type ExternalProfiles = {
+  linkedin?: string | null;
+  github?: string | null;
+  portfolio?: string | null;
 };
