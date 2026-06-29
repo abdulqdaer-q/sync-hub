@@ -32,7 +32,7 @@ import {
 } from "@/screens/JobPostingsPage";
 import {PublicJobBoardPage, PublicJobDetailPage} from "@/screens/PublicJobBoardPage";
 import {SearchConfigurationPage} from "@/screens/SearchConfigurationPage";
-import {SearchDiscoveryPage} from "@/screens/talent-pool/SearchDiscoveryPage";
+import {SearchDiscoveryPage} from "@/screens/search-discovery/SearchDiscoveryPage";
 import {AccountProvisioningPage} from "@/screens/admin/AccountProvisioningPage";
 import {ManatalSyncStatusPage} from "@/screens/admin/ManatalSyncStatusPage";
 import {OpsAlertsPage} from "@/screens/admin/OpsAlertsPage";
@@ -40,6 +40,7 @@ import {ParsingDetailPage, ParsingLabPage} from "@/features/parsing";
 import {ParsingOverviewPage} from "@/screens/admin/ParsingOverviewPage";
 import {PlatformAdminDashboardPage} from "@/screens/admin/PlatformAdminDashboardPage";
 import {PlatformRuntimeSettingsPage} from "@/screens/admin/PlatformRuntimeSettingsPage";
+import SettingsPage from "@/screens/Settings";
 
 type RegisteredRoute = {
   path: string;
@@ -78,6 +79,12 @@ export const protectedRoutes: RegisteredRoute[] = [
     element: <IntelligenceHubPage/>,
     title: "SYNC AI",
     subtitle: "Grounded recruiter Q&A over corpus-derived or explicitly scoped candidate sets",
+  },
+  {
+    path: "settings",
+    element: <SettingsPage />,
+    title: "Account Settings",
+    subtitle: "Manage workspace selection, password, and session preferences",
   },
   {
     path: "jobs",

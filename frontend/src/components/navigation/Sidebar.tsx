@@ -1,3 +1,5 @@
+// frontend/src/components/navigation/Sidebar.tsx
+
 import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {ChevronDown, PanelLeftClose, PanelLeftOpen, X} from "lucide-react";
 import {adminNavigation, workspaceNavigation} from "@/app/routeRegistry";
@@ -7,8 +9,7 @@ import {cn} from "@/lib/cn";
 import {SyncBrand} from "@/components/ui";
 import {chatStore} from "@/screens/sync-ai";
 
-import dashboardFilled from "@/assets/dashboard_filled.svg";
-import dashboardOutlined from "@/assets/dashboard_outlined.svg";
+import insightsIcon from "@/assets/insights.svg";
 import groupFilled from "@/assets/group_filled.svg";
 import groupOutlined from "@/assets/group_outlined.svg";
 import jobPostingFilled from "@/assets/job-posting-filled.svg";
@@ -129,8 +130,8 @@ const staticNavItems = [
     to: "/insights",
     label: "Insights",
     match: (path: string) => path === "/insights" || path.startsWith("/insights/"),
-    customIconActive: dashboardFilled,
-    customIconInactive: dashboardOutlined,
+    customIconActive: insightsIcon,
+    customIconInactive: insightsIcon,
   },
   {
     to: "/search",
@@ -151,12 +152,18 @@ const staticNavItems = [
 
 export function Sidebar({open, onClose, collapsed, onToggleCollapsed}: SidebarProps) {
   const location = useLocation();
-  const {isAdmin} = useAuth();
+  const {currentTenant, isAdmin} = useAuth();
   const isAdminRoute = location.pathname === "/admin" || location.pathname.startsWith("/admin/");
   const [adminOpen, setAdminOpen] = useState(isAdminRoute);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const chatState = useSyncExternalStore(chatStore.subscribe, chatStore.getSnapshot) as typeof chatStore.state;
+
+  useEffect(() => {
+    if (location.pathname === "/compare" && location.search) {
+      sessionStorage.setItem("sync-last-compare-url", location.pathname + location.search);
+    }
+  }, [location]);
 
   useEffect(() => {
     if (isAdminRoute) setAdminOpen(true);
@@ -183,7 +190,14 @@ export function Sidebar({open, onClose, collapsed, onToggleCollapsed}: SidebarPr
       hasUnread: chatState.hasUnreadResponse,
     },
     ...staticNavItems.slice(3),
-  ], []);
+  ], [chatState.hasUnreadResponse]);
+
+  // Matched exactly to Topbar.tsx
+  const displayName = currentTenant?.name ?? "Active Workspace";
+  const displayRole = currentTenant?.role ?? "Session Member";
+  const displayAvatar =
+    currentTenant?.iconUrl ||
+    "https://images.pexels.com/photos/37884668/pexels-photo-37884668.jpeg?_gl=1*8iun97*_ga*MTMwOTg5MjM4Mi4xNzgyNjY0ODk5*_ga_8JE65Q40S6*czE3ODI2NjQ4OTkkbzEkZzEkdDE3ODI2NjQ5MTUkajQ0JGwwJGgw";
 
   return (
     <>
@@ -241,10 +255,14 @@ export function Sidebar({open, onClose, collapsed, onToggleCollapsed}: SidebarPr
             const isInsights = route.label.toLowerCase() === "insights";
             const active = route.match(location.pathname) || (isInsights && isRootPath);
 
+            const targetTo = route.to === "/compare"
+              ? (sessionStorage.getItem("sync-last-compare-url") || route.to)
+              : route.to;
+
             return (
               <SidebarNavItem
                 key={route.to}
-                to={route.to}
+                to={targetTo}
                 label={route.label}
                 active={active}
                 collapsed={collapsed}
@@ -304,13 +322,42 @@ export function Sidebar({open, onClose, collapsed, onToggleCollapsed}: SidebarPr
           )}
         </nav>
 
-        <div className="shrink-0 p-6 border-t border-[#50c1b8]/10">
-          <div className="flex items-center justify-center px-2 text-center">
-            <span className="font-medium text-[#50c1b8] tracking-wider select-none text-xs block text-center">
-              SYNC Hub
-            </span>
+        {/* Profile Footer */}
+        <Link
+          to="/settings"
+          onClick={onClose}
+          className={cn("shrink-0 border-t border-[#50c1b8]/10 transition-all duration-300 group no-underline", collapsed ? "p-3" : "p-5")}
+        >
+          <div className={cn("flex items-center", collapsed ? "justify-center" : "gap-3.5 text-left")}>
+            <div
+              className="w-11 h-11 rounded-full overflow-hidden shrink-0 transition-all duration-300"
+              style={{
+                border: '1px solid var(--primary)'
+              }}
+            >
+              <img
+                src={displayAvatar}
+                alt={displayName}
+                className="w-full h-full object-cover"
+              />
+            </div>
+
+            {!collapsed && (
+              <div className="flex flex-col overflow-hidden whitespace-nowrap">
+                <span
+                  className="font-semibold text-[15px] text-[var(--text)] group-hover:text-[var(--primary)] leading-tight tracking-tight transition-colors duration-250">
+                  {displayName}
+                </span>
+
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-xs font-medium text-[var(--text-muted)] opacity-85 leading-none">
+                    {displayRole}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        </Link>
       </aside>
     </>
   );
