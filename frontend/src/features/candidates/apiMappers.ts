@@ -402,32 +402,22 @@ longSummary:
       typeof profile.willingness_to_relocate === "boolean"
         ? profile.willingness_to_relocate
         : undefined,
+externalProfiles: {
+  linkedin:
+    typeof externalProfiles.linkedin === "string"
+      ? externalProfiles.linkedin
+      : null,
 
-externalProfiles:
-  Object.keys(externalProfiles).length
-    ? {
-        linkedin:
-          typeof externalProfiles.linkedin === "string"
-            ? externalProfiles.linkedin
-            : typeof externalProfiles.linkedin_url === "string"
-              ? externalProfiles.linkedin_url
-              : null,
+  github:
+    typeof externalProfiles.github === "string"
+      ? externalProfiles.github
+      : null,
 
-        github:
-          typeof externalProfiles.github === "string"
-            ? externalProfiles.github
-            : typeof externalProfiles.github_url === "string"
-              ? externalProfiles.github_url
-              : null,
-
-        portfolio:
-          typeof externalProfiles.portfolio === "string"
-            ? externalProfiles.portfolio
-            : typeof externalProfiles.portfolio_url === "string"
-              ? externalProfiles.portfolio_url
-              : null,
-      }
-    : null,
+  portfolio:
+    typeof externalProfiles.portfolio === "string"
+      ? externalProfiles.portfolio
+      : null,
+},
 
     aiProfileSummary:
       profile.ai_profile_summary

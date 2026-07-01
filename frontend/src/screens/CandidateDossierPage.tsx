@@ -755,64 +755,64 @@ export function CandidateDossierPage() {
   </div>
 </Panel>
 
-{candidate.externalProfiles &&
- Object.values(candidate.externalProfiles).some(Boolean) && (
-  <Panel className="table-card">
+ {candidate.externalProfiles &&
+  Object.values(candidate.externalProfiles).some(Boolean) && (
+    <Panel className="table-card">
 
-    <div className="stack">
+      <div className="stack">
 
-      <h3>
-        External profiles
-      </h3>
+        <h3>
+          External profiles
+        </h3>
 
-      <div className="meta-list">
+        <div className="meta-list">
 
-        {candidate.externalProfiles.linkedin && (
-          <a
-  className="tag"
-  href={candidate.externalProfiles.linkedin}
-  target="_blank"
-  rel="noreferrer noopener"
->
-  🔗 LinkedIn Profile
-</a>
-        )}
-
-        {candidate.externalProfiles.github && (
-          <a
-            className="tag"
-            href={candidate.externalProfiles.github}
-            target="_blank"
-            rel="noreferrer noopener"
+          {candidate.externalProfiles.linkedin && (
+            <a
+              className="tag"
+              href={candidate.externalProfiles.linkedin}
+              target="_blank"
+              rel="noreferrer noopener"
             >
-            💻 GitHub
-          </a>
-        )}
+              <ExternalLink size={14} />
+              LinkedIn
+            </a>
+          )}
 
-        {candidate.externalProfiles.portfolio && (
-          <a
-            className="tag"
-            href={candidate.externalProfiles.portfolio}
-            target="_blank"
-            rel="noreferrer noopener"
+          {candidate.externalProfiles.github && (
+            <a
+              className="tag"
+              href={candidate.externalProfiles.github}
+              target="_blank"
+              rel="noreferrer noopener"
             >
-            🌐 Portfolio
-          </a>
-        )}
+              <ExternalLink size={14} />
+              GitHub
+            </a>
+          )}
+
+          {candidate.externalProfiles.portfolio && (
+            <a
+              className="tag"
+              href={candidate.externalProfiles.portfolio}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              <ExternalLink size={14} />
+              Portfolio
+            </a>
+          )}
+
+        </div>
 
       </div>
 
-    </div>
+    </Panel>
+  )}
 
-  </Panel>
-)}
+<div className="detail-grid">
 
-
-      <div className="detail-grid">
-
-
-        <div className="stack">
-
+  <div className="stack">
 
           <Panel className="timeline-card">
 
