@@ -764,10 +764,16 @@ function createRemoteApi(): PlatformApi {
 
       try {
         const payload = await invokePlatform<JsonRecord>("candidate_detail", { candidate_id: candidateId });
+        
         return mapRemoteCandidate(asRecord(payload.dossier) as CandidateDossierRow, asArray(payload.chunks) as CandidateChunkRow[]);
-      } catch {
-        return fetchCandidateDetailDirect(candidateId);
-      }
+      } catch (error) {
+  console.error(
+    "candidate_detail platform error",
+    error
+  );
+
+  return fetchCandidateDetailDirect(candidateId);
+}
     },
     async compare(candidateIds, requiredSkills) {
       try {

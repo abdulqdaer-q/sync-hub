@@ -60,7 +60,12 @@ export function mapRemoteCandidate(
     ...asRecord((row as CandidateDossierRow & { metadata?: unknown }).metadata),
   };
 
-  const fallbackSkills = toStringArray(row.top_skills);
+  const profileSkills = toStringArray(profile.skills);
+
+const fallbackSkills =
+  profileSkills.length > 0
+    ? profileSkills
+    : toStringArray(row.top_skills);
 
   const normalizeWorkMode = (
     value?: unknown,
@@ -77,15 +82,9 @@ export function mapRemoteCandidate(
     return "hybrid";
   };
 
+  const expectedSalary = asRecord(profile.expected_salary);
 
-  const expectedSalary = asRecord(
-    profile.expected_salary,
-  );
-
-
-  const externalProfiles = asRecord(
-    profile.external_profiles,
-  );
+  const externalProfiles = asRecord(profile.external_profiles);
 
 
   const cvUrl = buildCandidateCvUrl(
@@ -180,27 +179,29 @@ export function mapRemoteCandidate(
     name: row.name,
 
     currentTitle:
-      row.current_title ?? "Candidate",
+  String(profile.current_title ?? "") ||
+  row.current_title ||
+  "Candidate",
 
 
-    headline:
-      row.headline ??
-      row.short_summary ??
-      row.summary_short ??
-      row.current_title ??
-      "Candidate",
+ headline:
+  String(profile.headline ?? "") ||
+  row.headline ||
+  row.short_summary ||
+  row.summary_short ||
+  row.current_title ||
+  "Candidate",
 
 
     location:
       row.location ?? "Unknown",
 
-
-   yearsExperience:
-  toNumber(
-    profile.years_of_experience,
-    row.years_experience ?? 0,
-  ),
-
+yearsExperience:
+toNumber(
+  profile.years_experience,
+  row.years_experience ??
+  0,
+),
 
     seniority:
       row.seniority ?? "unknown",
@@ -243,11 +244,19 @@ export function mapRemoteCandidate(
     },
 
 
-    shortSummary:
-      row.short_summary ??
-      row.summary_short ??
-      "",
+  shortSummary:
+  String(profile.summary ?? "") ||
+  row.short_summary ||
+  row.summary_short ||
+  "",
 
+longSummary:
+  String(profile.summary ?? "") ||
+  row.long_summary ||
+  row.short_summary ||
+  row.summary_short ||
+  row.headline ||
+  "",
 
     strengths:
       toStringArray(row.strengths),
@@ -273,15 +282,6 @@ export function mapRemoteCandidate(
       row.short_summary ??
       row.summary_short ??
       "Grounded dossier view from candidate_dossier_v1.",
-
-
-    longSummary:
-      row.long_summary ??
-      row.short_summary ??
-      row.summary_short ??
-      "",
-
-
 
     email:
       row.email,
@@ -604,17 +604,18 @@ export async function fetchCandidatesListRpc(tenantIds: string[], options: Candi
   const pageIndex = Math.max(0, Math.trunc(options.pageIndex ?? 0));
   const filters = options.filters ?? {};
   const payload = await invokePlatform<JsonRecord>("candidates_list", {
-    tenant_ids: tenantIds,
-    limit: pageSize,
-    offset: pageIndex * pageSize,
-    query: filters.query?.trim() || null,
-    status: filters.status || null,
-    role: filters.role || null,
-    source: filters.source || null,
-    location: filters.location || null,
-    updated_from: filters.updatedFrom || null,
-    updated_to: filters.updatedTo || null,
-    group_by: filters.groupBy || null,
-  });
+  tenant_ids: tenantIds,
+  limit: pageSize,
+  offset: pageIndex * pageSize,
+  query: filters.query?.trim() || null,
+  status: filters.status || null,
+  role: filters.role || null,
+  source: filters.source || null,
+  location: filters.location || null,
+  updated_from: filters.updatedFrom || null,
+  updated_to: filters.updatedTo || null,
+  group_by: filters.groupBy || null,
+});
+
   return mapRemoteCandidateListResponse(payload);
 }

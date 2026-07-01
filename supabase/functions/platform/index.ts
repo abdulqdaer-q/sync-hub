@@ -2105,8 +2105,8 @@ async function getCandidateDetail(
     supabase
       .from("candidate_dossier_v1")
       .select(
-        "candidate_id, source_document_id, tenant_id, name, headline, current_title, location, years_experience, seniority, primary_role, top_skills, email, phone, links, summary_short, short_summary, long_summary, strengths, risks, recommended_roles, timeline_json, profile_json, original_filename, mime_type, storage_path, source_uri, confidence",
-      )
+    "profile_json, timeline_json, skill_matrix_json, profile_attributes, raw_text, confidence, missing_fields, parse_warnings"
+)
       .eq("candidate_id", candidateId)
       .maybeSingle(),
     supabase
@@ -2117,7 +2117,44 @@ async function getCandidateDetail(
       .order("chunk_index", { ascending: true })
       .limit(6),
   ]);
+  const candidateProfileResult = await supabase
+  .from("candidate_profiles")
+  .select(
+    `
+    profile_json,
+    timeline_json,
+    skill_matrix_json,
+    raw_text,
+    confidence,
+    missing_fields,
+    parse_warnings,
+    status,
+    job_readiness_level,
+    preferred_work_mode,
+    years_of_experience,
+    primary_skills,
+    notice_period,
+    english_proficiency,
+    expected_salary,
+    is_pre_screened,
+    sync_affiliation,
+    internal_vetting_notes,
+    current_location_city,
+    willingness_to_relocate,
+    external_profiles,
+    ai_profile_summary,
+    employment_type_preference,
+    last_interaction_date
+    `
+  )
+  .eq("candidate_id", candidateId)
+  .maybeSingle();
 
+if (candidateProfileResult.error) {
+  throw candidateProfileResult.error;
+}
+
+const profile = candidateProfileResult.data;
   if (dossier.error) {
     throw dossier.error;
   }
@@ -2149,13 +2186,14 @@ async function getCandidateDetail(
     }
   }
 
-  return {
-    dossier: {
-      ...dossier.data,
-      manatal_candidate_id: manatalCandidateId,
-    },
-    chunks: chunks.data ?? [],
-  };
+ return {
+  candidate: dossier.data,
+  chunks: chunks.data ?? [],
+  profile: profile ?? null,
+  profileAttributes:
+    profile?.profile_attributes ?? null,
+  manatalCandidateId,
+};
 }
 
 function asInteger(value: unknown, fallback: number, min: number, max: number) {
@@ -4131,11 +4169,62 @@ Deno.serve(async (req) => {
           200,
           await acknowledgeOpsAlert(supabase, asString(body.dedupe_key) ?? ""),
         );
-      case "candidate_detail":
-        return jsonResponse(
-          200,
-          await getCandidateDetail(supabase, asString(body.candidate_id) ?? ""),
-        );
+      case "candidate_detail": {
+  const result = await getCandidateDetail(
+    supabase,
+    asString(body.candidate_id) ?? ""
+  );
+
+  return jsonResponse(200, {
+    candidate: result.candidate,
+    chunks: result.chunks,
+    evidence: result.chunks ?? [],
+
+    profile: {
+      // core identity (legacy safe)
+      status: result.profile?.status ?? null,
+      job_readiness_level: result.profile?.job_readiness_level ?? "L1",
+      preferred_work_mode: result.profile?.preferred_work_mode ?? null,
+      years_of_experience: result.profile?.years_of_experience ?? null,
+      primary_skills: result.profile?.primary_skills ?? [],
+      notice_period: result.profile?.notice_period ?? null,
+      english_proficiency: result.profile?.english_proficiency ?? null,
+
+      // compensation
+      expected_salary: result.profile?.expected_salary ?? null,
+
+      // vetting
+      is_pre_screened: result.profile?.is_pre_screened ?? false,
+      sync_affiliation: result.profile?.sync_affiliation ?? null,
+      internal_vetting_notes: result.profile?.internal_vetting_notes ?? null,
+
+      // location
+      current_location_city:
+        result.profile?.current_location_city ??
+        result.candidate?.location ??
+        null,
+
+      willingness_to_relocate:
+        result.profile?.willingness_to_relocate ?? null,
+
+      // metadata
+      external_profiles: result.profile?.external_profiles ?? {},
+      ai_profile_summary:
+        result.profile?.ai_profile_summary ??
+        result.candidate?.summary_short ??
+        result.candidate?.long_summary ??
+        null,
+
+      employment_type_preference:
+        result.profile?.employment_type_preference ?? [],
+
+      last_interaction_date:
+        result.profile?.last_interaction_date ?? null,
+    },
+
+    manatalCandidateId: result.manatalCandidateId ?? null,
+  });
+}
       case "parsing_overview":
         return jsonResponse(
           200,

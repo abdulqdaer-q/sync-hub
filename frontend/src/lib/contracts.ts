@@ -45,6 +45,7 @@ export type CandidateSearchResult = {
 };
 
 export type CandidateDetail = CandidateSearchResult & {
+  profileAttributes?: Record<string, unknown> | null;
   longSummary: string;
   email?: string | null;
   phone?: string | null;
@@ -62,7 +63,11 @@ export type CandidateDetail = CandidateSearchResult & {
   timeline: TimelineEntry[];
   evidence: EvidenceSnippet[];
   cvPreview: string[];
+  strengths?: string[];
 
+risks?: string[];
+
+recommendedRoles?: string[];
   status?: CandidateAvailabilityStatus | null;
 
   jobReadinessLevel?: JobReadinessLevel | null;
