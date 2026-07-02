@@ -4,8 +4,9 @@ import tempfile
 import asyncio
 import logging
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, Security, HTTPException, status, Depends
 from fastapi.responses import StreamingResponse
+from fastapi.security import APIKeyHeader
 import httpx
 
 # Configure standard logging
@@ -21,6 +22,16 @@ import copy
 from cv_intelligence_worker.supabase_client import SupabaseSyncClient
 
 app = FastAPI(title="Realtime CV Extraction")
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
+
+def verify_api_key(api_key: str = Security(api_key_header)):
+    config = WorkerConfig.from_env()
+    if not config.api_key:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="API Key not configured on server")
+    if api_key != config.api_key:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API Key")
+    return api_key
 
 def build_extended_system_prompt() -> str:
     base_prompt = _extractor_system_prompt().split("Output schema:\n")[0]
@@ -81,22 +92,30 @@ def sync_to_supabase_background(user_id: str, file_name: str, mime_type: str, ra
         logger.info("[DB SYNC] No Supabase credentials, skipping sync")
         return
 
+    supabase = SupabaseSyncClient(config.supabase_url, config.supabase_service_key)
+
     try:
         parsed_json = json.loads(raw_json_str)
-        # استخراج نسب الثقة لفصلها
         field_confidence = parsed_json.pop("field_confidence", {})
     except json.JSONDecodeError as e:
         logger.error(f"[DB SYNC] Failed to decode final JSON for Supabase: {e}")
+        try:
+            supabase.upsert_rows("candidate_registration_drafts", [{
+                "user_id": user_id,
+                "parse_status": "failed",
+                "parse_error": f"JSON decode error: {e}",
+            }], on_conflict="user_id")
+        except Exception as db_err:
+            logger.error(f"[DB SYNC] Failed to mark draft as failed: {db_err}")
         return
 
-    supabase = SupabaseSyncClient(config.supabase_url, config.supabase_service_key)
+    from datetime import datetime, timezone
     row = {
         "user_id": user_id,
-        "cv_original_filename": file_name,
-        "cv_mime_type": mime_type,
         "parsed_profile_json": parsed_json,
         "field_confidence_json": field_confidence,
         "parse_status": "completed",
+        "parse_completed_at": datetime.now(timezone.utc).isoformat(),
     }
 
     try:
@@ -104,12 +123,21 @@ def sync_to_supabase_background(user_id: str, file_name: str, mime_type: str, ra
         logger.info(f"[DB SYNC] Successfully synced profile draft for user: {user_id}")
     except Exception as e:
         logger.error(f"[DB SYNC] Failed to sync to Supabase: {e}")
+        try:
+            supabase.upsert_rows("candidate_registration_drafts", [{
+                "user_id": user_id,
+                "parse_status": "failed",
+                "parse_error": f"DB sync error: {e}",
+            }], on_conflict="user_id")
+        except Exception as db_err:
+            logger.error(f"[DB SYNC] Failed to mark draft as failed: {db_err}")
 
 @app.post("/api/v1/parse-cv-fast")
 async def parse_cv_endpoint(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),  # noqa: B008
-    user_id: str = Form(...)       # noqa: B008
+    user_id: str = Form(...),      # noqa: B008
+    api_key: str = Depends(verify_api_key)
 ):
     # Dynamic config picking up os.environ variables
     config = WorkerConfig.from_env()
