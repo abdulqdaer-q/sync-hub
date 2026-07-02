@@ -660,11 +660,13 @@ export function CandidateDossierPage() {
               </Tag>
               )}
 
-              {candidate.isPreScreened && (
-                <Tag tone="success">
-                  Pre-screened
-                </Tag>
-              )}
+             {candidate.isPreScreened !== undefined && (
+   <Tag tone={candidate.isPreScreened ? "success" : "warning"}>
+    {candidate.isPreScreened
+        ? "✓ Pre-screened"
+        : "Not pre-screened"}
+</Tag>
+)}
 
             </div>
 
@@ -701,25 +703,64 @@ export function CandidateDossierPage() {
     English: {candidate.englishProficiency}
   </div>
 )}
+{candidate.primarySkills?.length && (
+  <>
+    <strong>Primary skills</strong>
+
+    <div className="skill-list">
+      {candidate.primarySkills.map((skill) => (
+        <Tag key={skill} tone="primary">
+          {skill}
+        </Tag>
+      ))}
+    </div>
+  </>
+)}
+{candidate.employmentTypePreference?.length && (
+  <>
+    <strong>Employment type</strong>
+
+    <div className="skill-list">
+      {candidate.employmentTypePreference.map((type) => (
+        <Tag key={type}>
+          {type
+            .replaceAll("_", " ")
+            .replace(/\b\w/g, (c) => c.toUpperCase())}
+        </Tag>
+      ))}
+    </div>
+  </>
+)}
+{candidate.lastInteractionDate && (
+  <div>
+   Last interaction:{" "}
+{new Date(candidate.lastInteractionDate).toLocaleDateString(undefined, {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+})}
+  </div>
+)}
 
             {candidate.willingnessToRelocate !==
               undefined && (
-              <span className="tag">
-                Relocation:{" "}
-                {candidate.willingnessToRelocate
-                  ? "Open"
-                  : "Not available"}
-              </span>
+             <span className="tag">
+  {candidate.willingnessToRelocate
+    ? "Open to relocation"
+    : "Not open to relocation"}
+</span>
             )}
 
-        {candidate.expectedSalary?.amount && (
-  <span className="tag">
-    Expected salary:{" "}
-    {candidate.expectedSalary.amount}{" "}
-    {candidate.expectedSalary.currency}
-  </span>
+       {candidate.expectedSalary &&
+ candidate.expectedSalary.amount !== undefined && (
+   <span className="tag">
+  Expected salary:
+  {" "}
+  {candidate.expectedSalary.currency}
+  {" "}
+  {candidate.expectedSalary.amount.toLocaleString()}
+</span>
 )}
-
             {candidate.noticePeriod && (
               <span className="tag">
                 Notice:{" "}

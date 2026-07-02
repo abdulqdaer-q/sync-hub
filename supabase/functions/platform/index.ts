@@ -508,7 +508,7 @@ async function getSearchFilterOptions(
     throw tenantResult.error;
   }
   const excludedCompanyTerms = buildCompanyExclusionTerms(
-    (tenantResult.data ?? []).flatMap((tenant) => [
+    (tenantResult.data ?? []).flatMap((tenant: { slug?: unknown; name?: unknown }) => [
       String(tenant.slug ?? ""),
       String(tenant.name ?? ""),
     ]),
@@ -517,7 +517,7 @@ async function getSearchFilterOptions(
   return {
     seniority: dedupeSorted(
       rows
-        .map((row) => row.seniority ?? "")
+        .map((row: { seniority: string | null }) => row.seniority ?? "")
         .filter((value) => value && value !== "unclassified"),
     ),
     skills: dedupeSorted(
@@ -4179,7 +4179,7 @@ async function saveJobShortlist(
   return getJobShortlist(supabase, savedShortlistId);
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }

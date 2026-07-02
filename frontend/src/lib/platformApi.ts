@@ -531,15 +531,10 @@ async function fetchCandidateDetailDirect(
   }
 
   return mapRemoteCandidate(
-    {
-      ...(asRecord(dossier.data) as CandidateDossierRow),
-      manatal_candidate_id:
-        await fetchManatalCandidateIdByCandidateId(candidateId),
-    },
+    dossier.data as CandidateDossierRow,
     asArray(chunks.data) as CandidateChunkRow[],
   );
 }
-
 async function fetchManatalCandidateIdByCandidateId(
   candidateId: string,
 ): Promise<string | null> {

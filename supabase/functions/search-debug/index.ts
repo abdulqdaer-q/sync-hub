@@ -196,7 +196,7 @@ async function fetchTenantCompanyExclusionTerms(
   }
 
   return buildCompanyExclusionTerms(
-    (data ?? []).flatMap((tenant) => [tenant.slug, tenant.name]),
+    (data ?? []).flatMap((tenant: { slug?: unknown; name?: unknown }) => [tenant.slug, tenant.name]),
   );
 }
 

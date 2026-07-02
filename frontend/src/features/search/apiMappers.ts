@@ -293,7 +293,7 @@ export function createFallbackSearchFilterOptions(): SearchFilterOptions {
 export function mapSearchFilterOptions(rows: CandidateSearchFacetRow[]): SearchFilterOptions {
   const seniority = dedupeSorted(
     rows
-      .map((row) => row.seniority ?? "")
+      .map((row: { seniority: string | null }) => row.seniority ?? "")
       .filter((value) => value && value !== "unclassified"),
   ).map((value) => ({
     value,

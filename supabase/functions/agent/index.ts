@@ -143,7 +143,7 @@ function buildFallbackAnswer(
   return [...summaries, ...excerpts].join("\n\n").trim();
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
