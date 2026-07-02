@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Panel } from "@/components/ui";
+import { InsightsAiBriefTab } from "@/features/insights/components/InsightsAiBriefTab";
 import { InsightsGapTab } from "@/features/insights/components/InsightsGapTab";
 import { InsightsOverviewTab } from "@/features/insights/components/InsightsOverviewTab";
 import { InsightsSkillsTab } from "@/features/insights/components/InsightsSkillsTab";
@@ -186,6 +187,10 @@ export function InsightsDashboardPage() {
           onGapDraftChange={setGapDraft}
           onRunGapUseCase={runGapUseCase}
         />
+      ) : null}
+
+      {activeTab === "tab4" ? (
+        <InsightsAiBriefTab snapshot={snapshot} tenantIds={tenantIds} />
       ) : null}
     </div>
   );

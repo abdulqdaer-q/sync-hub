@@ -18,6 +18,9 @@
   DataConnector,
   EmployerRegion,
   IndexingWorkbench,
+  InsightReportInput,
+  InsightReportRun,
+  InsightReportRunDetail,
   JobApplicationStatus,
   JobCandidateMatch,
   JobExtractionResult,
@@ -57,6 +60,11 @@ import {
   mapRemoteInsightsDashboard,
   mapRemoteInsightsGapAnalysis,
 } from "@/features/insights/api";
+import {
+  mapRemoteInsightReportRun,
+  mapRemoteInsightReportRunDetail,
+} from "@/features/insights/reportApiMappers";
+import { buildMockInsightReport } from "@/features/insights/insightReport.helpers";
 import {
   jobPostingPayload,
   mapPublicReceipt,
@@ -1897,6 +1905,54 @@ function createMockApi(): PlatformApi {
         targetSkills,
       };
     },
+    async startInsightReport(input, tenantIds) {
+      await wait(120);
+      const targetSkills = resolveGapRequirements(
+        { targetRole: input.focus ?? input.targetRole, targetSkills: input.targetSkills },
+        insightsDashboardSnapshot.skillsFrequency.map((item) => item.skill),
+      );
+      const dashboard = {
+        ...insightsDashboardSnapshot,
+        gapAnalysis: {
+          ...insightsDashboardSnapshot.gapAnalysis,
+          targetRole: input.focus ?? input.targetRole ?? insightsDashboardSnapshot.gapAnalysis.targetRole,
+          targetSkills,
+        },
+      };
+      const report = buildMockInsightReport(
+        dashboard,
+        input.reportType,
+        input.focus ?? input.targetRole,
+      );
+      const now = new Date().toISOString();
+      return {
+        run: {
+          id: crypto.randomUUID(),
+          tenantId: tenantIds?.[0] ?? "mock-tenant",
+          initiatedByUserId: null,
+          status: "completed",
+          reportType: input.reportType,
+          inputConfig: {
+            reportType: input.reportType,
+            focus: input.focus ?? input.targetRole ?? null,
+          },
+          failureReason: null,
+          llmProvider: "mock",
+          llmModel: "local-demo",
+          startedAt: now,
+          completedAt: now,
+          createdAt: now,
+        },
+        report,
+      };
+    },
+    async listInsightReportRuns(_tenantIds, _limit = 20) {
+      await wait(60);
+      return [];
+    },
+    async getInsightReportRun(_runId) {
+      throw new Error("Insight report run was not found.");
+    },
     async getSystemHealth() {
       await wait(80);
       return systemHealth;
@@ -2506,6 +2562,87 @@ function createRemoteApi(): PlatformApi {
             tenantIds,
           )
         ).gapAnalysis;
+      }
+    },
+    async startInsightReport(input, tenantIds) {
+      if (!supabase || !tenantIds?.length) {
+        return mock.startInsightReport(input, tenantIds);
+      }
+      try {
+        const payload = await invokePlatform<unknown>("start_insight_report", {
+          tenant_ids: tenantIds,
+          report_type: input.reportType,
+          focus: input.focus ?? input.targetRole ?? null,
+          target_role: input.focus ?? input.targetRole ?? null,
+          target_skills: input.targetSkills ?? [],
+          top_skills: input.topSkills ?? 50,
+        });
+        return mapRemoteInsightReportRunDetail(payload);
+      } catch (error) {
+        if (!tenantIds?.length) {
+          throw error;
+        }
+        const dashboard = await mock.getInsightsDashboard(
+          {
+            topSkills: input.topSkills ?? 50,
+            targetRole: input.reportType === "gap_brief" ? input.focus ?? input.targetRole : undefined,
+            targetSkills: input.targetSkills,
+          },
+          tenantIds,
+        );
+        const report = buildMockInsightReport(
+          dashboard,
+          input.reportType,
+          input.focus ?? input.targetRole,
+        );
+        const now = new Date().toISOString();
+        return {
+          run: {
+            id: crypto.randomUUID(),
+            tenantId: tenantIds[0],
+            initiatedByUserId: null,
+            status: "completed",
+            reportType: input.reportType,
+            inputConfig: {
+              reportType: input.reportType,
+              focus: input.focus ?? input.targetRole ?? null,
+            },
+            failureReason: null,
+            llmProvider: "heuristic",
+            llmModel: "client-fallback",
+            startedAt: now,
+            completedAt: now,
+            createdAt: now,
+          },
+          report,
+        };
+      }
+    },
+    async listInsightReportRuns(tenantIds, limit = 20) {
+      if (!supabase || !tenantIds?.length) {
+        return mock.listInsightReportRuns(tenantIds, limit);
+      }
+      try {
+        const rows = await invokePlatform<unknown[]>("insight_report_runs", {
+          tenant_ids: tenantIds,
+          limit,
+        });
+        return (rows ?? []).map(mapRemoteInsightReportRun);
+      } catch {
+        return mock.listInsightReportRuns(tenantIds, limit);
+      }
+    },
+    async getInsightReportRun(runId) {
+      if (!supabase) {
+        return mock.getInsightReportRun(runId);
+      }
+      try {
+        const payload = await invokePlatform<unknown>("insight_report_run", {
+          run_id: runId,
+        });
+        return mapRemoteInsightReportRunDetail(payload);
+      } catch (error) {
+        return mock.getInsightReportRun(runId);
       }
     },
     async getSystemHealth() {
