@@ -162,15 +162,19 @@ async def parse_cv_endpoint(
     # 1. Parse Document (Using existing robust logic)
     suffix = Path(file.filename).suffix if file.filename else ".pdf"
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read(MAX_FILE_SIZE + 1)
-        if len(content) > MAX_FILE_SIZE:
-            raise HTTPException(status_code=413, detail="File too large (exceeds 5MB limit)")
-        
-        tmp.write(content)
-        tmp_path = tmp.name
+    # Read content BEFORE creating temp file to avoid a temp-file leak if the
+    # size validation raises HTTPException (delete=False files are not cleaned up
+    # automatically when an exception is thrown inside the with-block).
+    content = await file.read(MAX_FILE_SIZE + 1)
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (exceeds 5MB limit)")
 
+    tmp_path: str | None = None
     try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
         source = DocumentSource(
             tenant_id="default",
             source_path=tmp_path,
@@ -187,7 +191,7 @@ async def parse_cv_endpoint(
         document_text = await loop.run_in_executor(None, parse_document, source)
 
     finally:
-        if os.path.exists(tmp_path):
+        if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
 
     # 2. Build Prompt (Re-using original logic but with extended schema)

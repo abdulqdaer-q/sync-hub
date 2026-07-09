@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import Callable
 from uuid import uuid4
 
@@ -34,9 +36,25 @@ class DraftIngestion:
                 emit(f"failed to mark draft {user_id} as parsing: {db_err}")
                 continue
 
+            storage_path = draft.get("cv_storage_path")
+            local_tmp_path = None
+            if storage_path:
+                bucket = self.config.supabase_storage_bucket
+                if bucket == "cv-originals" or not bucket:
+                    bucket = "candidate-cvs"
+                
+                _, ext = os.path.splitext(storage_path)
+                fd, local_tmp_path = tempfile.mkstemp(suffix=ext or ".pdf")
+                os.close(fd)
+                try:
+                    self.supabase.download_file(bucket, storage_path, local_tmp_path)
+                except Exception as dl_err:
+                    emit(f"failed to download CV from storage for user {user_id}: {dl_err}")
+                    continue
+            
             source = DocumentSource(
                 tenant_id=self.config.tenant_id or "default",
-                source_path=draft.get("cv_storage_path") or f"draft_{user_id}.pdf",
+                source_path=local_tmp_path or f"draft_{user_id}.pdf",
                 source_type="candidate_draft",
                 original_filename=draft.get("cv_original_filename") or f"draft_{user_id}.pdf",
                 mime_type=draft.get("cv_mime_type") or "application/pdf",
@@ -75,5 +93,11 @@ class DraftIngestion:
                     })
                 except Exception as db_err:
                     emit(f"failed to record error for draft {user_id}: {db_err}")
+            finally:
+                if local_tmp_path and os.path.exists(local_tmp_path):
+                    try:
+                        os.remove(local_tmp_path)
+                    except OSError:
+                        pass
 
         return processed
