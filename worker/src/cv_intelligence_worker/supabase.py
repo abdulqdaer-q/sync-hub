@@ -712,3 +712,17 @@ class SupabaseClient:
             data=payload,
             headers={"Prefer": "return=minimal"},
         )
+
+    def update_candidate_by_registered_user(self, user_id: str, payload: dict[str, Any]) -> None:
+        """Patch the candidates row whose uploaded_by matches the registering user_id.
+
+        Called after a successful draft publish to stamp registered_user_id,
+        is_published, and published_at onto the row that the pipeline created.
+        """
+        query = urllib.parse.urlencode({"uploaded_by": f"eq.{user_id}"})
+        self._request(
+            "PATCH",
+            f"/rest/v1/candidates?{query}",
+            data=payload,
+            headers={"Prefer": "return=minimal"},
+        )

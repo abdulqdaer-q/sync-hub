@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from datetime import datetime, timezone
 from typing import Callable
 from uuid import uuid4
 
@@ -79,6 +80,24 @@ class DraftIngestion:
                 )
                 if result.failures:
                     raise RuntimeError(result.failures[0].get("error") or "Validation/Ingestion failed")
+
+                # Bug#5: set registration fields on the candidates row.
+                # Find the candidate that was just written — it is keyed by
+                # uploaded_by (user_id) since that is what the pipeline uses as
+                # the stable identity for a self-registered candidate.
+                now_iso = datetime.now(timezone.utc).isoformat()
+                try:
+                    self.supabase.update_candidate_by_registered_user(
+                        user_id=user_id,
+                        payload={
+                            "registered_user_id": user_id,
+                            "is_published": True,
+                            "published_at": now_iso,
+                        },
+                    )
+                except Exception as patch_err:
+                    emit(f"warning: could not set registration fields on candidates row for {user_id}: {patch_err}")
+
                 try:
                     self.supabase.update_candidate_draft(user_id, {"parse_status": "published"})
                 except Exception as db_err:
