@@ -258,23 +258,55 @@ export function mapRemoteCandidate(
       [],
   );
 
-  const externalProfiles = {
-    linkedin:
-      externalLinks.find((link) =>
-        link.toLowerCase().includes("linkedin.com"),
-      ) ?? null,
+  function getExternalProfileUrl(
+  links: string[],
+  domain: string,
+): string | null {
+  return (
+    links.find((link) => {
+      try {
+        const url = new URL(link);
+        const hostname = url.hostname.toLowerCase();
 
-    github:
-      externalLinks.find((link) => link.toLowerCase().includes("github.com")) ??
-      null,
+        return (
+          hostname === domain ||
+          hostname.endsWith(`.${domain}`)
+        );
+      } catch {
+        return false;
+      }
+    }) ?? null
+  );
+}
 
-    portfolio:
-      externalLinks.find(
-        (link) =>
-          !link.toLowerCase().includes("linkedin.com") &&
-          !link.toLowerCase().includes("github.com"),
-      ) ?? null,
-  };
+const externalProfiles = {
+  linkedin: getExternalProfileUrl(
+    externalLinks,
+    "linkedin.com",
+  ),
+
+  github: getExternalProfileUrl(
+    externalLinks,
+    "github.com",
+  ),
+
+  portfolio:
+    externalLinks.find((link) => {
+      try {
+        const url = new URL(link);
+        const hostname = url.hostname.toLowerCase();
+
+        return (
+          hostname !== "linkedin.com" &&
+          !hostname.endsWith(".linkedin.com") &&
+          hostname !== "github.com" &&
+          !hostname.endsWith(".github.com")
+        );
+      } catch {
+        return false;
+      }
+    }) ?? null,
+};
 
   const cvUrl = buildCandidateCvUrl(row.source_uri);
 
