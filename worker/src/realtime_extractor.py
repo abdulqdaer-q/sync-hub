@@ -5,6 +5,7 @@ import asyncio
 import logging
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, Security, HTTPException, status, Depends, Request
+import uuid
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 import httpx
@@ -28,7 +29,8 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 def verify_api_key(api_key: str = Security(api_key_header)):
     config = WorkerConfig.from_env()
     if not config.api_key:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="API Key not configured on server")
+        logger.error("API Key not configured on server")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API Key")
     if api_key != config.api_key:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API Key")
     return api_key
@@ -148,6 +150,12 @@ async def parse_cv_endpoint(
                 raise HTTPException(status_code=413, detail="File too large (exceeds 5MB limit)")
         except ValueError:
             pass
+            
+    try:
+        uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id format. Must be a valid UUID.")
+        
     # Dynamic config picking up os.environ variables
     config = WorkerConfig.from_env()
 
