@@ -1,6 +1,13 @@
-# CV Intelligence Platform
+# Sync Hub
 
-Offline-first CV search, ranking, and candidate analysis for recruiter workflows.
+### Open-source CV intelligence for talent discovery
+
+Sync Hub is a privacy-conscious platform developed by
+[SYNC NGO](https://sync.ngo/) for searching, ranking, and analyzing
+candidate profiles.
+
+It combines offline CV processing with tenant-isolated search,
+candidate comparison, and recruitment intelligence tools.
 
 ## What this repo contains
 
