@@ -4,8 +4,6 @@ Open-source, privacy-conscious CV intelligence for talent discovery and recruitm
 
 Sync Hub is developed by [SYNC NGO](https://sync.ngo/). It helps recruitment teams search, rank, compare, and analyze candidate profiles while keeping processing explainable and tenant data isolated.
 
-> **Project status:** Active development. Interfaces and deployment procedures may change before the first stable release.
-
 ## Features
 
 * Semantic and keyword-based candidate search
