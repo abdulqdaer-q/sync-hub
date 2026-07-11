@@ -4,6 +4,7 @@ import time
 import tempfile
 import asyncio
 import logging
+import hmac
 from collections import defaultdict, deque
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, Security, HTTPException, status, Depends, Request
@@ -52,12 +53,22 @@ def _check_rate_limit(api_key: str) -> None:
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
+
+def _detect_allowed_mime_type(file_bytes: bytes) -> str | None:
+    if file_bytes.startswith(b"%PDF-"):
+        return "application/pdf"
+    if file_bytes.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        return "application/msword"
+    if file_bytes.startswith(b"PK\x03\x04") or file_bytes.startswith(b"PK\x05\x06") or file_bytes.startswith(b"PK\x07\x08"):
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return None
+
 def verify_api_key(api_key: str = Security(api_key_header)):
     config = WorkerConfig.from_env()
     if not config.api_key:
         logger.error("API Key not configured on server")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API Key")
-    if api_key != config.api_key:
+    if not hmac.compare_digest(api_key, config.api_key):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API Key")
     return api_key
 
@@ -176,11 +187,11 @@ async def parse_cv_endpoint(
                 raise HTTPException(status_code=413, detail="File too large (exceeds 5MB limit)")
         except ValueError:
             pass
-            
+
     try:
         uuid.UUID(user_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id format. Must be a valid UUID.")
+        raise HTTPException(status_code=400, detail="Invalid user_id format. Must be a valid UUID.") from None
 
     # H2: enforce per-key rate limit and global concurrency cap
     _check_rate_limit(api_key)
@@ -204,6 +215,12 @@ async def parse_cv_endpoint(
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (exceeds 5MB limit)")
 
+    detected_mime_type = _detect_allowed_mime_type(content)
+    if not detected_mime_type:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only PDF and Word documents are allowed.")
+    if file.content_type and file.content_type != detected_mime_type:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only PDF and Word documents are allowed.")
+
     tmp_path: str | None = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -215,7 +232,7 @@ async def parse_cv_endpoint(
             source_path=tmp_path,
             source_type="file",
             original_filename=file.filename or "cv",
-            mime_type=file.content_type or "application/pdf",
+            mime_type=detected_mime_type,
             document_id="tmp",
             document_sha256="tmp",
             ingestion_run_id="tmp"
@@ -283,7 +300,7 @@ async def parse_cv_endpoint(
                 sync_to_supabase_background,
                 user_id=user_id,
                 file_name=file.filename or "cv",
-                mime_type=file.content_type or "application/pdf",
+                mime_type=detected_mime_type,
                 raw_json_str=full_json,
                 config=config
             )
