@@ -11,6 +11,47 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+const fastApiProxyTimeoutMs = Number(Deno.env.get("FASTAPI_PROXY_TIMEOUT_MS") || "75000");
+
+function detectAllowedMimeType(fileBytes: Uint8Array): string | null {
+  if (
+    fileBytes.length >= 5 &&
+    fileBytes[0] === 0x25 &&
+    fileBytes[1] === 0x50 &&
+    fileBytes[2] === 0x44 &&
+    fileBytes[3] === 0x46 &&
+    fileBytes[4] === 0x2d
+  ) {
+    return "application/pdf";
+  }
+
+  if (
+    fileBytes.length >= 8 &&
+    fileBytes[0] === 0xd0 &&
+    fileBytes[1] === 0xcf &&
+    fileBytes[2] === 0x11 &&
+    fileBytes[3] === 0xe0 &&
+    fileBytes[4] === 0xa1 &&
+    fileBytes[5] === 0xb1 &&
+    fileBytes[6] === 0x1a &&
+    fileBytes[7] === 0xe1
+  ) {
+    return "application/msword";
+  }
+
+  if (
+    fileBytes.length >= 4 &&
+    fileBytes[0] === 0x50 &&
+    fileBytes[1] === 0x4b &&
+    fileBytes[2] === 0x03 &&
+    fileBytes[3] === 0x04
+  ) {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+
+  return null;
+}
+
 serve(async (req) => {
   // Handle CORS Preflight
   if (req.method === "OPTIONS") {
@@ -79,13 +120,16 @@ serve(async (req) => {
         );
       }
 
-      // Validate File Type (PDF or Word)
+      const fileBytes = new Uint8Array(await file.arrayBuffer());
+
+      // Validate File Type (PDF or Word) using magic bytes instead of trusting the browser-provided MIME type.
       const allowedTypes = [
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/msword",
       ];
-      if (!allowedTypes.includes(file.type)) {
+      const detectedType = detectAllowedMimeType(fileBytes);
+      if (!detectedType || !allowedTypes.includes(detectedType) || (file.type && file.type !== detectedType)) {
         return new Response(
           JSON.stringify({
             error:
@@ -104,8 +148,8 @@ serve(async (req) => {
       }`;
       const { error: uploadError } = await supabase.storage
         .from("candidate-cvs")
-        .upload(fileName, file, {
-          contentType: file.type,
+        .upload(fileName, new Blob([fileBytes], { type: detectedType }), {
+          contentType: detectedType,
           upsert: true,
         });
 
@@ -128,7 +172,7 @@ serve(async (req) => {
           user_id: user.id,
           cv_storage_path: fileName,
           cv_original_filename: file.name,
-          cv_mime_type: file.type,
+          cv_mime_type: detectedType,
           cv_size_bytes: file.size,
           parse_status: "parsing",
           parse_started_at: new Date().toISOString(),
@@ -172,7 +216,26 @@ serve(async (req) => {
         },
       );
 
-      const proxyRes = await fetch(proxyReq);
+      const proxyController = new AbortController();
+      const proxyTimeout = setTimeout(() => proxyController.abort(), fastApiProxyTimeoutMs);
+      let proxyRes: Response;
+
+      try {
+        proxyRes = await fetch(proxyReq, { signal: proxyController.signal });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return new Response(
+            JSON.stringify({ error: "CV parsing timed out. Please try again later." }),
+            {
+              status: 504,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+        throw error;
+      } finally {
+        clearTimeout(proxyTimeout);
+      }
 
       if (!proxyRes.ok) {
         // H1 fix: log full upstream error server-side, return only a generic
@@ -216,19 +279,30 @@ serve(async (req) => {
         );
       }
 
-      const { error } = await supabase
+      const { data: updatedDrafts, error } = await supabase
         .from("candidate_registration_drafts")
         .update({
           user_overrides_json: overrides,
           updated_at: new Date().toISOString(),
         })
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .select("id");
 
       if (error) {
         return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+
+      if (!updatedDrafts?.length) {
+        return new Response(
+          JSON.stringify({ error: "Draft not found" }),
+          {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       return new Response(JSON.stringify({ success: true }), {
@@ -267,20 +341,28 @@ serve(async (req) => {
         );
       }
 
-      const { error } = await supabase
+      const { data: updatedDrafts, error } = await supabase
         .from("candidate_registration_drafts")
         .update({
           parse_status: "pending_validation",
           updated_at: new Date().toISOString(),
         })
         .eq("user_id", user.id)
-        .eq("parse_status", "completed"); // extra guard: DB-level atomic check
+        .eq("parse_status", "completed")
+        .select("id"); // extra guard: DB-level atomic check
 
       if (error) {
         return new Response(JSON.stringify({ error: "Failed to publish draft" }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+
+      if (!updatedDrafts?.length) {
+        return new Response(
+          JSON.stringify({ error: "Draft is not ready to publish" }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
 
       return new Response(
