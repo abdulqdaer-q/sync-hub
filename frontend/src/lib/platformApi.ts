@@ -964,9 +964,15 @@ function createRemoteApi(): PlatformApi {
           candidate_id: candidateId,
         });
 
+        const dossier = asRecord(
+          payload.candidate ?? payload.dossier,
+        ) as CandidateDossierRow;
+        const profileOverlay = asRecord(payload.profile);
+
         return mapRemoteCandidate(
-          asRecord(payload.dossier) as CandidateDossierRow,
+          dossier,
           asArray(payload.chunks) as CandidateChunkRow[],
+          Object.keys(profileOverlay).length > 0 ? profileOverlay : null,
         );
       } catch (error) {
         console.error("candidate_detail platform error", error);

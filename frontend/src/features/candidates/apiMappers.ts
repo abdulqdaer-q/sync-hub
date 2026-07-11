@@ -7,6 +7,7 @@ import type {
   EnglishProficiency,
   SyncAffiliation,
   EmploymentType,
+  ExternalProfiles,
   CandidateListGroupBy,
   CandidateListItem,
   CandidateListOptions,
@@ -24,6 +25,104 @@ import type {
   CandidateChunkRow,
   CandidateDossierRow,
 } from "@/lib/api/platformRows";
+
+function asOptionalUrl(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function normalizeLinkHref(link: string): string {
+  const trimmed = link.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `https://${trimmed}`;
+}
+
+function linkHostname(link: string): string | null {
+  try {
+    return new URL(normalizeLinkHref(link)).hostname
+      .toLowerCase()
+      .replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+function getExternalProfileUrl(
+  links: string[],
+  domain: string,
+): string | null {
+  return (
+    links.find((link) => {
+      const hostname = linkHostname(link);
+      return (
+        hostname === domain ||
+        (hostname !== null && hostname.endsWith(`.${domain}`))
+      );
+    }) ?? null
+  );
+}
+
+function isSocialDomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+/** Prefer structured external_profiles; fall back to classifying candidates.links. */
+export function resolveExternalProfiles(
+  profile: JsonRecord,
+  row: CandidateDossierRow,
+): ExternalProfiles {
+  const structured = asRecord(
+    profile.external_profiles ?? profile.externalProfiles ?? null,
+  );
+
+  const fromStructured: ExternalProfiles = {
+    linkedin: asOptionalUrl(structured.linkedin),
+    github: asOptionalUrl(structured.github),
+    portfolio: asOptionalUrl(structured.portfolio),
+  };
+
+  const externalLinks = toStringArray(
+    row.links ??
+      profile.links ??
+      profile.external_links ??
+      profile.externalLinks ??
+      [],
+  );
+
+  const fromLinks: ExternalProfiles = {
+    linkedin: getExternalProfileUrl(externalLinks, "linkedin.com"),
+    github: getExternalProfileUrl(externalLinks, "github.com"),
+    portfolio:
+      externalLinks.find((link) => {
+        const hostname = linkHostname(link);
+        if (!hostname) {
+          return false;
+        }
+
+        return (
+          !isSocialDomain(hostname, "linkedin.com") &&
+          !isSocialDomain(hostname, "github.com")
+        );
+      }) ?? null,
+  };
+
+  return {
+    linkedin: fromStructured.linkedin ?? fromLinks.linkedin,
+    github: fromStructured.github ?? fromLinks.github,
+    portfolio: fromStructured.portfolio ?? fromLinks.portfolio,
+  };
+}
 
 export function hueFromId(seed: string) {
   return (
@@ -172,6 +271,7 @@ export function inferPrimaryRole(profile: JsonRecord): string | null {
 export function mapRemoteCandidate(
   row: CandidateDossierRow,
   chunks: CandidateChunkRow[],
+  profileOverlay?: JsonRecord | null,
 ): CandidateDetail {
   const rowMeta = row as CandidateDossierRow & {
     match_score?: unknown;
@@ -197,6 +297,7 @@ export function mapRemoteCandidate(
         }
       ).metadata,
     ),
+    ...asRecord(profileOverlay),
   };
 
   const normalizeArray = (value: unknown): string[] =>
@@ -247,66 +348,7 @@ export function mapRemoteCandidate(
     profile.employment_type_preference ?? profile.employmentTypePreference,
   ) as EmploymentType[];
 
-  const externalLinks = toStringArray(
-    (
-      row as CandidateDossierRow & {
-        external_links?: unknown;
-      }
-    ).external_links ??
-      profile.external_links ??
-      profile.externalLinks ??
-      [],
-  );
-
-  function getExternalProfileUrl(
-  links: string[],
-  domain: string,
-): string | null {
-  return (
-    links.find((link) => {
-      try {
-        const url = new URL(link);
-        const hostname = url.hostname.toLowerCase();
-
-        return (
-          hostname === domain ||
-          hostname.endsWith(`.${domain}`)
-        );
-      } catch {
-        return false;
-      }
-    }) ?? null
-  );
-}
-
-const externalProfiles = {
-  linkedin: getExternalProfileUrl(
-    externalLinks,
-    "linkedin.com",
-  ),
-
-  github: getExternalProfileUrl(
-    externalLinks,
-    "github.com",
-  ),
-
-  portfolio:
-    externalLinks.find((link) => {
-      try {
-        const url = new URL(link);
-        const hostname = url.hostname.toLowerCase();
-
-        return (
-          hostname !== "linkedin.com" &&
-          !hostname.endsWith(".linkedin.com") &&
-          hostname !== "github.com" &&
-          !hostname.endsWith(".github.com")
-        );
-      } catch {
-        return false;
-      }
-    }) ?? null,
-};
+  const externalProfiles = resolveExternalProfiles(profile, row);
 
   const cvUrl = buildCandidateCvUrl(row.source_uri);
 
@@ -549,23 +591,7 @@ const externalProfiles = {
       typeof profile.willingness_to_relocate === "boolean"
         ? profile.willingness_to_relocate
         : undefined,
-    externalProfiles: {
-      linkedin:
-        typeof externalProfiles.linkedin === "string"
-          ? externalProfiles.linkedin
-          : null,
-
-      github:
-        typeof externalProfiles.github === "string"
-          ? externalProfiles.github
-          : null,
-
-      portfolio:
-        typeof externalProfiles.portfolio === "string"
-          ? externalProfiles.portfolio
-          : null,
-    },
-
+    externalProfiles,
     aiProfileSummary:
       profile.ai_profile_summary || profile.aiProfileSummary
         ? String(profile.ai_profile_summary ?? profile.aiProfileSummary)
@@ -591,7 +617,14 @@ const externalProfiles = {
           }
         : null,
     profileAttributes,
-    links: toStringArray(row.links),
+    links: (() => {
+      const rowLinks = toStringArray(row.links);
+      if (rowLinks.length > 0) {
+        return rowLinks;
+      }
+
+      return toStringArray(profile.links);
+    })(),
     yearsOfExperience: toNumber(
       profile.years_of_experience ??
         profile.yearsExperience ??
