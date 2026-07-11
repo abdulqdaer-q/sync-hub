@@ -77,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[common],
     )
     process_drafts.add_argument("--limit", type=int, default=25, help="Maximum queued drafts to ingest")
+    process_drafts.add_argument("--retry-stale-minutes", type=int, default=30, help="Retry drafts left in parsing for at least this many minutes")
     process_drafts.add_argument("--no-progress", action="store_true", help="Disable progress messages on stderr")
 
     return parser
@@ -235,6 +236,7 @@ def _run_public_applications(args: argparse.Namespace, config: WorkerConfig) -> 
 def _run_process_drafts(args: argparse.Namespace, config: WorkerConfig) -> int:
     processed = DraftIngestion(config).run(
         limit=args.limit,
+        retry_stale_minutes=args.retry_stale_minutes,
         progress=_progress_printer(args.no_progress),
     )
     print(_json_output({"processed": processed}, pretty=args.pretty))

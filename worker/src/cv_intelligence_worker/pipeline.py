@@ -163,7 +163,7 @@ class IngestionPipeline:
         # is_draft branch without any OCR/text-parsing overhead.
         if source.source_type == "candidate_draft":
             from .parsing import DocumentText
-            document_text = DocumentText(raw_text="", parser_version=self.config.parser_version)
+            document_text = DocumentText(source=source, raw_text="", parser_name="draft_skip", parser_version=self.config.parser_version)
         else:
             document_text = parse_document(source)
         profile = extract_candidate_profile(source, document_text, self.config)

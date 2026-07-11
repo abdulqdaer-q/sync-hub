@@ -17,8 +17,13 @@ class DraftIngestion:
         self.config = config
         self.supabase = SupabaseClient(config)
 
-    def run(self, limit: int = 25, progress: Callable[[str], None] | None = None) -> int:
-        drafts = self.supabase.queued_candidate_drafts(limit=limit)
+    def run(
+        self,
+        limit: int = 25,
+        retry_stale_minutes: int = 30,
+        progress: Callable[[str], None] | None = None,
+    ) -> int:
+        drafts = self.supabase.queued_candidate_drafts(limit=limit, retry_stale_minutes=retry_stale_minutes)
         processed = 0
 
         def emit(message: str) -> None:
@@ -43,7 +48,7 @@ class DraftIngestion:
                 bucket = self.config.supabase_storage_bucket
                 if bucket == "cv-originals" or not bucket:
                     bucket = "candidate-cvs"
-                
+
                 _, ext = os.path.splitext(storage_path)
                 fd, local_tmp_path = tempfile.mkstemp(suffix=ext or ".pdf")
                 os.close(fd)
@@ -52,7 +57,7 @@ class DraftIngestion:
                 except Exception as dl_err:
                     emit(f"failed to download CV from storage for user {user_id}: {dl_err}")
                     continue
-            
+
             source = DocumentSource(
                 tenant_id=self.config.tenant_id or "default",
                 source_path=local_tmp_path or f"draft_{user_id}.pdf",
