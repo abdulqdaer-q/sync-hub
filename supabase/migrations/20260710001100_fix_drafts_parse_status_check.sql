@@ -11,7 +11,7 @@ BEGIN
       AND pg_attribute.attname = 'parse_status'
       AND contype = 'c'
     LIMIT 1;
-      
+
     -- Drop it if it exists
     IF existing_constraint_name IS NOT NULL THEN
         EXECUTE 'ALTER TABLE public.candidate_registration_drafts DROP CONSTRAINT ' || quote_ident(existing_constraint_name);
@@ -19,6 +19,6 @@ BEGIN
 END $$;
 
 -- Add the new constraint including 'published'
-ALTER TABLE public.candidate_registration_drafts 
-ADD CONSTRAINT candidate_registration_drafts_parse_status_check 
+ALTER TABLE public.candidate_registration_drafts
+ADD CONSTRAINT candidate_registration_drafts_parse_status_check
 CHECK (parse_status IN ('pending', 'parsing', 'completed', 'failed', 'pending_validation', 'published'));
