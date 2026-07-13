@@ -2339,13 +2339,12 @@ async function getParsingDocument(
 async function getOriginalDocumentUrl(
   supabase: ReturnType<typeof createAuthedClient>,
   body: JsonRecord,
-  tenantIds: string[],
+  _tenantIds: string[],
 ) {
   await getCurrentUserId(supabase);
 
   const documentId = asString(body.document_id);
   const candidateId = asString(body.candidate_id);
-  const tenantId = asString(body.tenant_id);
 
   if (!documentId && !candidateId) {
     throw new Error("document_id or candidate_id is required.");
