@@ -2896,13 +2896,12 @@ async function getParsingDocument(
 async function getOriginalDocumentUrl(
   supabase: ReturnType<typeof createAuthedClient>,
   body: JsonRecord,
-  tenantIds: string[],
+  _tenantIds: string[],
 ) {
   await getCurrentUserId(supabase);
 
   const documentId = asString(body.document_id);
   const candidateId = asString(body.candidate_id);
-  const tenantId = asString(body.tenant_id);
 
   if (!documentId && !candidateId) {
     throw new Error("document_id or candidate_id is required.");
@@ -2920,11 +2919,12 @@ async function getOriginalDocumentUrl(
     query = query.eq("candidate_id", candidateId);
   }
 
-  if (tenantId) {
-    query = query.eq("tenant_id", tenantId);
-  } else if (tenantIds.length) {
-    query = query.in("tenant_id", tenantIds);
-  }
+  // NOTE: No explicit tenant_id filter here — RLS on source_documents
+  // already enforces access control. It allows:
+  //   1. Tenant members to read their own tenant's documents
+  //   2. Hub-visible candidate documents to be read by any active
+  //      tenant member via can_search_cv_hub()
+  // Adding a tenant_id filter would block cross-tenant hub access.
 
   const { data, error } = await query
     .order("updated_at", { ascending: false })
