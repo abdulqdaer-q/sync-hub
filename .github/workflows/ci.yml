@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, edited, ready_for_review]
   push:
-    branches: [main, master]
+    branches: [main, master, dev]
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true

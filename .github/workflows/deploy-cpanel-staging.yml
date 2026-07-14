@@ -1,18 +1,21 @@
-# Build the static frontend and upload to cPanel over FTPS (production / main).#
-# Required GitHub repository secrets:
-#   VITE_SUPABASE_URL
-#   VITE_SUPABASE_ANON_KEY
-#   CPANEL_FTP_SERVER
-#   CPANEL_FTP_USERNAME
-#   CPANEL_FTP_PASSWORD
-# Optional:
-#   VITE_API_BASE_URL        (defaults to ${VITE_SUPABASE_URL}/functions/v1)
-#   VITE_SITE_URL
-#   CPANEL_FTP_SERVER_DIR    (defaults to ./ — FTP login root; use public_html/ only for main-account FTP)
+# Build the frontend and upload to cPanel staging (jobs.dev.sync.ngo).
 #
-# See CPANEL_DEPLOYMENT_CHECKLIST.md → "GitHub Actions (cPanel CI)".
+# Trigger: push to `dev` (merge feature PRs into dev before main/prod).
+#
+# Required GitHub repository secrets (STG_ prefix — separate from production):
+#   STG_VITE_SUPABASE_URL
+#   STG_VITE_SUPABASE_ANON_KEY
+#   STG_CPANEL_FTP_SERVER
+#   STG_CPANEL_FTP_USERNAME
+#   STG_CPANEL_FTP_PASSWORD
+# Optional:
+#   STG_VITE_API_BASE_URL
+#   STG_VITE_SITE_URL          (default https://jobs.dev.sync.ngo)
+#   STG_CPANEL_FTP_SERVER_DIR  (default ./ — FTP login root for dev-jobs site)
+#
+# See docs/staging-environment.md
 
-name: Deploy frontend to cPanel
+name: Deploy frontend to cPanel (staging)
 
 on:
   workflow_dispatch:
@@ -22,13 +25,13 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - "frontend/**"
-      - ".github/workflows/deploy-cpanel.yml"
+      - ".github/workflows/deploy-cpanel-staging.yml"
 
 concurrency:
-  group: deploy-cpanel-${{ github.ref }}
+  group: deploy-cpanel-staging-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -36,36 +39,37 @@ permissions:
 
 jobs:
   deploy:
-    name: Build and deploy
+    name: Build and deploy (staging)
+    environment: staging
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     env:
-      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-      VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
-      VITE_SITE_URL: ${{ secrets.VITE_SITE_URL }}
+      VITE_SUPABASE_URL: ${{ secrets.STG_VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.STG_VITE_SUPABASE_ANON_KEY }}
+      VITE_API_BASE_URL: ${{ secrets.STG_VITE_API_BASE_URL }}
+      VITE_SITE_URL: ${{ secrets.STG_VITE_SITE_URL }}
     steps:
       - uses: actions/checkout@v7
 
-      - name: Validate GitHub secrets
+      - name: Validate staging secrets
         working-directory: .
         env:
           SKIP_UPLOAD: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_upload }}
-          CPANEL_FTP_SERVER: ${{ secrets.CPANEL_FTP_SERVER }}
-          CPANEL_FTP_USERNAME: ${{ secrets.CPANEL_FTP_USERNAME }}
-          CPANEL_FTP_PASSWORD: ${{ secrets.CPANEL_FTP_PASSWORD }}
+          STG_CPANEL_FTP_SERVER: ${{ secrets.STG_CPANEL_FTP_SERVER }}
+          STG_CPANEL_FTP_USERNAME: ${{ secrets.STG_CPANEL_FTP_USERNAME }}
+          STG_CPANEL_FTP_PASSWORD: ${{ secrets.STG_CPANEL_FTP_PASSWORD }}
         run: |
           set -euo pipefail
           missing=()
           for name in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
             if [ -z "${!name:-}" ]; then
-              missing+=("$name")
+              missing+=("STG_${name}")
             fi
           done
           if [ "${SKIP_UPLOAD}" != "true" ]; then
-            for name in CPANEL_FTP_SERVER CPANEL_FTP_USERNAME CPANEL_FTP_PASSWORD; do
+            for name in STG_CPANEL_FTP_SERVER STG_CPANEL_FTP_USERNAME STG_CPANEL_FTP_PASSWORD; do
               if [ -z "${!name:-}" ]; then
                 missing+=("$name")
               fi
@@ -74,14 +78,19 @@ jobs:
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Missing required GitHub secrets: %s\n' "${missing[*]}"
             printf 'Add them under Settings → Secrets and variables → Actions.\n'
+            printf 'See docs/staging-environment.md\n'
             exit 1
           fi
 
-      - name: Resolve VITE_API_BASE_URL
+      - name: Resolve staging VITE_API_BASE_URL
         if: env.VITE_API_BASE_URL == ''
         run: |
           base="${VITE_SUPABASE_URL%/}"
           echo "VITE_API_BASE_URL=${base}/functions/v1" >> "$GITHUB_ENV"
+
+      - name: Resolve staging VITE_SITE_URL
+        if: env.VITE_SITE_URL == ''
+        run: echo "VITE_SITE_URL=https://jobs.dev.sync.ngo" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v6
         with:
@@ -92,27 +101,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build production bundle
+      - name: Build staging bundle
         run: npm run build
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: frontend-dist-${{ github.sha }}
+          name: frontend-dist-staging-${{ github.sha }}
           path: frontend/dist/
           retention-days: 14
 
-      - name: Deploy to cPanel (FTPS)
+      - name: Deploy to cPanel staging (FTPS)
         if: ${{ ! (github.event_name == 'workflow_dispatch' && inputs.skip_upload) }}
         uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with:
-          server: ${{ secrets.CPANEL_FTP_SERVER }}
-          username: ${{ secrets.CPANEL_FTP_USERNAME }}
-          password: ${{ secrets.CPANEL_FTP_PASSWORD }}
+          server: ${{ secrets.STG_CPANEL_FTP_SERVER }}
+          username: ${{ secrets.STG_CPANEL_FTP_USERNAME }}
+          password: ${{ secrets.STG_CPANEL_FTP_PASSWORD }}
           protocol: ftps
           port: 21
           local-dir: ./frontend/dist/
-          server-dir: ${{ secrets.CPANEL_FTP_SERVER_DIR || './' }}
+          server-dir: ${{ secrets.STG_CPANEL_FTP_SERVER_DIR || './' }}
           dangerous-clean-slate: false
           exclude: |
             **/.ftp-deploy-sync-state.json
