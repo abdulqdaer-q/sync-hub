@@ -648,94 +648,99 @@ const externalProfiles = {
     ].filter(Boolean),
   };
 }
-export async function fetchCandidatesListRpc(
-  tenantIds: string[],
-  options?: CandidateListOptions,
-): Promise<CandidateListResponse> {
-  const payload = await invokePlatform<JsonRecord>("candidates_list", {
-    tenant_ids: tenantIds,
-    ...(options ?? {}),
-  });
 
-  const rows = asArray(payload.data ?? payload.rows);
+function mapRemoteCandidateListItem(row: JsonRecord): CandidateListItem {
+  return {
+    tenantId: String(row.tenantId ?? row.tenant_id ?? ""),
+    candidateId: String(row.candidateId ?? row.candidate_id ?? row.id ?? ""),
+    name: String(row.name ?? "Unnamed candidate"),
+    email: typeof row.email === "string" ? row.email : null,
+    location: String(row.location ?? ""),
+    primaryRole: String(row.primaryRole ?? row.primary_role ?? row.current_title ?? ""),
+    appliedRole:
+      typeof row.appliedRole === "string"
+        ? row.appliedRole
+        : typeof row.applied_role === "string"
+          ? row.applied_role
+          : null,
+    stage: String(row.stage ?? "Unknown"),
+    stageKey: String(row.stageKey ?? row.stage_key ?? row.stage ?? "unknown"),
+    source: String(row.source ?? "unknown"),
+    seniority: normalizeSeniority(row.seniority),
+    updatedAt: String(row.updatedAt ?? row.updated_at ?? ""),
+    groupKey:
+      typeof row.groupKey === "string"
+        ? row.groupKey
+        : typeof row.group_key === "string"
+          ? row.group_key
+          : null,
+    groupLabel:
+      typeof row.groupLabel === "string"
+        ? row.groupLabel
+        : typeof row.group_label === "string"
+          ? row.group_label
+          : null,
+  };
+}
+
+export function mapRemoteCandidateListResponse(payload: JsonRecord): CandidateListResponse {
+  const groupByRaw = String(payload.groupBy ?? payload.group_by ?? "");
+  const groupBy = (
+    groupByRaw === "status" ||
+    groupByRaw === "role" ||
+    groupByRaw === "source" ||
+    groupByRaw === "location"
+      ? groupByRaw
+      : ""
+  ) as CandidateListGroupBy | "";
+  const filterOptions = asRecord(payload.filterOptions ?? payload.filter_options);
+  const items = asArray(payload.items ?? payload.data ?? payload.rows);
 
   return {
-    items: rows.map((item, index) => {
-      const row = asRecord(item);
-
-      return {
-        tenantId: String(row.tenant_id ?? tenantIds[0] ?? ""),
-
-        candidateId: String(row.candidate_id ?? row.id ?? `candidate-${index}`),
-
-        name: String(row.name ?? "Candidate"),
-
-        email: typeof row.email === "string" ? row.email : null,
-
-        location: String(row.location ?? "Unknown"),
-
-        primaryRole: String(
-          row.primary_role ?? row.current_title ?? "Professional",
-        ),
-
-        appliedRole:
-          typeof row.applied_role === "string" ? row.applied_role : null,
-
-        stage: String(row.stage ?? "Indexed"),
-
-        stageKey: String(row.stage_key ?? row.stage ?? "indexed"),
-
-        source: String(row.source ?? "platform"),
-
-        seniority: normalizeSeniority(row.seniority),
-
-        updatedAt:
-          typeof row.updated_at === "string"
-            ? row.updated_at
-            : new Date().toISOString(),
-
-        groupKey: typeof row.group_key === "string" ? row.group_key : null,
-
-        groupLabel:
-          typeof row.group_label === "string" ? row.group_label : null,
-      } satisfies CandidateListItem;
-    }),
-
+    items: items.map((item) => mapRemoteCandidateListItem(asRecord(item))),
     itemsTotalCount: toNumber(
-      payload.items_total_count ?? payload.total ?? rows.length,
-      rows.length,
+      payload.itemsTotalCount ?? payload.items_total_count ?? payload.total,
+      items.length,
     ),
-
-    pageLimit: toNumber(
-      payload.page_limit ?? options?.pageSize ?? rows.length,
-      rows.length,
-    ),
-
-    pageOffset: toNumber(payload.page_offset ?? 0, 0),
-
-    groupBy:
-      typeof payload.group_by === "string"
-        ? (payload.group_by as CandidateListGroupBy)
-        : "",
-
-    groups: asArray(payload.groups).map((group) => {
-      const item = asRecord(group);
-
+    pageLimit: toNumber(payload.pageLimit ?? payload.page_limit, items.length),
+    pageOffset: toNumber(payload.pageOffset ?? payload.page_offset, 0),
+    groupBy: groupBy || null,
+    groups: asArray(payload.groups).map((item) => {
+      const row = asRecord(item);
       return {
-        key: String(item.key ?? ""),
-        label: String(item.label ?? ""),
-        count: toNumber(item.count, 0),
+        key: String(row.key ?? ""),
+        label: String(row.label ?? ""),
+        count: toNumber(row.count, 0),
       };
     }),
-
     filterOptions: {
-      statuses: toStringArray(asRecord(payload.filter_options).statuses),
-
-      roles: toStringArray(asRecord(payload.filter_options).roles),
-
-      sources: toStringArray(asRecord(payload.filter_options).sources),
-
-      locations: toStringArray(asRecord(payload.filter_options).locations),
+      statuses: toStringArray(filterOptions.statuses),
+      roles: toStringArray(filterOptions.roles),
+      sources: toStringArray(filterOptions.sources),
+      locations: toStringArray(filterOptions.locations),
     },
   };
+}
+
+export async function fetchCandidatesListRpc(
+  tenantIds: string[],
+  options: CandidateListOptions = {},
+): Promise<CandidateListResponse> {
+  const pageSize = Math.max(1, Math.min(200, Math.trunc(options.pageSize ?? 50)));
+  const pageIndex = Math.max(0, Math.trunc(options.pageIndex ?? 0));
+  const filters = options.filters ?? {};
+  const payload = await invokePlatform<JsonRecord>("candidates_list", {
+    tenant_ids: tenantIds,
+    limit: pageSize,
+    offset: pageIndex * pageSize,
+    query: filters.query?.trim() || null,
+    status: filters.status || null,
+    role: filters.role || null,
+    source: filters.source || null,
+    location: filters.location || null,
+    updated_from: filters.updatedFrom || null,
+    updated_to: filters.updatedTo || null,
+    group_by: filters.groupBy || null,
+  });
+  return mapRemoteCandidateListResponse(payload);
 }
