@@ -12,7 +12,7 @@
 # Optional:
 #   STG_VITE_API_BASE_URL
 #   STG_VITE_SITE_URL
-#   STG_CPANEL_FTP_SERVER_DIR  (default ../dev-jobs/ when prod FTP root is public_html/jobs/)
+#   STG_CPANEL_FTP_SERVER_DIR  (default ../dev-jobs.sync.ngo/ when prod FTP root is public_html/jobs/)
 #
 # See docs/staging-environment.md
 
@@ -105,7 +105,7 @@ jobs:
           if [ -n "${STG_CPANEL_FTP_SERVER_DIR:-}" ]; then
             echo "FTP_SERVER_DIR=${STG_CPANEL_FTP_SERVER_DIR}" >> "$GITHUB_ENV"
           else
-            echo "FTP_SERVER_DIR=../dev-jobs/" >> "$GITHUB_ENV"
+            echo "FTP_SERVER_DIR=../dev-jobs.sync.ngo/" >> "$GITHUB_ENV"
           fi
 
       - name: Resolve staging VITE_API_BASE_URL

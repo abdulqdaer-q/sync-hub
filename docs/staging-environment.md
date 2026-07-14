@@ -6,7 +6,7 @@ Staging lets testers and developers validate changes before production.
 |-------|------------|---------|
 | Git branch | `main` | `dev` |
 | Frontend URL | https://jobs.sync.ngo | https://dev-jobs.sync.ngo |
-| cPanel path | `public_html/jobs/` | `public_html/dev-jobs/` (or subdomain docroot) |
+| cPanel path | `public_html/jobs/` | `public_html/dev-jobs.sync.ngo/` |
 | Supabase | Production project | **Separate** project or branch (you create later) |
 | Edge Functions | Production deploy | Staging project deploy |
 | CI deploy workflow | `deploy-cpanel.yml` | `deploy-cpanel-staging.yml` |
@@ -30,8 +30,8 @@ Staging lets testers and developers validate changes before production.
 
 ### 1. cPanel (frontend)
 
-1. Create subdomain **`dev-jobs.sync.ngo`** pointing to e.g. `public_html/dev-jobs/`.
-2. Reuse production **CPANEL_FTP_*** credentials, or create a dedicated FTP account scoped to `dev-jobs/`. Set `STG_CPANEL_FTP_SERVER_DIR=./` only for a dev-only FTP user.
+1. Create subdomain **`dev-jobs.sync.ngo`** with document root **`public_html/dev-jobs.sync.ngo/`** (sibling of `public_html/jobs/`).
+2. Reuse production **CPANEL_FTP_*** credentials. CI uploads to `../dev-jobs.sync.ngo/` relative to the `jobs` FTP root. Set `STG_CPANEL_FTP_SERVER_DIR=./` only if you create a dedicated FTP user scoped to `dev-jobs.sync.ngo/`.
 3. **Do not** set `server-dir` to `public_html/` when the FTP root is already the dev site folder (same rule as production `jobs/`).
 
 ### 2. Supabase (backend — when ready)
@@ -61,7 +61,7 @@ Staging lets testers and developers validate changes before production.
 | Secret | Staging value |
 |--------|----------------|
 | `CPANEL_FTP_*` | Same as production |
-| `STG_CPANEL_FTP_SERVER_DIR` | Optional. Default `../dev-jobs/` when production FTP root is `public_html/jobs/` (sibling folder). Use `./` if you create a dedicated FTP user scoped only to `dev-jobs`. |
+| `STG_CPANEL_FTP_SERVER_DIR` | Optional. Default `../dev-jobs.sync.ngo/` when production FTP root is `public_html/jobs/`. Use `./` for a dedicated FTP user scoped to `public_html/dev-jobs.sync.ngo/`. |
 
 Optional: **Settings → Environments → staging** — add protection rules (required reviewers) so only leads can deploy.
 
@@ -81,7 +81,7 @@ Set **`dev`** as the default merge target for feature PRs in your team process.
 ```bash
 # Copy .env.staging.example → .env.staging.local and fill STG values
 node scripts/build-cpanel-deploy.mjs
-# Upload deploy/cpanel/ to the dev-jobs folder manually or via FTPS
+# Upload deploy/cpanel/ to public_html/dev-jobs.sync.ngo/ manually or via FTPS
 ```
 
 ## Smoke test after deploy
