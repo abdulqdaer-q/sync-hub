@@ -1,0 +1,62 @@
+# Deploy Supabase migrations and edge functions to staging (dev branch).
+#
+# Required secrets (staging project only):
+#   STG_SUPABASE_ACCESS_TOKEN
+#   STG_SUPABASE_PROJECT_REF
+# Optional:
+#   STG_SUPABASE_DB_PASSWORD
+#
+# Developers should not use production tokens locally. See docs/supabase-ci-deploy.md
+
+name: Deploy Supabase (staging)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - "supabase/**"
+      - "scripts/deploy-supabase-remote.sh"
+      - "scripts/list-supabase-edge-functions.mjs"
+      - ".github/workflows/deploy-supabase-staging.yml"
+
+concurrency:
+  group: deploy-supabase-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Migrations and edge functions
+    environment: staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Validate staging Supabase secrets
+        env:
+          STG_SUPABASE_ACCESS_TOKEN: ${{ secrets.STG_SUPABASE_ACCESS_TOKEN }}
+          STG_SUPABASE_PROJECT_REF: ${{ secrets.STG_SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${STG_SUPABASE_ACCESS_TOKEN:-}" ] && missing+=("STG_SUPABASE_ACCESS_TOKEN")
+          [ -z "${STG_SUPABASE_PROJECT_REF:-}" ] && missing+=("STG_SUPABASE_PROJECT_REF")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing secrets: %s\n' "${missing[*]}"
+            printf 'See docs/supabase-ci-deploy.md\n'
+            exit 1
+          fi
+
+      - name: Deploy to staging Supabase
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.STG_SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.STG_SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.STG_SUPABASE_DB_PASSWORD }}
+        run: bash scripts/deploy-supabase-remote.sh
