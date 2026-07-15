@@ -199,9 +199,12 @@ async function resolveViewSourceLabel(
     return { sourceLabel: "Direct / untracked", applicationLinkId: null };
   }
   const categoryName = asString(category.name) ?? "Untracked";
-  const sourceDetail = asString(data.source_detail) ?? asString(data.label) ?? "";
+  const sourceDetail = asString(data.source_detail) ?? asString(data.label) ??
+    "";
   return {
-    sourceLabel: sourceDetail ? `${categoryName} · ${sourceDetail}` : categoryName,
+    sourceLabel: sourceDetail
+      ? `${categoryName} · ${sourceDetail}`
+      : categoryName,
     applicationLinkId: String(data.id),
   };
 }
@@ -213,9 +216,10 @@ async function recordJobDetailView(
   refToken: string | null,
 ) {
   const viewerFingerprint = await sha256Hex(
-    `${req.headers.get("x-forwarded-for") ?? req.headers.get("cf-connecting-ip") ?? ""}|${
-      req.headers.get("user-agent") ?? ""
-    }`,
+    `${
+      req.headers.get("x-forwarded-for") ??
+        req.headers.get("cf-connecting-ip") ?? ""
+    }|${req.headers.get("user-agent") ?? ""}`,
   );
   const dedupSince = new Date(Date.now() - VIEW_DEDUP_HOURS * 60 * 60 * 1000)
     .toISOString();

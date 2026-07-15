@@ -5064,7 +5064,10 @@ Deno.serve(async (req) => {
           await updateJobApplicationStatus(supabase, body),
         );
       case "job_posting_performance":
-        return jsonResponse(200, await getJobPostingPerformance(supabase, body));
+        return jsonResponse(
+          200,
+          await getJobPostingPerformance(supabase, body),
+        );
       case "job_shortlists":
         return jsonResponse(200, await listJobShortlists(supabase, body));
       case "job_shortlist":
