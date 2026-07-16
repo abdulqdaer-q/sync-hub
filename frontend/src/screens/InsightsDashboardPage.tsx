@@ -1,8 +1,9 @@
+// frontend/src/screens/InsightsDashboardPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { PageIntro, Panel } from "@/components/ui";
+import { Panel } from "@/components/ui";
+import { InsightsAiBriefTab } from "@/features/insights/components/InsightsAiBriefTab";
 import { InsightsGapTab } from "@/features/insights/components/InsightsGapTab";
 import { InsightsOverviewTab } from "@/features/insights/components/InsightsOverviewTab";
 import { InsightsSkillsTab } from "@/features/insights/components/InsightsSkillsTab";
@@ -13,6 +14,8 @@ import {
   buildGapUseCases,
   clampTopSkills,
   normalizeInsightsTab,
+  openInsightsSearchWithSkills,
+  writeInsightsAiBriefHandoff,
   type InsightsTab,
   type JobFamilyView,
 } from "@/features/insights/insightsDashboard.helpers";
@@ -39,8 +42,8 @@ export function InsightsDashboardPage() {
   }, [location.hash, navigate]);
 
   const insightsQuery = useQuery({
-    queryKey: ["insights-dashboard", tenantIds.join("|"), "base"],
-    queryFn: () => platformApi.getInsightsDashboard({ topSkills: 200 }, tenantIds),
+    queryKey: ["insights-dashboard", tenantIds.join("|"), appliedTopSkills],
+    queryFn: () => platformApi.getInsightsDashboard({ topSkills: appliedTopSkills }, tenantIds),
   });
   const snapshot = insightsQuery.data;
   const corpusSkillCatalog = useMemo(() => snapshot?.skillsFrequency.map((item) => item.skill) ?? [], [snapshot?.skillsFrequency]);
@@ -54,12 +57,19 @@ export function InsightsDashboardPage() {
   const appliedTargetSkills = useMemo(() => extractGapSkillRequirements(appliedGapInput, corpusSkillCatalog), [appliedGapInput, corpusSkillCatalog]);
 
   const gapAnalysisQuery = useQuery({
-    queryKey: ["insights-gap-analysis", tenantIds.join("|"), appliedGapInput],
-    queryFn: () => platformApi.getInsightsGapAnalysis({ targetRole: appliedGapInput }, tenantIds),
+    queryKey: ["insights-gap-analysis", tenantIds.join("|"), appliedGapInput, appliedTargetSkills.join("|")],
+    queryFn: () =>
+      platformApi.getInsightsGapAnalysis(
+        {
+          targetRole: appliedGapInput,
+          targetSkills: appliedTargetSkills,
+        },
+        tenantIds,
+      ),
     enabled: activeTab === "tab3" && Boolean(snapshot),
     placeholderData: keepPreviousData,
   });
-  const visibleSkills = useMemo(() => snapshot?.skillsFrequency.slice(0, appliedTopSkills) ?? [], [appliedTopSkills, snapshot?.skillsFrequency]);
+  const visibleSkills = useMemo(() => snapshot?.skillsFrequency ?? [], [snapshot?.skillsFrequency]);
 
   function selectTab(tab: InsightsTab) {
     navigate({ pathname: "/insights", hash: `#${tab}` });
@@ -89,13 +99,6 @@ export function InsightsDashboardPage() {
     setAppliedGapInput(query);
   }
 
-  function refreshInsights() {
-    void insightsQuery.refetch();
-    if (activeTab === "tab3") {
-      void gapAnalysisQuery.refetch();
-    }
-  }
-
   function drillIntoJobFamily(jobFamily: string) {
     if (!jobFamily) {
       return;
@@ -118,17 +121,6 @@ export function InsightsDashboardPage() {
   if (!snapshot) {
     return (
       <div className="page-stack insights-page">
-        <PageIntro
-          eyebrow="Insights"
-          title="Insights & Intelligence Dashboard"
-          description="Read-only corpus intelligence for executive visibility, workforce planning, and talent supply decisions."
-          actions={
-            <button className="button button--secondary" type="button" onClick={refreshInsights}>
-              <RefreshCw size={16} />
-              Refresh
-            </button>
-          }
-        />
         <Panel className="table-card">
           <h3>{insightsQuery.isError ? "Production insights unavailable" : "Loading production insights"}</h3>
           <p className="muted">
@@ -167,19 +159,17 @@ export function InsightsDashboardPage() {
     navigate("/search");
   }
 
+  function openGapAiBrief() {
+    writeInsightsAiBriefHandoff({
+      reportType: "gap_brief",
+      focus: appliedGapInput,
+      targetSkills: activeGapAnalysis.targetSkills.length ? activeGapAnalysis.targetSkills : appliedTargetSkills,
+    });
+    selectTab("tab4");
+  }
+
   return (
     <div className="page-stack insights-page">
-      <PageIntro
-        eyebrow="Insights"
-        title="Insights & Intelligence Dashboard"
-        description="Read-only corpus intelligence for executive visibility, workforce planning, and talent supply decisions."
-        actions={
-          <button className="button button--secondary" type="button" onClick={refreshInsights}>
-            <RefreshCw size={16} />
-            Refresh
-          </button>
-        }
-      />
 
       <InsightsTabs activeTab={activeTab} onSelectTab={selectTab} />
 
@@ -213,7 +203,20 @@ export function InsightsDashboardPage() {
           onApplyGapAnalysis={applyGapAnalysis}
           onExploreMatches={exploreGapMatches}
           onGapDraftChange={setGapDraft}
+          onGenerateAiBrief={openGapAiBrief}
           onRunGapUseCase={runGapUseCase}
+        />
+      ) : null}
+
+      {activeTab === "tab4" ? (
+        <InsightsAiBriefTab
+          gapAnalysis={activeGapAnalysis}
+          onOpenSearch={(skills, query) => {
+            openInsightsSearchWithSkills(skills, query);
+            navigate("/search");
+          }}
+          snapshot={snapshot}
+          tenantIds={tenantIds}
         />
       ) : null}
     </div>

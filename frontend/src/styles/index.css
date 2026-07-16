@@ -17,6 +17,7 @@
 @import "./features/parsing/overview.css";
 @import "./features/insights/overview.css";
 @import "./features/insights/gap-analysis.css";
+@import "./features/insights/ai-brief.css";
 @import "./features/insights/pyramid.css";
 @import "./features/parsing/lab.css";
 @import "./features/chat.css";
@@ -26,3 +27,6 @@
 @import "./features/search-simulator/results.css";
 @import "./features/search-simulator/sync.css";
 @import "./features/search-simulator/responsive.css";
+
+@tailwind components;
+@tailwind utilities;

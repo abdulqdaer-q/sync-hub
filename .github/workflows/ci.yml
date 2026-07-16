@@ -6,6 +6,9 @@ on:
   push:
     branches: [main, master]
 
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -109,6 +112,21 @@ jobs:
           node-version: 20
       - name: Check migration hygiene
         run: node scripts/check-supabase-migrations.mjs
+
+  supabase-security-tests:
+    name: Supabase dynamic security tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v3
+        with:
+          version: latest
+      - name: Start Supabase
+        run: supabase start
+      - name: Run dynamic security role tests
+        run: psql -U postgres -h 127.0.0.1 -p 54322 -d postgres < scripts/test_security_roles.sql
+        env:
+          PGPASSWORD: postgres
 
   supabase-functions:
     name: Supabase functions

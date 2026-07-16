@@ -1,4 +1,9 @@
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import {
+  buildGuardedSystemPrompt,
+  evaluatePlatformAiInput,
+  platformAiGuardErrorMessage,
+} from "../_shared/aiGuardrails.ts";
 import { createAuthedClient } from "../_shared/client.ts";
 import { generateStructuredObject } from "../_shared/llm.ts";
 import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
@@ -380,7 +385,9 @@ async function createRemoteGcsSignedUrl(
   if (!response.ok) {
     throw new Error(
       `GCS signer service failed (${response.status}): ${
-        describeError(payload)
+        describeError(
+          payload,
+        )
       }`,
     );
   }
@@ -499,10 +506,7 @@ async function getSearchFilterOptions(
   const [rows, tenantResult] = await Promise.all([
     fetchAllSearchCacheRows(supabase),
     tenantIds.length
-      ? supabase
-        .from("tenants")
-        .select("slug, name")
-        .in("id", tenantIds)
+      ? supabase.from("tenants").select("slug, name").in("id", tenantIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (tenantResult.error) {
@@ -569,12 +573,10 @@ async function countRows(
   tenantIds: string[],
   apply?: (query: SupabaseQueryLike) => SupabaseQueryLike,
 ) {
-  let query = supabase
-    .from(table)
-    .select("*", {
-      count: "exact",
-      head: true,
-    }) as unknown as SupabaseQueryLike;
+  let query = supabase.from(table).select("*", {
+    count: "exact",
+    head: true,
+  }) as unknown as SupabaseQueryLike;
   query = withTenantFilter(query, tenantIds);
   if (apply) {
     query = apply(query);
@@ -1952,6 +1954,558 @@ async function getInsightsGapAnalysis(
   return data;
 }
 
+const insightReportRunSelect = [
+  "id",
+  "tenant_id",
+  "initiated_by_user_id",
+  "status",
+  "report_type",
+  "input_config",
+  "report_payload",
+  "failure_reason",
+  "llm_provider",
+  "llm_model",
+  "started_at",
+  "completed_at",
+  "created_at",
+].join(", ");
+
+type InsightReportType =
+  | "corpus_overview"
+  | "gap_brief"
+  | "job_family_analysis";
+
+type InsightReportPayload = {
+  title: string;
+  executiveSummary: string;
+  sections: Array<{
+    title: string;
+    body: string;
+    citations: Array<{
+      metricKey: string;
+      label: string;
+      value: string;
+    }>;
+  }>;
+  recommendations: string[];
+  risks: string[];
+  assistantPrompts: string[];
+};
+
+const insightReportSchema = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    executiveSummary: {
+      type: "string",
+      description:
+        "Two to four sentence executive summary grounded in provided metrics.",
+    },
+    sections: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          body: { type: "string" },
+          citations: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                metricKey: { type: "string" },
+                label: { type: "string" },
+                value: { type: "string" },
+              },
+              required: ["metricKey", "label", "value"],
+            },
+          },
+        },
+        required: ["title", "body", "citations"],
+      },
+    },
+    recommendations: {
+      type: "array",
+      items: { type: "string" },
+    },
+    risks: {
+      type: "array",
+      items: { type: "string" },
+    },
+    assistantPrompts: {
+      type: "array",
+      description:
+        "Suggested follow-up questions or actions for the recruiter.",
+      items: { type: "string" },
+    },
+  },
+  required: [
+    "title",
+    "executiveSummary",
+    "sections",
+    "recommendations",
+    "risks",
+    "assistantPrompts",
+  ],
+};
+
+function normalizeInsightReportType(value: unknown): InsightReportType | null {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "corpus_overview" ||
+      normalized === "gap_brief" ||
+      normalized === "job_family_analysis"
+    ? normalized
+    : null;
+}
+
+function metricValue(
+  metrics: JsonRecord[],
+  key: string,
+  fallback = "0",
+) {
+  const metric = metrics.find((item) => asString(item.key) === key);
+  if (!metric) {
+    return fallback;
+  }
+  const value = asNumber(metric.value);
+  return Number.isFinite(value) ? String(Math.round(value)) : fallback;
+}
+
+function distributionTop(
+  items: JsonRecord[],
+  limit = 3,
+) {
+  return items
+    .slice(0, limit)
+    .map((item) => {
+      const label = asString(item.label) ?? "Unknown";
+      const value = asNumber(item.value) ?? 0;
+      const percent = asNumber(item.percent);
+      return percent != null
+        ? `${label} (${Math.round(value)} / ${Math.round(percent)}%)`
+        : `${label} (${Math.round(value)})`;
+    })
+    .join(", ");
+}
+
+function buildHeuristicInsightReport(
+  snapshot: JsonRecord,
+  reportType: InsightReportType,
+  focus: string | null,
+): InsightReportPayload {
+  const metrics = asArray(snapshot.metrics).map((item) => asRecord(item));
+  const totalCvs = metricValue(metrics, "total_cvs_indexed", "0");
+  const avgSkills = metricValue(metrics, "avg_skills_per_profile", "0");
+  const jobFamilies = asArray(snapshot.job_families ?? snapshot.jobFamilies)
+    .map((item) => asRecord(item));
+  const seniority = asArray(
+    snapshot.profiles_by_seniority ?? snapshot.profilesBySeniority,
+  ).map((item) => asRecord(item));
+  const locations = asArray(
+    snapshot.profiles_by_location ?? snapshot.profilesByLocation,
+  ).map((item) => asRecord(item));
+  const gapAnalysis = asRecord(snapshot.gap_analysis ?? snapshot.gapAnalysis);
+  const topFamilies = distributionTop(jobFamilies, 4);
+  const topLocations = distributionTop(locations, 3);
+  const topSeniority = distributionTop(seniority, 4);
+  const targetRole = asString(
+    gapAnalysis.target_role ?? gapAnalysis.targetRole,
+  );
+  const targetSkills = asStringArray(
+    gapAnalysis.target_skills ?? gapAnalysis.targetSkills,
+  );
+  const fullyMatching = asNumber(
+    gapAnalysis.fully_matching_candidates ??
+      gapAnalysis.fullyMatchingCandidates,
+  ) ?? 0;
+  const partiallyMatching = asNumber(
+    gapAnalysis.partially_matching_candidates ??
+      gapAnalysis.partiallyMatchingCandidates,
+  ) ?? 0;
+  const missingSkills = asArray(
+    gapAnalysis.missing_skills ?? gapAnalysis.missingSkills,
+  )
+    .map((item) => asRecord(item))
+    .slice(0, 3)
+    .map((item) => asString(item.skill))
+    .filter(Boolean);
+
+  const focusLabel = focus?.trim() || targetRole || "the indexed corpus";
+  const title = reportType === "gap_brief"
+    ? `Gap brief: ${focusLabel}`
+    : reportType === "job_family_analysis"
+    ? `Job family analysis: ${focusLabel}`
+    : "Corpus intelligence brief";
+
+  const executiveSummary = reportType === "gap_brief"
+    ? `The tenant corpus indexes ${totalCvs} profiles with an average of ${avgSkills} skills each. For ${focusLabel}, ${fullyMatching} profiles fully match and ${partiallyMatching} are partial matches, indicating ${
+      partiallyMatching > fullyMatching
+        ? "an upskilling opportunity"
+        : "moderate exact-match depth"
+    }.`
+    : reportType === "job_family_analysis"
+    ? `${focusLabel} sits within a corpus of ${totalCvs} indexed profiles. Leading families are ${
+      topFamilies || "not yet classified"
+    }, with seniority mix led by ${topSeniority || "unknown bands"}.`
+    : `This workspace indexes ${totalCvs} CVs with ${avgSkills} average skills per profile. Job-family coverage is led by ${
+      topFamilies || "unclassified roles"
+    }, while geo concentration is strongest in ${
+      topLocations || "unknown locations"
+    }.`;
+
+  const sections: InsightReportPayload["sections"] = [
+    {
+      title: "Corpus snapshot",
+      body:
+        `Total indexed profiles: ${totalCvs}. Average skills per profile: ${avgSkills}. Top locations: ${
+          topLocations || "n/a"
+        }.`,
+      citations: [
+        {
+          metricKey: "total_cvs_indexed",
+          label: "Total CVs indexed",
+          value: totalCvs,
+        },
+        {
+          metricKey: "avg_skills_per_profile",
+          label: "Average skills per profile",
+          value: avgSkills,
+        },
+      ],
+    },
+    {
+      title: "Seniority and family mix",
+      body: `Seniority distribution is led by ${
+        topSeniority || "unknown bands"
+      }. Production taxonomy is concentrated in ${
+        topFamilies || "unclassified families"
+      }.`,
+      citations: jobFamilies.slice(0, 2).map((item, index) => ({
+        metricKey: `job_family_${index + 1}`,
+        label: asString(item.label) ?? "Job family",
+        value: String(asNumber(item.value) ?? 0),
+      })),
+    },
+  ];
+
+  if (reportType !== "corpus_overview") {
+    sections.push({
+      title: "Requirement coverage",
+      body: targetSkills.length
+        ? `Resolved requirements: ${
+          targetSkills.join(", ")
+        }. Fully matching profiles: ${fullyMatching}. Partial matches: ${partiallyMatching}. Top missing skills among partial profiles: ${
+          missingSkills.join(", ") || "none surfaced"
+        }.`
+        : `No resolved skill requirements were available for ${focusLabel}. Review the Gap Engine tab to map role text to catalog skills.`,
+      citations: [
+        {
+          metricKey: "fully_matching_candidates",
+          label: "Fully matching candidates",
+          value: String(fullyMatching),
+        },
+        {
+          metricKey: "partially_matching_candidates",
+          label: "Partially matching candidates",
+          value: String(partiallyMatching),
+        },
+      ],
+    });
+  }
+
+  const recommendations = reportType === "gap_brief"
+    ? [
+      partiallyMatching > fullyMatching && missingSkills[0]
+        ? `Prioritize upskilling around ${
+          missingSkills[0]
+        } before expanding search criteria.`
+        : "Run a targeted search for fully matching profiles before widening requirements.",
+      "Export the gap verdict and share it with hiring stakeholders.",
+      "Re-run this brief after the next ingestion batch to track supply movement.",
+    ]
+    : reportType === "job_family_analysis"
+    ? [
+      `Drill into ${focusLabel} from Overview to inspect seniority depth.`,
+      "Compare top two families if delivery planning spans multiple stacks.",
+      "Queue a gap brief if a live role depends on this family.",
+    ]
+    : [
+      "Review unclassified seniority bands if workforce planning needs tighter segmentation.",
+      "Use Top Skills to validate program narratives against real corpus frequency.",
+      "Generate a gap brief when a live hiring requirement needs supply evidence.",
+    ];
+
+  const risks = [
+    Number(totalCvs) <= 0
+      ? "Corpus volume is too low for reliable supply conclusions."
+      : null,
+    missingSkills.length && reportType === "gap_brief"
+      ? `${
+        missingSkills[0]
+      } appears as a recurring blocker in partial profiles.`
+      : null,
+    "Insights remain read-only; validate critical hiring decisions with dossier review.",
+  ].filter((item): item is string => Boolean(item));
+
+  const assistantPrompts = reportType === "gap_brief"
+    ? [
+      `Which partial profiles are closest to ${focusLabel}?`,
+      `What training cohort could close ${
+        missingSkills[0] ?? "the top skill gap"
+      } fastest?`,
+      "Show me fully matching candidates in Search.",
+    ]
+    : reportType === "job_family_analysis"
+    ? [
+      `How deep is ${focusLabel} supply at senior level?`,
+      `Which locations dominate ${focusLabel} profiles?`,
+      `Generate a gap brief for a role in ${focusLabel}.`,
+    ]
+    : [
+      "Which job families show the thinnest senior bench?",
+      "Where is geo coverage weakest outside Damascus?",
+      "What skills should we prioritize for the next training cohort?",
+    ];
+
+  return {
+    title,
+    executiveSummary,
+    sections,
+    recommendations,
+    risks,
+    assistantPrompts,
+  };
+}
+
+async function generateInsightReportPayload(
+  snapshot: JsonRecord,
+  reportType: InsightReportType,
+  focus: string | null,
+) {
+  const fallback = buildHeuristicInsightReport(snapshot, reportType, focus);
+  try {
+    const result = await generateStructuredObject<InsightReportPayload>({
+      schemaName: "insight_report",
+      schema: insightReportSchema,
+      temperature: 0.2,
+      systemPrompt:
+        "You are a recruitment intelligence analyst. Write grounded corpus insight reports using only the supplied metrics. Do not invent counts, locations, or skills. Every section must cite provided metric keys. Keep language concise and actionable for recruiters and program operators.",
+      userPrompt: JSON.stringify({
+        reportType,
+        focus,
+        snapshot,
+      }),
+    });
+    if (!result?.object) {
+      return {
+        payload: fallback,
+        provider: "heuristic",
+        model: "local-fallback",
+      };
+    }
+    return {
+      payload: result.object,
+      provider: result.provider,
+      model: result.model,
+    };
+  } catch {
+    return {
+      payload: fallback,
+      provider: "heuristic",
+      model: "local-fallback",
+    };
+  }
+}
+
+async function startInsightReportRun(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+  body: JsonRecord,
+) {
+  if (tenantIds.length !== 1) {
+    throw new Error(
+      "Exactly one tenant_id is required for insight report generation.",
+    );
+  }
+  const tenantId = tenantIds[0];
+  const userId = await getCurrentUserId(supabase);
+  const reportType = normalizeInsightReportType(
+    body.report_type ?? body.reportType,
+  );
+  if (!reportType) {
+    throw new Error(
+      "report_type must be corpus_overview, gap_brief, or job_family_analysis.",
+    );
+  }
+  const focus = asString(body.focus ?? body.target_role ?? body.targetRole);
+  const targetSkills = asStringArray(body.target_skills ?? body.targetSkills);
+  const inputConfig = {
+    reportType,
+    focus,
+    targetRole: focus,
+    targetSkills,
+    topSkills: Math.max(
+      1,
+      Math.min(
+        200,
+        Math.trunc(asNumber(body.top_skills ?? body.topSkills) ?? 50),
+      ),
+    ),
+  };
+
+  const runInsert = await supabase
+    .from("insight_report_runs")
+    .insert({
+      tenant_id: tenantId,
+      initiated_by_user_id: userId,
+      status: "running",
+      report_type: reportType,
+      input_config: inputConfig,
+      started_at: new Date().toISOString(),
+    })
+    .select(insightReportRunSelect)
+    .single();
+  if (runInsert.error) {
+    throw runInsert.error;
+  }
+  const insertedRun = asRecord(runInsert.data);
+  const runId = asString(insertedRun.id) ?? "";
+
+  await writeAuditEvent(supabase, {
+    tenantId,
+    actorUserId: userId,
+    action: "INSIGHT_REPORT_STARTED",
+    entityType: "insight_report_run",
+    entityId: runId,
+    payload: inputConfig,
+  });
+
+  try {
+    const snapshot = asRecord(
+      await getInsightsDashboard(supabase, tenantIds, {
+        top_skills: inputConfig.topSkills,
+        target_role: reportType === "gap_brief" ? focus : null,
+        target_skills: reportType === "gap_brief" ? targetSkills : [],
+        trace_id: `insight-report-${runId}`,
+      }),
+    );
+    if (reportType === "job_family_analysis" && focus) {
+      snapshot.focus_job_family = focus;
+    }
+    const generation = await generateInsightReportPayload(
+      snapshot,
+      reportType,
+      focus,
+    );
+    const completedAt = new Date().toISOString();
+    const updateResult = await supabase
+      .from("insight_report_runs")
+      .update({
+        status: "completed",
+        report_payload: generation.payload,
+        llm_provider: generation.provider,
+        llm_model: generation.model,
+        completed_at: completedAt,
+      })
+      .eq("id", runId)
+      .select(insightReportRunSelect)
+      .single();
+    if (updateResult.error) {
+      throw updateResult.error;
+    }
+
+    await writeAuditEvent(supabase, {
+      tenantId,
+      actorUserId: userId,
+      action: "INSIGHT_REPORT_COMPLETED",
+      entityType: "insight_report_run",
+      entityId: runId,
+      payload: {
+        reportType,
+        provider: generation.provider,
+        model: generation.model,
+      },
+    });
+
+    return {
+      run: updateResult.data,
+      report: generation.payload,
+    };
+  } catch (error) {
+    const failureReason = error instanceof Error
+      ? error.message
+      : String(error);
+    await supabase
+      .from("insight_report_runs")
+      .update({
+        status: "failed",
+        failure_reason: failureReason,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", runId)
+      .then(() => null, () => null);
+    await writeAuditEvent(supabase, {
+      tenantId,
+      actorUserId: userId,
+      action: "INSIGHT_REPORT_FAILED",
+      entityType: "insight_report_run",
+      entityId: runId,
+      payload: { failureReason },
+    }).then(() => null, () => null);
+    throw error;
+  }
+}
+
+async function getInsightReportRun(
+  supabase: ReturnType<typeof createAuthedClient>,
+  runId: string,
+) {
+  if (!runId) {
+    throw new Error("run_id is required");
+  }
+  const runResult = await supabase
+    .from("insight_report_runs")
+    .select(insightReportRunSelect)
+    .eq("id", runId)
+    .maybeSingle();
+  if (runResult.error) {
+    throw runResult.error;
+  }
+  if (!runResult.data) {
+    throw new Error(`Insight report run ${runId} was not found.`);
+  }
+  const run = asRecord(runResult.data);
+  return {
+    run: runResult.data,
+    report: run.report_payload ?? run.reportPayload ?? null,
+  };
+}
+
+async function listInsightReportRuns(
+  supabase: ReturnType<typeof createAuthedClient>,
+  tenantIds: string[],
+  body: JsonRecord,
+) {
+  if (!tenantIds.length) {
+    throw new Error("tenant_ids is required");
+  }
+  let query = supabase
+    .from("insight_report_runs")
+    .select(insightReportRunSelect)
+    .order("created_at", { ascending: false })
+    .limit(clampInteger(body.limit, 20, 1, 100));
+  if (tenantIds.length === 1) {
+    query = query.eq("tenant_id", tenantIds[0]);
+  } else {
+    query = query.in("tenant_id", tenantIds);
+  }
+  const { data, error } = await query;
+  if (error) {
+    throw error;
+  }
+  return data ?? [];
+}
+
 async function acknowledgeOpsAlert(
   supabase: ReturnType<typeof createAuthedClient>,
   dedupeKey: string,
@@ -2004,7 +2558,15 @@ async function getAuthContext(supabase: ReturnType<typeof createAuthedClient>) {
     throw platformAdminResult.error;
   }
 
-  const membershipRows = membershipResult.data ?? [];
+  type MembershipRow = {
+    tenant_id: string;
+    role: string;
+    status: string;
+  };
+
+  const membershipRows: MembershipRow[] =
+    (membershipResult.data as MembershipRow[]) ?? [];
+
   const isPlatformAdmin = Boolean(platformAdminResult.data?.user_id);
   if (!membershipRows.length && !isPlatformAdmin) {
     return { memberships: [], is_platform_admin: false };
@@ -2026,8 +2588,13 @@ async function getAuthContext(supabase: ReturnType<typeof createAuthedClient>) {
   if (tenantResult.error) {
     throw tenantResult.error;
   }
-
-  const tenantRows = tenantResult.data ?? [];
+  type TenantRow = {
+    id: string;
+    slug: string;
+    name: string;
+    icon_url: string | null;
+  };
+  const tenantRows: TenantRow[] = (tenantResult.data as TenantRow[]) ?? [];
   const tenantMap = new Map(tenantRows.map((tenant) => [tenant.id, tenant]));
   const memberships = membershipRows
     .map((membership) => {
@@ -2092,7 +2659,7 @@ async function getCandidateDetail(
     supabase
       .from("candidate_dossier_v1")
       .select(
-        "candidate_id, source_document_id, tenant_id, name, headline, current_title, location, years_experience, seniority, primary_role, top_skills, email, phone, links, summary_short, short_summary, long_summary, strengths, risks, recommended_roles, timeline_json, profile_json, original_filename, mime_type, storage_path, source_uri, confidence",
+        "profile_json, timeline_json, skill_matrix_json, profile_attributes, raw_text, confidence, missing_fields, parse_warnings",
       )
       .eq("candidate_id", candidateId)
       .maybeSingle(),
@@ -2104,7 +2671,44 @@ async function getCandidateDetail(
       .order("chunk_index", { ascending: true })
       .limit(6),
   ]);
+  const candidateProfileResult = await supabase
+    .from("candidate_profiles")
+    .select(
+      `
+    profile_json,
+    timeline_json,
+    skill_matrix_json,
+    raw_text,
+    confidence,
+    missing_fields,
+    parse_warnings,
+    status,
+    job_readiness_level,
+    preferred_work_mode,
+    years_of_experience,
+    primary_skills,
+    notice_period,
+    english_proficiency,
+    expected_salary,
+    is_pre_screened,
+    sync_affiliation,
+    internal_vetting_notes,
+    current_location_city,
+    willingness_to_relocate,
+    external_profiles,
+    ai_profile_summary,
+    employment_type_preference,
+    last_interaction_date
+    `,
+    )
+    .eq("candidate_id", candidateId)
+    .maybeSingle();
 
+  if (candidateProfileResult.error) {
+    throw candidateProfileResult.error;
+  }
+
+  const profile = candidateProfileResult.data;
   if (dossier.error) {
     throw dossier.error;
   }
@@ -2137,11 +2741,11 @@ async function getCandidateDetail(
   }
 
   return {
-    dossier: {
-      ...dossier.data,
-      manatal_candidate_id: manatalCandidateId,
-    },
+    candidate: dossier.data,
     chunks: chunks.data ?? [],
+    profile: profile ?? null,
+    profileAttributes: profile?.profile_attributes ?? null,
+    manatalCandidateId,
   };
 }
 
@@ -2292,13 +2896,12 @@ async function getParsingDocument(
 async function getOriginalDocumentUrl(
   supabase: ReturnType<typeof createAuthedClient>,
   body: JsonRecord,
-  tenantIds: string[],
+  _tenantIds: string[],
 ) {
   await getCurrentUserId(supabase);
 
   const documentId = asString(body.document_id);
   const candidateId = asString(body.candidate_id);
-  const tenantId = asString(body.tenant_id);
 
   if (!documentId && !candidateId) {
     throw new Error("document_id or candidate_id is required.");
@@ -2316,11 +2919,12 @@ async function getOriginalDocumentUrl(
     query = query.eq("candidate_id", candidateId);
   }
 
-  if (tenantId) {
-    query = query.eq("tenant_id", tenantId);
-  } else if (tenantIds.length) {
-    query = query.in("tenant_id", tenantIds);
-  }
+  // NOTE: No explicit tenant_id filter here — RLS on source_documents
+  // already enforces access control. It allows:
+  //   1. Tenant members to read their own tenant's documents
+  //   2. Hub-visible candidate documents to be read by any active
+  //      tenant member via can_search_cv_hub()
+  // Adding a tenant_id filter would block cross-tenant hub access.
 
   const { data, error } = await query
     .order("updated_at", { ascending: false })
@@ -2802,7 +3406,9 @@ function clampInteger(
 }
 
 function normalizeStatus(value: unknown) {
-  const normalized = String(value ?? "draft").trim().toLowerCase();
+  const normalized = String(value ?? "draft")
+    .trim()
+    .toLowerCase();
   return normalized === "active" || normalized === "closed"
     ? normalized
     : "draft";
@@ -2823,7 +3429,9 @@ function normalizePublicSlug(value: unknown) {
 }
 
 function normalizeRegion(value: unknown) {
-  const normalized = String(value ?? "").trim().toUpperCase();
+  const normalized = String(value ?? "")
+    .trim()
+    .toUpperCase();
   return normalized === "GCC" || normalized === "EU" || normalized === "USA"
     ? normalized
     : null;
@@ -2879,7 +3487,8 @@ function seniorityRank(value: unknown) {
     return 6;
   }
   if (
-    normalized.includes("lead") || normalized.includes("architect") ||
+    normalized.includes("lead") ||
+    normalized.includes("architect") ||
     normalized.includes("staff")
   ) {
     return 5;
@@ -2909,7 +3518,8 @@ function seniorityAlignment(candidate: unknown, required: unknown) {
     return "Exact Match";
   }
   if (
-    Math.abs(candidateRank - requiredRank) === 1 || candidateRank > requiredRank
+    Math.abs(candidateRank - requiredRank) === 1 ||
+    candidateRank > requiredRank
   ) {
     return "Partial Match";
   }
@@ -2930,13 +3540,11 @@ function extractSkillsFromText(text: string) {
   );
 }
 
-function heuristicJobExtraction(
-  input: {
-    title: string | null;
-    jobDescription: string;
-    employerRegion: string | null;
-  },
-) {
+function heuristicJobExtraction(input: {
+  title: string | null;
+  jobDescription: string;
+  employerRegion: string | null;
+}) {
   const text = input.jobDescription;
   const lower = text.toLowerCase();
   const allSkills = extractSkillsFromText(text);
@@ -2982,10 +3590,13 @@ function heuristicJobExtraction(
   const responsibilities = text
     .split(/\n|(?:^|\s)[*-]\s+/)
     .map((line) => line.trim().replace(/^[-*]\s*/, ""))
-    .filter((line) =>
-      line.length >= 24 &&
-      /\b(?:build|develop|design|lead|manage|deliver|collaborate|implement|maintain|support|create|drive)\b/i
-        .test(line)
+    .filter(
+      (line) =>
+        line.length >= 24 &&
+        /\b(?:build|develop|design|lead|manage|deliver|collaborate|implement|maintain|support|create|drive)\b/i
+          .test(
+            line,
+          ),
     )
     .slice(0, 6);
 
@@ -3018,11 +3629,13 @@ function heuristicJobExtraction(
       confidence: locationCountry ? 0.62 : 0.38,
     },
     keyResponsibilities: responsibilities,
-    warnings: required.length ? [] : [{
-      type: "MISSING",
-      message:
-        "No explicit known technical skills were detected; review required skills manually.",
-    }],
+    warnings: required.length ? [] : [
+      {
+        type: "MISSING",
+        message:
+          "No explicit known technical skills were detected; review required skills manually.",
+      },
+    ],
   };
 }
 
@@ -3115,21 +3728,21 @@ const jobExtractionSchema = {
 
 type JobExtractionPayload = ReturnType<typeof heuristicJobExtraction>;
 
-async function extractJobDescription(
-  input: {
-    title: string | null;
-    jobDescription: string;
-    employerRegion: string | null;
-  },
-) {
+async function extractJobDescription(input: {
+  title: string | null;
+  jobDescription: string;
+  employerRegion: string | null;
+}) {
   const fallback = heuristicJobExtraction(input);
   try {
     const result = await generateStructuredObject<JobExtractionPayload>({
       schemaName: "job_description_extraction",
       schema: jobExtractionSchema,
       temperature: 0,
-      systemPrompt:
+      systemPrompt: buildGuardedSystemPrompt(
         "Extract recruitment job requirements from a job description. Return strict JSON only. Separate required skills from preferred skills. Do not invent skills or employer details. Flag ambiguity in warnings.",
+        "Job extraction",
+      ),
       userPrompt: JSON.stringify({
         title: input.title,
         employerRegion: input.employerRegion,
@@ -3172,8 +3785,10 @@ function extractionToJobFields(payload: JobExtractionPayload) {
     seniorityLevel: normalizeJobSeniority(payload.seniorityLevel.value),
     employmentType: normalizeEmploymentType(payload.employmentType.value),
     locationInfo: asRecord(payload.location),
-    keyResponsibilities: payload.keyResponsibilities.map((item) => item.trim())
-      .filter(Boolean).slice(0, 10),
+    keyResponsibilities: payload.keyResponsibilities
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 10),
     aiConfidence: {
       requiredSkills: payload.requiredSkills.map((skill) => ({
         name: skill.name,
@@ -3243,9 +3858,11 @@ async function getJobPosting(
   if (!jobId) {
     throw new Error("job_id is required");
   }
-  const { data, error } = await supabase.from("job_postings").select(
-    jobPostingSelect,
-  ).eq("id", jobId).maybeSingle();
+  const { data, error } = await supabase
+    .from("job_postings")
+    .select(jobPostingSelect)
+    .eq("id", jobId)
+    .maybeSingle();
   if (error) {
     throw error;
   }
@@ -3263,9 +3880,10 @@ async function saveJobPosting(
   const job = asRecord(body.job);
   const jobId = asString(job.id);
   const existing = jobId
-    ? await getJobPosting(supabase, jobId) as unknown as JsonRecord
+    ? ((await getJobPosting(supabase, jobId)) as unknown as JsonRecord)
     : null;
-  const tenantId = asString(job.tenant_id) ?? asString(job.tenantId) ??
+  const tenantId = asString(job.tenant_id) ??
+    asString(job.tenantId) ??
     asString(existing?.tenant_id);
   if (!tenantId) {
     throw new Error("tenant_id is required");
@@ -3275,21 +3893,26 @@ async function saveJobPosting(
   const currentStatus = normalizeStatus(existing?.status);
   const title = asString(job.title) ?? asString(existing?.title) ?? "";
   const employerName = asString(job.employer_name) ??
-    asString(job.employerName) ?? asString(existing?.employer_name) ?? "";
+    asString(job.employerName) ??
+    asString(existing?.employer_name) ??
+    "";
   const employerCountry = asString(job.employer_country) ??
-    asString(job.employerCountry) ?? asString(existing?.employer_country) ?? "";
+    asString(job.employerCountry) ??
+    asString(existing?.employer_country) ??
+    "";
   const employerRegion = normalizeRegion(
     job.employer_region ?? job.employerRegion ?? existing?.employer_region,
   );
   const jobDescription = asString(job.job_description) ??
-    asString(job.jobDescription) ?? asString(existing?.job_description) ?? "";
+    asString(job.jobDescription) ??
+    asString(existing?.job_description) ??
+    "";
   const requiredSkills = normalizeSkillSet(
     job.required_skills ?? job.requiredSkills ?? existing?.required_skills,
   );
   const preferredSkills = normalizeSkillSet(
     job.preferred_skills ?? job.preferredSkills ?? existing?.preferred_skills,
-  )
-    .filter((skill) => !requiredSkills.includes(skill));
+  ).filter((skill) => !requiredSkills.includes(skill));
   const seniorityLevel = normalizeJobSeniority(
     job.seniority_level ?? job.seniorityLevel ?? existing?.seniority_level,
   );
@@ -3307,14 +3930,19 @@ async function saveJobPosting(
   const publicSlug = normalizePublicSlug(
     job.public_slug ?? job.publicSlug ?? existing?.public_slug,
   );
-  const publicTitle = asString(job.public_title) ?? asString(job.publicTitle) ??
-    asString(existing?.public_title) ?? title;
+  const publicTitle = asString(job.public_title) ??
+    asString(job.publicTitle) ??
+    asString(existing?.public_title) ??
+    title;
   const publicSummary = asString(job.public_summary) ??
-    asString(job.publicSummary) ?? asString(existing?.public_summary);
+    asString(job.publicSummary) ??
+    asString(existing?.public_summary);
   const publicDescription = asString(job.public_description) ??
-    asString(job.publicDescription) ?? asString(existing?.public_description);
+    asString(job.publicDescription) ??
+    asString(existing?.public_description);
   const publicLocation = asString(job.public_location) ??
-    asString(job.publicLocation) ?? asString(existing?.public_location);
+    asString(job.publicLocation) ??
+    asString(existing?.public_location);
   const publicApplyEnabled = typeof job.public_apply_enabled === "boolean"
     ? job.public_apply_enabled
     : typeof job.publicApplyEnabled === "boolean"
@@ -3330,8 +3958,13 @@ async function saveJobPosting(
   }
   if (
     status === "active" &&
-    (!title || !employerName || !employerCountry || !employerRegion ||
-      !jobDescription || !requiredSkills.length || !seniorityLevel ||
+    (!title ||
+      !employerName ||
+      !employerCountry ||
+      !employerRegion ||
+      !jobDescription ||
+      !requiredSkills.length ||
+      !seniorityLevel ||
       !employmentType)
   ) {
     throw new Error(
@@ -3339,7 +3972,8 @@ async function saveJobPosting(
     );
   }
   if (
-    isPublic && status === "active" &&
+    isPublic &&
+    status === "active" &&
     (!publicSlug || !publicTitle || !publicDescription)
   ) {
     throw new Error(
@@ -3368,7 +4002,8 @@ async function saveJobPosting(
       job.location_info ?? job.locationInfo ?? existing?.location_info,
     ),
     key_responsibilities: asStringArray(
-      job.key_responsibilities ?? job.keyResponsibilities ??
+      job.key_responsibilities ??
+        job.keyResponsibilities ??
         existing?.key_responsibilities,
     ).slice(0, 12),
     ai_profile: asRecord(
@@ -3397,15 +4032,21 @@ async function saveJobPosting(
     public_location: publicLocation,
     public_apply_enabled: publicApplyEnabled,
     public_published_at: isPublic && status === "active"
-      ? asString(existing?.public_published_at) ?? now
+      ? (asString(existing?.public_published_at) ?? now)
       : null,
   };
 
   const mutation = jobId
-    ? supabase.from("job_postings").update(payload).eq("id", jobId).select(
-      jobPostingSelect,
-    ).single()
-    : supabase.from("job_postings").insert(payload).select(jobPostingSelect)
+    ? supabase
+      .from("job_postings")
+      .update(payload)
+      .eq("id", jobId)
+      .select(jobPostingSelect)
+      .single()
+    : supabase
+      .from("job_postings")
+      .insert(payload)
+      .select(jobPostingSelect)
       .single();
   const { data, error } = await mutation;
   if (error) {
@@ -3435,7 +4076,7 @@ async function extractJobPosting(
   const userId = await getCurrentUserId(supabase);
   const jobId = asString(body.job_id);
   const job = jobId
-    ? await getJobPosting(supabase, jobId) as unknown as JsonRecord
+    ? ((await getJobPosting(supabase, jobId)) as unknown as JsonRecord)
     : null;
   const tenantId = asString(body.tenant_id) ?? asString(job?.tenant_id);
   const title = asString(body.title) ?? asString(job?.title);
@@ -3443,9 +4084,18 @@ async function extractJobPosting(
     body.employer_region ?? job?.employer_region,
   );
   const jobDescription = asString(body.job_description) ??
-    asString(body.jobDescription) ?? asString(job?.job_description);
+    asString(body.jobDescription) ??
+    asString(job?.job_description);
   if (!tenantId || !jobDescription) {
     throw new Error("tenant_id and job_description are required");
+  }
+
+  const jobTextGuard = evaluatePlatformAiInput(
+    [title, jobDescription].filter(Boolean).join("\n"),
+    { injectionOnly: true, maxLength: 50000 },
+  );
+  if (!jobTextGuard.allowed) {
+    throw new Error(platformAiGuardErrorMessage(jobTextGuard));
   }
 
   const { payload, provider, model } = await extractJobDescription({
@@ -3509,9 +4159,9 @@ function buildJobProfile(job: JsonRecord) {
     `Responsibilities: ${asStringArray(job.key_responsibilities).join("; ")}`,
     `Description: ${asString(job.job_description) ?? ""}`,
   ];
-  return lines.filter((line) => line.replace(/^[^:]+:\s*/, "").trim()).join(
-    "\n",
-  );
+  return lines
+    .filter((line) => line.replace(/^[^:]+:\s*/, "").trim())
+    .join("\n");
 }
 
 function textIncludesSkill(candidateSkills: string[], requiredSkill: string) {
@@ -3530,8 +4180,8 @@ function scoreCandidateForJob(candidate: JsonRecord, job: JsonRecord) {
   const matchedSkills = requiredSkills.filter((skill) =>
     textIncludesSkill(candidateSkills, skill)
   );
-  const missingSkills = requiredSkills.filter((skill) =>
-    !textIncludesSkill(candidateSkills, skill)
+  const missingSkills = requiredSkills.filter(
+    (skill) => !textIncludesSkill(candidateSkills, skill),
   );
   const preferredCoverage =
     preferredSkills.filter((skill) => textIncludesSkill(candidateSkills, skill))
@@ -3568,16 +4218,16 @@ function scoreCandidateForJob(candidate: JsonRecord, job: JsonRecord) {
     Math.round((experienceYears / Math.max(1, requiredYears)) * 100),
   );
   const aiScore = Math.round(
-    (0.3 * requiredCoverage * 100) +
-      (0.25 * Math.min(100, experienceScore)) +
-      (0.15 * seniorityScore) +
-      (0.1 * semanticScore) +
-      (0.1 * preferredCoverage * 100) +
+    0.3 * requiredCoverage * 100 +
+      0.25 * Math.min(100, experienceScore) +
+      0.15 * seniorityScore +
+      0.1 * semanticScore +
+      0.1 * preferredCoverage * 100 +
       7,
   );
   const finalScore = Math.max(
     0,
-    Math.min(100, Math.round((0.2 * semanticScore) + (0.8 * aiScore))),
+    Math.min(100, Math.round(0.2 * semanticScore + 0.8 * aiScore)),
   );
   return {
     semanticScore,
@@ -3589,7 +4239,9 @@ function scoreCandidateForJob(candidate: JsonRecord, job: JsonRecord) {
     experienceSummary: `${String(candidate.name ?? "Candidate")} has ${
       experienceYears || "unspecified"
     } years of experience and is indexed as ${
-      String(candidate.seniority ?? "unknown")
+      String(
+        candidate.seniority ?? "unknown",
+      )
     } seniority.`,
     matchExplanation: matchedSkills.length
       ? `Matches ${matchedSkills.length} required skill${
@@ -3600,7 +4252,9 @@ function scoreCandidateForJob(candidate: JsonRecord, job: JsonRecord) {
           : "no required skill gaps detected."
       }`
       : `Semantic match found for ${
-        String(job.title ?? "this role")
+        String(
+          job.title ?? "this role",
+        )
       }, but required skill coverage needs recruiter review.`,
     scoringBreakdown: {
       requiredSkillAlignment: Math.round(requiredCoverage * 30),
@@ -3619,10 +4273,10 @@ async function startJobMatchingRun(
 ) {
   const userId = await getCurrentUserId(supabase);
   const jobId = asString(body.job_id);
-  const job = await getJobPosting(
+  const job = (await getJobPosting(
     supabase,
     jobId ?? "",
-  ) as unknown as JsonRecord;
+  )) as unknown as JsonRecord;
   if (normalizeStatus(job.status) !== "active") {
     throw new Error("Only active job postings can be matched.");
   }
@@ -3649,27 +4303,31 @@ async function startJobMatchingRun(
       body.mandatory_criteria ?? body.mandatoryCriteria,
     ),
   };
-  const runInsert = await supabase.from("job_matching_runs").insert({
-    tenant_id: job.tenant_id,
-    job_posting_id: job.id,
-    initiated_by_user_id: userId,
-    status: "running",
-    requested_limit: limit,
-    semantic_pool_size: semanticPoolSize,
-    rerank_pool_size: rerankPoolSize,
-    matching_config: matchingConfig,
-    job_profile: {
-      text: profileText,
-      requiredSkills: job.required_skills,
-      preferredSkills: job.preferred_skills,
-      seniorityLevel: job.seniority_level,
-      employmentType: job.employment_type,
-      locationInfo: job.location_info,
-    },
-    embedding_provider: embeddingPayload.provider,
-    embedding_version: embeddingPayload.embeddingVersion,
-    started_at: new Date().toISOString(),
-  }).select(matchingRunSelect).single();
+  const runInsert = await supabase
+    .from("job_matching_runs")
+    .insert({
+      tenant_id: job.tenant_id,
+      job_posting_id: job.id,
+      initiated_by_user_id: userId,
+      status: "running",
+      requested_limit: limit,
+      semantic_pool_size: semanticPoolSize,
+      rerank_pool_size: rerankPoolSize,
+      matching_config: matchingConfig,
+      job_profile: {
+        text: profileText,
+        requiredSkills: job.required_skills,
+        preferredSkills: job.preferred_skills,
+        seniorityLevel: job.seniority_level,
+        employmentType: job.employment_type,
+        locationInfo: job.location_info,
+      },
+      embedding_provider: embeddingPayload.provider,
+      embedding_version: embeddingPayload.embeddingVersion,
+      started_at: new Date().toISOString(),
+    })
+    .select(matchingRunSelect)
+    .single();
   if (runInsert.error) {
     throw runInsert.error;
   }
@@ -3720,7 +4378,8 @@ async function startJobMatchingRun(
       rpcPayload,
     );
     if (
-      error && `${error.message}`.includes("search_candidates_with_rate_v1")
+      error &&
+      `${error.message}`.includes("search_candidates_with_rate_v1")
     ) {
       const fallback = await supabase.rpc("search_candidates_v1", rpcPayload);
       rawCandidates = fallback.data;
@@ -3738,9 +4397,9 @@ async function startJobMatchingRun(
         ) {
           return true;
         }
-        return String(candidate.location ?? "").toLowerCase().includes(
-          location.toLowerCase(),
-        );
+        return String(candidate.location ?? "")
+          .toLowerCase()
+          .includes(location.toLowerCase());
       })
       .slice(0, rerankPoolSize)
       .map((candidate) => {
@@ -3787,26 +4446,31 @@ async function startJobMatchingRun(
           subscores: candidate.subscores,
         },
       }));
-      const insertResults = await supabase.from("job_matching_results").insert(
-        rows,
-      );
+      const insertResults = await supabase
+        .from("job_matching_results")
+        .insert(rows);
       if (insertResults.error) {
         throw insertResults.error;
       }
     }
 
     const completedAt = new Date().toISOString();
-    const update = await supabase.from("job_matching_runs").update({
-      status: "completed",
-      retrieved_count: (rawCandidates ?? []).length,
-      filtered_count: Math.max(
-        0,
-        (rawCandidates ?? []).length - candidates.length,
-      ),
-      reranked_count: Math.min((rawCandidates ?? []).length, rerankPoolSize),
-      completed_count: candidates.length,
-      completed_at: completedAt,
-    }).eq("id", insertedRunId).select(matchingRunSelect).single();
+    const update = await supabase
+      .from("job_matching_runs")
+      .update({
+        status: "completed",
+        retrieved_count: (rawCandidates ?? []).length,
+        filtered_count: Math.max(
+          0,
+          (rawCandidates ?? []).length - candidates.length,
+        ),
+        reranked_count: Math.min((rawCandidates ?? []).length, rerankPoolSize),
+        completed_count: candidates.length,
+        completed_at: completedAt,
+      })
+      .eq("id", insertedRunId)
+      .select(matchingRunSelect)
+      .single();
     if (update.error) {
       throw update.error;
     }
@@ -3823,11 +4487,14 @@ async function startJobMatchingRun(
     });
     return getMatchingRun(supabase, insertedRunId);
   } catch (error) {
-    await supabase.from("job_matching_runs").update({
-      status: "failed",
-      failure_reason: describeError(error),
-      completed_at: new Date().toISOString(),
-    }).eq("id", insertedRunId);
+    await supabase
+      .from("job_matching_runs")
+      .update({
+        status: "failed",
+        failure_reason: describeError(error),
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", insertedRunId);
     await writeAuditEvent(supabase, {
       tenantId: String(job.tenant_id),
       actorUserId: userId,
@@ -3868,12 +4535,16 @@ async function getMatchingRun(
     throw new Error("run_id is required");
   }
   const [runResult, resultsResult] = await Promise.all([
-    supabase.from("job_matching_runs").select(matchingRunSelect).eq("id", runId)
+    supabase
+      .from("job_matching_runs")
+      .select(matchingRunSelect)
+      .eq("id", runId)
       .maybeSingle(),
-    supabase.from("job_matching_results").select(matchingResultSelect).eq(
-      "matching_run_id",
-      runId,
-    ).order("rank", { ascending: true }),
+    supabase
+      .from("job_matching_results")
+      .select(matchingResultSelect)
+      .eq("matching_run_id", runId)
+      .order("rank", { ascending: true }),
   ]);
   if (runResult.error) {
     throw runResult.error;
@@ -3911,7 +4582,9 @@ async function listJobApplications(
 }
 
 function normalizeApplicationStatus(value: unknown) {
-  const status = String(value ?? "").trim().toLowerCase();
+  const status = String(value ?? "")
+    .trim()
+    .toLowerCase();
   return ["new", "reviewing", "shortlisted", "rejected", "withdrawn"].includes(
       status,
     )
@@ -3980,14 +4653,16 @@ async function getJobShortlist(
     throw new Error("shortlist_id is required");
   }
   const [shortlistResult, candidatesResult] = await Promise.all([
-    supabase.from("job_shortlists").select(jobShortlistSelect).eq(
-      "id",
-      shortlistId,
-    ).maybeSingle(),
-    supabase.from("job_shortlist_candidates").select("*").eq(
-      "shortlist_id",
-      shortlistId,
-    ).order("saved_rank", { ascending: true }),
+    supabase
+      .from("job_shortlists")
+      .select(jobShortlistSelect)
+      .eq("id", shortlistId)
+      .maybeSingle(),
+    supabase
+      .from("job_shortlist_candidates")
+      .select("*")
+      .eq("shortlist_id", shortlistId)
+      .order("saved_rank", { ascending: true }),
   ]);
   if (shortlistResult.error) {
     throw shortlistResult.error;
@@ -4015,22 +4690,26 @@ async function saveJobShortlist(
   if (!jobId || !name) {
     throw new Error("job_id and name are required");
   }
-  const job = await getJobPosting(supabase, jobId) as unknown as JsonRecord;
+  const job = (await getJobPosting(supabase, jobId)) as unknown as JsonRecord;
   const runDetail = runId ? await getMatchingRun(supabase, runId) : null;
   const inputCandidates = asStringArray(body.candidate_ids);
-  const resultRows = (asArray(runDetail?.results) as JsonRecord[])
-    .filter((result) =>
+  const resultRows = (asArray(runDetail?.results) as JsonRecord[]).filter(
+    (result) =>
       !inputCandidates.length ||
-      inputCandidates.includes(String(result.candidate_id))
-    );
-  const shortlistResult = await supabase.from("job_shortlists").insert({
-    tenant_id: job.tenant_id,
-    job_posting_id: jobId,
-    matching_run_id: runId,
-    name,
-    description: asString(body.description) ?? "",
-    owner_user_id: userId,
-  }).select(jobShortlistSelect).single();
+      inputCandidates.includes(String(result.candidate_id)),
+  );
+  const shortlistResult = await supabase
+    .from("job_shortlists")
+    .insert({
+      tenant_id: job.tenant_id,
+      job_posting_id: jobId,
+      matching_run_id: runId,
+      name,
+      description: asString(body.description) ?? "",
+      owner_user_id: userId,
+    })
+    .select(jobShortlistSelect)
+    .single();
   if (shortlistResult.error) {
     throw shortlistResult.error;
   }
@@ -4113,16 +4792,81 @@ Deno.serve(async (req) => {
           200,
           await getInsightsGapAnalysis(supabase, tenantIds, body),
         );
+      case "start_insight_report":
+        return jsonResponse(
+          200,
+          await startInsightReportRun(supabase, tenantIds, body),
+        );
+      case "insight_report_runs":
+        return jsonResponse(
+          200,
+          await listInsightReportRuns(supabase, tenantIds, body),
+        );
+      case "insight_report_run":
+        return jsonResponse(
+          200,
+          await getInsightReportRun(supabase, asString(body.run_id) ?? ""),
+        );
       case "ops_ack_alert":
         return jsonResponse(
           200,
           await acknowledgeOpsAlert(supabase, asString(body.dedupe_key) ?? ""),
         );
-      case "candidate_detail":
-        return jsonResponse(
-          200,
-          await getCandidateDetail(supabase, asString(body.candidate_id) ?? ""),
+      case "candidate_detail": {
+        const result = await getCandidateDetail(
+          supabase,
+          asString(body.candidate_id) ?? "",
         );
+
+        return jsonResponse(200, {
+          candidate: result.candidate,
+          chunks: result.chunks,
+          evidence: result.chunks ?? [],
+
+          profile: {
+            // core identity (legacy safe)
+            status: result.profile?.status ?? null,
+            job_readiness_level: result.profile?.job_readiness_level ?? "L1",
+            preferred_work_mode: result.profile?.preferred_work_mode ?? null,
+            years_of_experience: result.profile?.years_of_experience ?? null,
+            primary_skills: result.profile?.primary_skills ?? [],
+            notice_period: result.profile?.notice_period ?? null,
+            english_proficiency: result.profile?.english_proficiency ?? null,
+
+            // compensation
+            expected_salary: result.profile?.expected_salary ?? null,
+
+            // vetting
+            is_pre_screened: result.profile?.is_pre_screened ?? false,
+            sync_affiliation: result.profile?.sync_affiliation ?? null,
+            internal_vetting_notes: result.profile?.internal_vetting_notes ??
+              null,
+
+            // location
+            current_location_city: result.profile?.current_location_city ??
+              result.candidate?.location ??
+              null,
+
+            willingness_to_relocate: result.profile?.willingness_to_relocate ??
+              null,
+
+            // metadata
+            external_profiles: result.profile?.external_profiles ?? {},
+            ai_profile_summary: result.profile?.ai_profile_summary ??
+              result.candidate?.summary_short ??
+              result.candidate?.long_summary ??
+              null,
+
+            employment_type_preference:
+              result.profile?.employment_type_preference ?? [],
+
+            last_interaction_date: result.profile?.last_interaction_date ??
+              null,
+          },
+
+          manatalCandidateId: result.manatalCandidateId ?? null,
+        });
+      }
       case "parsing_overview":
         return jsonResponse(
           200,
