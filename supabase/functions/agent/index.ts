@@ -8,154 +8,26 @@ import {
 import { createAuthedClient } from "../_shared/client.ts";
 import { generateText } from "../_shared/llm.ts";
 import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
+import { type DossierRow, type EvidenceRow, limitEvidenceRows } from "../_shared/agentHelpers.ts";
 
-type DossierRow = {
-  candidate_id: string;
-  name: string;
-  current_title: string | null;
-  years_experience: number | null;
-  seniority: string | null;
-  top_skills: string[] | null;
-  short_summary: string | null;
-  strengths: string[] | null;
-  risks: string[] | null;
-};
-
-type EvidenceRow = {
-  candidate_id: string;
-  chunk_id: string;
-  chunk_type: string;
-  section_name: string;
-  text: string;
-  lexical_score: number;
-  semantic_similarity: number;
-};
-
-type SearchHitRow = {
-  candidate_id: string;
-};
-
-type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
-
-const MAX_VISIBLE_CITATIONS = 3;
-const MAX_CONTEXT_BLOCKS = 6;
-
-function isCorpusCountQuestion(question: string) {
-  const normalized = question.toLowerCase();
-  return (
-    /(how many|number of|count of|count)\b/.test(normalized) &&
-    /\b(cv|cvs|resume|resumes|candidate|candidates|profile|profiles)\b/.test(
-      normalized,
-    )
-  );
-}
-
-function isWorkspaceQuestion(question: string) {
-  const normalized = question.toLowerCase();
-  return /\b(cv|cvs|resume|resumes|candidate|candidates|profile|profiles|recruit|recruiter|hire|hiring|shortlist|compare|match|skill|skills|experience|seniority|role|roles|backend|frontend|full[\s-]?stack|devops|graphql|react|node|engineer|engineers)\b/
-    .test(
-      normalized,
-    );
-}
-
-function normalizeMessages(value: unknown): ChatMessage[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((item) => {
-      if (!item || typeof item !== "object") {
-        return null;
-      }
-      const role = (item as { role?: unknown }).role;
-      const content = (item as { content?: unknown }).content;
-      if (
-        (role === "user" || role === "assistant") &&
-        typeof content === "string" &&
-        content.trim()
-      ) {
-        return {
-          role,
-          content: content.trim(),
-        } satisfies ChatMessage;
-      }
-      return null;
-    })
-    .filter((item): item is ChatMessage => Boolean(item))
-    .slice(-12);
-}
-
-function evidenceSignal(row: EvidenceRow) {
-  return Math.max(
-    Number(row.semantic_similarity) || 0,
-    Number(row.lexical_score) || 0,
-  );
-}
-
-function limitEvidenceRows(rows: EvidenceRow[], limit: number) {
-  const seenChunkIds = new Set<string>();
-  return [...rows]
-    .sort((left, right) => evidenceSignal(right) - evidenceSignal(left))
-    .filter((row) => {
-      if (!row.chunk_id || seenChunkIds.has(row.chunk_id)) {
-        return false;
-      }
-      seenChunkIds.add(row.chunk_id);
-      return true;
-    })
-    .slice(0, limit);
-}
-
-function normalizeTenantIds(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return Array.from(
-    new Set(
-      value
-        .map((item) => (typeof item === "string" ? item.trim() : ""))
-        .filter(Boolean),
-    ),
-  );
-}
-
-function buildFallbackAnswer(
-  question: string,
-  dossiers: DossierRow[],
-  evidence: EvidenceRow[],
-) {
-  if (!dossiers.length) {
-    return `I could not retrieve grounded candidate evidence for: "${question}". Try adding a role, skill, seniority, or location.`;
-  }
-
-  const summaries = dossiers
-    .slice(0, 3)
-    .map(
-      (row) =>
-        row.short_summary ||
-        `${row.name} is profiled as ${row.current_title ?? "candidate"}.`,
-    )
-    .filter(Boolean);
-  const excerpts = evidence
-    .slice(0, 2)
-    .map((row) => row.text.trim())
-    .filter(Boolean);
-
-  return [...summaries, ...excerpts].join("\n\n").trim();
-}
+import {
+  MAX_VISIBLE_CITATIONS,
+  MAX_CONTEXT_BLOCKS,
+  isCorpusCountQuestion,
+  isWorkspaceQuestion,
+  normalizeMessages,
+  normalizeTenantIds,
+  buildFallbackAnswer,
+} from "./helpers.ts";
+import { type SearchHitRow } from "./types.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", {headers: corsHeaders});
   }
 
   if (req.method !== "POST") {
-    return jsonResponse(405, { error: "method_not_allowed" });
+    return jsonResponse(405, {error: "method_not_allowed"});
   }
 
   try {
@@ -170,7 +42,7 @@ Deno.serve(async (req) => {
       : [];
 
     if (!question) {
-      return jsonResponse(400, { error: "question is required" });
+      return jsonResponse(400, {error: "question is required"});
     }
 
     const guardResult = evaluatePlatformAiConversation([
@@ -214,19 +86,19 @@ Deno.serve(async (req) => {
         tenantIds.length
           ? supabase
             .from("source_documents")
-            .select("id", { count: "exact", head: true })
+            .select("id", {count: "exact", head: true})
             .in("tenant_id", tenantIds)
           : supabase
             .from("source_documents")
-            .select("id", { count: "exact", head: true }),
+            .select("id", {count: "exact", head: true}),
         tenantIds.length
           ? supabase
             .from("candidates")
-            .select("id", { count: "exact", head: true })
+            .select("id", {count: "exact", head: true})
             .in("tenant_id", tenantIds)
           : supabase
             .from("candidates")
-            .select("id", { count: "exact", head: true }),
+            .select("id", {count: "exact", head: true}),
       ]);
 
       if (documentsCountResult.error) {
@@ -280,7 +152,7 @@ Deno.serve(async (req) => {
     }
 
     if (!candidateIds.length) {
-      const { data: searchRows, error: searchError } = await supabase.rpc(
+      const {data: searchRows, error: searchError} = await supabase.rpc(
         "search_candidates_v1",
         {
           p_q: question,
