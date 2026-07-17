@@ -1,10 +1,11 @@
 import { corsHeaders, fastApiProxyTimeoutMs } from "./constants.ts";
 import { detectAllowedMimeType } from "./helpers.ts";
+import type { User, SupabaseClient } from "@supabase/supabase-js";
 
 export async function handleUploadCv(
   req: Request,
-  user: any,
-  supabase: any,
+  user: User,
+  supabase: SupabaseClient,
 ): Promise<Response> {
   const formData = await req.formData();
   const file = formData.get("file") as File;
@@ -174,8 +175,8 @@ export async function handleUploadCv(
 
 export async function handleSaveDraft(
   req: Request,
-  user: any,
-  supabase: any,
+  user: User,
+  supabase: SupabaseClient,
 ): Promise<Response> {
   const body = await req.json();
   const overrides = body.overrides || body.user_overrides_json;
@@ -223,9 +224,9 @@ export async function handleSaveDraft(
 }
 
 export async function handlePublish(
-  req: Request,
-  user: any,
-  supabase: any,
+  _req: Request,
+  user: User,
+  supabase: SupabaseClient,
 ): Promise<Response> {
   const { data: currentDraft, error: fetchError } = await supabase
     .from("candidate_registration_drafts")
