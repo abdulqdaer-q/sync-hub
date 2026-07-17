@@ -1,13 +1,17 @@
-import {createAuthedClient} from "../_shared/client.ts";
-import {createGcsSignedUrl, resolveGcsLocation, type OriginalDocumentRow} from "../_shared/gcs.ts";
+import { createAuthedClient } from "../_shared/client.ts";
+import {
+  createGcsSignedUrl,
+  type OriginalDocumentRow,
+  resolveGcsLocation,
+} from "../_shared/gcs.ts";
 import {
   asInteger,
   asRecord,
   asString,
   isBrowserOpenableSource,
-  type JsonRecord
+  type JsonRecord,
 } from "../_shared/utils.ts";
-import {getCurrentUserId} from "../_shared/auth.ts";
+import { getCurrentUserId } from "../_shared/auth.ts";
 
 export async function getCandidateDetail(
   supabase: ReturnType<typeof createAuthedClient>,
@@ -26,7 +30,7 @@ export async function getCandidateDetail(
       .select("id, chunk_type, text")
       .eq("candidate_id", candidateId)
       .eq("is_active", true)
-      .order("chunk_index", {ascending: true})
+      .order("chunk_index", { ascending: true })
       .limit(6),
   ]);
   const candidateProfileResult = await supabase
@@ -116,7 +120,7 @@ export async function getParsingOverview(
   const offset = asInteger(body.offset, 0, 0, 100000);
   const needsReviewOnly = body.needs_review_only === true;
   const query = asString(body.query);
-  const {data, error} = await supabase.rpc("parsing_overview_page_v1", {
+  const { data, error } = await supabase.rpc("parsing_overview_page_v1", {
     p_tenant_ids: tenantIds.length ? tenantIds : null,
     p_limit: limit,
     p_offset: offset,
@@ -138,7 +142,7 @@ export async function getCandidatesList(
   const offset = asInteger(body.offset, 0, 0, 100000);
   const updatedFrom = asString(body.updated_from);
   const updatedTo = asString(body.updated_to);
-  const {data, error} = await supabase.rpc("candidates_list_page_v1", {
+  const { data, error } = await supabase.rpc("candidates_list_page_v1", {
     p_tenant_ids: tenantIds.length ? tenantIds : null,
     p_limit: limit,
     p_offset: offset,
@@ -178,7 +182,7 @@ export async function getParsingDocument(
     throw documentResult.error;
   }
   if (!documentResult.data) {
-    return {documents: [], candidates: [], profiles: [], runs: []};
+    return { documents: [], candidates: [], profiles: [], runs: [] };
   }
 
   const document = documentResult.data as JsonRecord;
@@ -192,7 +196,7 @@ export async function getParsingDocument(
           )
           .eq("id", document.candidate_id)
           .maybeSingle()
-        : Promise.resolve({data: null, error: null}),
+        : Promise.resolve({ data: null, error: null }),
       supabase
         .from("candidate_profiles")
         .select(
@@ -206,7 +210,7 @@ export async function getParsingDocument(
           "tenant_id, source_document_id, status, parser_version, model_version, prompt_version, chunk_version, embedding_version, warnings, error_code, error_message, created_at, updated_at, metadata_json",
         )
         .eq("source_document_id", documentId)
-        .order("created_at", {ascending: false})
+        .order("created_at", { ascending: false })
         .limit(20),
     ]);
 
@@ -269,9 +273,9 @@ export async function getOriginalDocumentUrl(
     query = query.eq("candidate_id", candidateId);
   }
 
-  const {data, error} = await query
-    .order("updated_at", {ascending: false})
-    .order("created_at", {ascending: false})
+  const { data, error } = await query
+    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 

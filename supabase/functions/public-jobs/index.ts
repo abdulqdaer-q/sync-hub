@@ -1,24 +1,24 @@
-import {corsHeaders} from "../_shared/cors.ts";
-import {createServiceClient} from "../_shared/platformProvisioning.ts";
-import {asString, asRecord, sha256Hex} from "../_shared/utils.ts";
-import {type JsonRecord} from "./types.ts";
-import {RESUME_BUCKET} from "./constants.ts";
+import { corsHeaders } from "../_shared/cors.ts";
+import { createServiceClient } from "../_shared/platformProvisioning.ts";
+import { asRecord, asString, sha256Hex } from "../_shared/utils.ts";
+import { type JsonRecord } from "./types.ts";
+import { RESUME_BUCKET } from "./constants.ts";
 import {
-  jsonResponse,
   isDeadlineOpen,
+  jsonResponse,
   publicJob,
   publicJobSelect,
-  sha256Bytes
+  sha256Bytes,
 } from "./helpers.ts";
-import {assertApplication, upsertCandidateShell} from "./application.ts";
+import { assertApplication, upsertCandidateShell } from "./application.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", {headers: corsHeaders});
+    return new Response("ok", { headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse(405, {error: "method_not_allowed"});
+    return jsonResponse(405, { error: "method_not_allowed" });
   }
 
   try {
@@ -27,13 +27,13 @@ Deno.serve(async (req) => {
     const supabase = createServiceClient();
 
     if (action === "list") {
-      const {data, error} = await supabase
+      const { data, error } = await supabase
         .from("job_postings")
         .select(publicJobSelect())
         .eq("status", "active")
         .eq("is_public", true)
         .not("public_slug", "is", null)
-        .order("public_published_at", {ascending: false})
+        .order("public_published_at", { ascending: false })
         .limit(100);
       if (error) throw error;
       return jsonResponse(200, {
@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
       throw new Error("slug is required");
     }
 
-    const {data: job, error: jobError} = await supabase
+    const { data: job, error: jobError } = await supabase
       .from("job_postings")
       .select(`tenant_id, ${publicJobSelect()}`)
       .eq("public_slug", slug)
@@ -55,11 +55,11 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (jobError) throw jobError;
     if (!job) {
-      return jsonResponse(404, {error: "job_not_found"});
+      return jsonResponse(404, { error: "job_not_found" });
     }
 
     if (action === "detail") {
-      return jsonResponse(200, {job: publicJob(asRecord(job))});
+      return jsonResponse(200, { job: publicJob(asRecord(job)) });
     }
 
     if (action === "apply") {
@@ -68,17 +68,17 @@ Deno.serve(async (req) => {
         jobRecord.public_apply_enabled === false ||
         !isDeadlineOpen(jobRecord.application_deadline)
       ) {
-        return jsonResponse(409, {error: "applications_closed"});
+        return jsonResponse(409, { error: "applications_closed" });
       }
       const application = assertApplication(asRecord(body.application));
-      const {data: existingApplication, error: existingError} = await supabase
+      const { data: existingApplication, error: existingError } = await supabase
         .from("job_applications")
         .select("id, submitted_at")
         .eq("job_posting_id", jobRecord.id)
         .eq("applicant_email", application.email)
         .eq("source", "public_job_board")
         .neq("status", "withdrawn")
-        .order("submitted_at", {ascending: false})
+        .order("submitted_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (existingError) throw existingError;
@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
       }
       const ipHash = await sha256Hex(
         req.headers.get("x-forwarded-for") ??
-        req.headers.get("cf-connecting-ip") ?? "",
+          req.headers.get("cf-connecting-ip") ?? "",
       );
       const userAgentHash = await sha256Hex(
         req.headers.get("user-agent") ?? "",
@@ -220,7 +220,7 @@ Deno.serve(async (req) => {
           : createdCandidateId;
       }
 
-      const {data, error} = await supabase
+      const { data, error } = await supabase
         .from("job_applications")
         .insert({
           id: applicationId,
@@ -273,7 +273,7 @@ Deno.serve(async (req) => {
           .eq("applicant_email", application.email)
           .eq("source", "public_job_board")
           .neq("status", "withdrawn")
-          .order("submitted_at", {ascending: false})
+          .order("submitted_at", { ascending: false })
           .limit(1)
           .maybeSingle();
         if (duplicate.error) {
@@ -287,7 +287,7 @@ Deno.serve(async (req) => {
             .eq("idempotency_key", application.idempotencyKey)
             .eq("source", "public_job_board")
             .neq("status", "withdrawn")
-            .order("submitted_at", {ascending: false})
+            .order("submitted_at", { ascending: false })
             .limit(1)
             .maybeSingle();
           if (duplicate.error) {
@@ -312,7 +312,7 @@ Deno.serve(async (req) => {
         resumeSourceDocumentId && resumeStoragePath && resumeSha256 &&
         resumeIngestionStatus === "queued"
       ) {
-        const {error: processingError} = await supabase
+        const { error: processingError } = await supabase
           .from("processing_runs")
           .insert({
             id: crypto.randomUUID(),
@@ -346,7 +346,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const {error: eventError} = await supabase
+      const { error: eventError } = await supabase
         .from("job_application_events")
         .insert({
           tenant_id: jobRecord.tenant_id,
@@ -360,7 +360,7 @@ Deno.serve(async (req) => {
         });
       if (eventError) throw eventError;
 
-      const {error: refreshError} = await supabase.rpc(
+      const { error: refreshError } = await supabase.rpc(
         "refresh_candidate_search_cache_v1",
       );
       if (refreshError) {
@@ -368,7 +368,7 @@ Deno.serve(async (req) => {
       }
 
       if (resumeSourceDocumentId && resumeIngestionStatus === "queued") {
-        const {error: queueEventError} = await supabase
+        const { error: queueEventError } = await supabase
           .from("job_application_events")
           .insert({
             tenant_id: jobRecord.tenant_id,
@@ -394,7 +394,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    return jsonResponse(400, {error: "unknown_action"});
+    return jsonResponse(400, { error: "unknown_action" });
   } catch (error) {
     console.error("public_jobs_failed", error);
     return jsonResponse(400, {

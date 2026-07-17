@@ -1,14 +1,12 @@
-import {createAuthedClient} from "../_shared/client.ts";
+import { createAuthedClient } from "../_shared/client.ts";
 import {
   buildGuardedSystemPrompt,
   evaluatePlatformAiInput,
   platformAiGuardErrorMessage,
 } from "../_shared/aiGuardrails.ts";
-import {generateStructuredObject} from "../_shared/llm.ts";
-import {buildQueryEmbedding} from "../_shared/queryEmbedding.ts";
-import {
-  writeAuditEvent
-} from "../_shared/platformOps.ts";
+import { generateStructuredObject } from "../_shared/llm.ts";
+import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
+import { writeAuditEvent } from "../_shared/platformOps.ts";
 import {
   asArray,
   asNumber,
@@ -17,13 +15,14 @@ import {
   asStringArray,
   clampInteger,
   describeError,
+  type JsonRecord,
   sha256Hex,
-  type JsonRecord
 } from "../_shared/utils.ts";
 import {
   buildJobProfile,
   extractionToJobFields,
   heuristicJobExtraction,
+  type JobExtractionPayload,
   jobExtractionSchema,
   normalizeEmploymentType,
   normalizeJobSeniority,
@@ -32,9 +31,8 @@ import {
   normalizeSkillSet,
   normalizeStatus,
   scoreCandidateForJob,
-  type JobExtractionPayload,
 } from "../_shared/jobMatching.ts";
-import {getCurrentUserId} from "../_shared/auth.ts";
+import { getCurrentUserId } from "../_shared/auth.ts";
 
 export const jobPostingSelect = [
   "id",
@@ -208,7 +206,7 @@ export async function listJobPostings(
   let query = supabase
     .from("job_postings")
     .select(jobPostingSelect)
-    .order("updated_at", {ascending: false});
+    .order("updated_at", { ascending: false });
   if (tenantIds.length) {
     query = query.in("tenant_id", tenantIds);
   }
@@ -216,7 +214,7 @@ export async function listJobPostings(
   if (body.status && status) {
     query = query.eq("status", status);
   }
-  const {data, error} = await query.limit(
+  const { data, error } = await query.limit(
     clampInteger(body.limit, 100, 1, 500),
   );
   if (error) {
@@ -232,7 +230,7 @@ export async function getJobPosting(
   if (!jobId) {
     throw new Error("job_id is required");
   }
-  const {data, error} = await supabase
+  const { data, error } = await supabase
     .from("job_postings")
     .select(jobPostingSelect)
     .eq("id", jobId)
@@ -299,8 +297,8 @@ export async function saveJobPosting(
   const isPublic = typeof job.is_public === "boolean"
     ? job.is_public
     : typeof job.isPublic === "boolean"
-      ? job.isPublic
-      : existing?.is_public === true;
+    ? job.isPublic
+    : existing?.is_public === true;
   const publicSlug = normalizePublicSlug(
     job.public_slug ?? job.publicSlug ?? existing?.public_slug,
   );
@@ -320,8 +318,8 @@ export async function saveJobPosting(
   const publicApplyEnabled = typeof job.public_apply_enabled === "boolean"
     ? job.public_apply_enabled
     : typeof job.publicApplyEnabled === "boolean"
-      ? job.publicApplyEnabled
-      : existing?.public_apply_enabled !== false;
+    ? job.publicApplyEnabled
+    : existing?.public_apply_enabled !== false;
   if (deadline) {
     const deadlineDate = new Date(`${deadline}T00:00:00Z`);
     const today = new Date();
@@ -377,8 +375,8 @@ export async function saveJobPosting(
     ),
     key_responsibilities: asStringArray(
       job.key_responsibilities ??
-      job.keyResponsibilities ??
-      existing?.key_responsibilities,
+        job.keyResponsibilities ??
+        existing?.key_responsibilities,
     ).slice(0, 12),
     ai_profile: asRecord(
       job.ai_profile ?? job.aiProfile ?? existing?.ai_profile,
@@ -391,13 +389,13 @@ export async function saveJobPosting(
     closed_at: status === "closed" && currentStatus !== "closed"
       ? now
       : status !== "closed"
-        ? null
-        : asString(existing?.closed_at),
+      ? null
+      : asString(existing?.closed_at),
     closed_by_user_id: status === "closed" && currentStatus !== "closed"
       ? userId
       : status !== "closed"
-        ? null
-        : asString(existing?.closed_by_user_id),
+      ? null
+      : asString(existing?.closed_by_user_id),
     is_public: isPublic,
     public_slug: publicSlug,
     public_title: publicTitle,
@@ -422,7 +420,7 @@ export async function saveJobPosting(
       .insert(payload)
       .select(jobPostingSelect)
       .single();
-  const {data, error} = await mutation;
+  const { data, error } = await mutation;
   if (error) {
     throw error;
   }
@@ -434,11 +432,11 @@ export async function saveJobPosting(
     action: jobId
       ? "JOB_UPDATED"
       : status === "active"
-        ? "JOB_PUBLISHED"
-        : "JOB_CREATED",
+      ? "JOB_PUBLISHED"
+      : "JOB_CREATED",
     entityType: "job_posting",
     entityId: savedJobId,
-    payload: {status, requiredSkills, preferredSkills},
+    payload: { status, requiredSkills, preferredSkills },
   });
   return savedJob;
 }
@@ -466,20 +464,20 @@ export async function extractJobPosting(
 
   const jobTextGuard = evaluatePlatformAiInput(
     [title, jobDescription].filter(Boolean).join("\n"),
-    {injectionOnly: true, maxLength: 50000},
+    { injectionOnly: true, maxLength: 50000 },
   );
   if (!jobTextGuard.allowed) {
     throw new Error(platformAiGuardErrorMessage(jobTextGuard));
   }
 
-  const {payload, provider, model} = await extractJobDescription({
+  const { payload, provider, model } = await extractJobDescription({
     title,
     jobDescription,
     employerRegion,
   });
   const fields = extractionToJobFields(payload);
   const inputHash = await sha256Hex(
-    JSON.stringify({title, employerRegion, jobDescription}),
+    JSON.stringify({ title, employerRegion, jobDescription }),
   );
   const extraction = {
     ...payload,
@@ -489,7 +487,7 @@ export async function extractJobPosting(
     promptVersion: "job-extraction-v1",
     inputHash,
   };
-  const {error} = await supabase.from("job_ai_extractions").insert({
+  const { error } = await supabase.from("job_ai_extractions").insert({
     tenant_id: tenantId,
     job_posting_id: jobId,
     model_provider: provider,
@@ -625,7 +623,7 @@ export async function startJobMatchingRun(
       p_filter_companies: [],
       p_filter_location: asString(mandatory.location) ?? null,
     };
-    let {data: rawCandidates, error} = await supabase.rpc(
+    let { data: rawCandidates, error } = await supabase.rpc(
       "search_candidates_with_rate_v1",
       rpcPayload,
     );
@@ -656,13 +654,13 @@ export async function startJobMatchingRun(
       .slice(0, rerankPoolSize)
       .map((candidate) => {
         const score = scoreCandidateForJob(candidate, job);
-        return {candidate, score};
+        return { candidate, score };
       })
       .sort((left, right) => right.score.finalScore - left.score.finalScore)
       .slice(0, limit);
 
     if (candidates.length) {
-      const rows = candidates.map(({candidate, score}, index) => ({
+      const rows = candidates.map(({ candidate, score }, index) => ({
         tenant_id: job.tenant_id,
         matching_run_id: insertedRunId,
         job_posting_id: job.id,
@@ -753,7 +751,7 @@ export async function startJobMatchingRun(
       action: "MATCHING_RUN_FAILED",
       entityType: "job_matching_run",
       entityId: insertedRunId,
-      payload: {error: describeError(error)},
+      payload: { error: describeError(error) },
     });
     throw error;
   }
@@ -767,11 +765,11 @@ export async function listMatchingRuns(
   if (!jobId) {
     throw new Error("job_id is required");
   }
-  const {data, error} = await supabase
+  const { data, error } = await supabase
     .from("job_matching_runs")
     .select(matchingRunSelect)
     .eq("job_posting_id", jobId)
-    .order("created_at", {ascending: false})
+    .order("created_at", { ascending: false })
     .limit(clampInteger(body.limit, 50, 1, 200));
   if (error) {
     throw error;
@@ -796,7 +794,7 @@ export async function getMatchingRun(
       .from("job_matching_results")
       .select(matchingResultSelect)
       .eq("matching_run_id", runId)
-      .order("rank", {ascending: true}),
+      .order("rank", { ascending: true }),
   ]);
   if (runResult.error) {
     throw runResult.error;
@@ -821,11 +819,11 @@ export async function listJobApplications(
   if (!jobId) {
     throw new Error("job_id is required");
   }
-  const {data, error} = await supabase
+  const { data, error } = await supabase
     .from("job_applications")
     .select(jobApplicationSelect)
     .eq("job_posting_id", jobId)
-    .order("submitted_at", {ascending: false})
+    .order("submitted_at", { ascending: false })
     .limit(clampInteger(body.limit, 100, 1, 500));
   if (error) {
     throw error;
@@ -838,8 +836,8 @@ function normalizeApplicationStatus(value: unknown) {
     .trim()
     .toLowerCase();
   return ["new", "reviewing", "shortlisted", "rejected", "withdrawn"].includes(
-    status,
-  )
+      status,
+    )
     ? status
     : null;
 }
@@ -854,7 +852,7 @@ export async function updateJobApplicationStatus(
   if (!applicationId || !status) {
     throw new Error("application_id and valid status are required");
   }
-  const {data, error} = await supabase
+  const { data, error } = await supabase
     .from("job_applications")
     .update({
       status,
@@ -873,7 +871,7 @@ export async function updateJobApplicationStatus(
     application_id: applicationId,
     actor_user_id: userId,
     event_type: "STATUS_UPDATED",
-    payload: {status},
+    payload: { status },
   });
   return data;
 }
@@ -886,11 +884,11 @@ export async function listJobShortlists(
   if (!jobId) {
     throw new Error("job_id is required");
   }
-  const {data, error} = await supabase
+  const { data, error } = await supabase
     .from("job_shortlists")
     .select(jobShortlistSelect)
     .eq("job_posting_id", jobId)
-    .order("created_at", {ascending: false});
+    .order("created_at", { ascending: false });
   if (error) {
     throw error;
   }
@@ -914,7 +912,7 @@ export async function getJobShortlist(
       .from("job_shortlist_candidates")
       .select("*")
       .eq("shortlist_id", shortlistId)
-      .order("saved_rank", {ascending: true}),
+      .order("saved_rank", { ascending: true }),
   ]);
   if (shortlistResult.error) {
     throw shortlistResult.error;
@@ -975,8 +973,8 @@ export async function saveJobShortlist(
         candidate_id: result.candidate_id,
         candidate_source_tenant_id:
           asString(result.candidate_source_tenant_id) ??
-          asString(asRecord(result.candidate_snapshot).tenant_id) ??
-          asString(job.tenant_id),
+            asString(asRecord(result.candidate_snapshot).tenant_id) ??
+            asString(job.tenant_id),
         saved_rank: result.rank,
         saved_score: result.final_score,
         saved_result_payload: result,
@@ -993,7 +991,7 @@ export async function saveJobShortlist(
     action: "SHORTLIST_CREATED",
     entityType: "job_shortlist",
     entityId: savedShortlistId,
-    payload: {jobId, runId, candidateCount: resultRows.length},
+    payload: { jobId, runId, candidateCount: resultRows.length },
   });
   return getJobShortlist(supabase, savedShortlistId);
 }

@@ -1,5 +1,5 @@
-import {corsHeaders, jsonResponse} from "../_shared/cors.ts";
-import {createAuthedClient} from "../_shared/client.ts";
+import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { createAuthedClient } from "../_shared/client.ts";
 import {
   addUserToTenant,
   assertPlatformAdmin,
@@ -16,17 +16,15 @@ import {
   asString,
   asStringArray,
   describeError,
-  type JsonRecord
+  type JsonRecord,
 } from "../_shared/utils.ts";
-import {
-  getAuthContext,
-} from "../_shared/auth.ts";
+import { getAuthContext } from "../_shared/auth.ts";
 import {
   acknowledgeOpsAlert,
   bootstrapTenant,
+  getInsightReportRun,
   getInsightsDashboard,
   getInsightsGapAnalysis,
-  getInsightReportRun,
   getManatalSyncStatus,
   getOpsAlerts,
   getSearchFilterOptions,
@@ -41,20 +39,20 @@ import {
   getCandidatesList,
   getOriginalDocumentUrl,
   getParsingDocument,
-  getParsingOverview
+  getParsingOverview,
 } from "./candidates.ts";
 
 import {
   getParserProfiles,
   publishParserProfile,
-  saveParserProfile
+  saveParserProfile,
 } from "./parserProfiles.ts";
 
 import {
   clearShortlistItems,
   deleteShortlistItem,
   getShortlistItems,
-  saveShortlistItem
+  saveShortlistItem,
 } from "./shortlist.ts";
 
 import {
@@ -69,16 +67,16 @@ import {
   saveJobPosting,
   saveJobShortlist,
   startJobMatchingRun,
-  updateJobApplicationStatus
+  updateJobApplicationStatus,
 } from "./jobs.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", {headers: corsHeaders});
+    return new Response("ok", { headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse(405, {error: "method_not_allowed"});
+    return jsonResponse(405, { error: "method_not_allowed" });
   }
 
   try {
@@ -150,7 +148,6 @@ Deno.serve(async (req) => {
           evidence: result.chunks ?? [],
 
           profile: {
-
             status: result.profile?.status ?? null,
             job_readiness_level: result.profile?.job_readiness_level ?? "L1",
             preferred_work_mode: result.profile?.preferred_work_mode ?? null,
@@ -159,15 +156,12 @@ Deno.serve(async (req) => {
             notice_period: result.profile?.notice_period ?? null,
             english_proficiency: result.profile?.english_proficiency ?? null,
 
-
             expected_salary: result.profile?.expected_salary ?? null,
-
 
             is_pre_screened: result.profile?.is_pre_screened ?? false,
             sync_affiliation: result.profile?.sync_affiliation ?? null,
             internal_vetting_notes: result.profile?.internal_vetting_notes ??
               null,
-
 
             current_location_city: result.profile?.current_location_city ??
               result.candidate?.location ??
@@ -175,7 +169,6 @@ Deno.serve(async (req) => {
 
             willingness_to_relocate: result.profile?.willingness_to_relocate ??
               null,
-
 
             external_profiles: result.profile?.external_profiles ?? {},
             ai_profile_summary: result.profile?.ai_profile_summary ??
@@ -320,13 +313,12 @@ Deno.serve(async (req) => {
               });
             }
           } catch {
-
           }
           throw error;
         }
       }
       default:
-        return jsonResponse(400, {error: "unknown_action", details: action});
+        return jsonResponse(400, { error: "unknown_action", details: action });
     }
   } catch (error) {
     const message = describeError(error);
@@ -334,8 +326,8 @@ Deno.serve(async (req) => {
       message === "Authentication is required." ||
       message === "Platform admin access is required."
     ) {
-      return jsonResponse(403, {error: "forbidden", details: message});
+      return jsonResponse(403, { error: "forbidden", details: message });
     }
-    return jsonResponse(500, {error: "unexpected_error", details: message});
+    return jsonResponse(500, { error: "unexpected_error", details: message });
   }
 });

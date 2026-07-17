@@ -1,14 +1,14 @@
-import {createAuthedClient} from "../_shared/client.ts";
-import {hasExcludedCompanyMatch} from "../_shared/searchIntent.ts";
-import {SEARCH_REST_PAGE_SIZE} from "../_shared/searchScoring.ts";
+import { createAuthedClient } from "../_shared/client.ts";
+import { hasExcludedCompanyMatch } from "../_shared/searchIntent.ts";
+import { SEARCH_REST_PAGE_SIZE } from "../_shared/searchScoring.ts";
 
 export async function fetchExcludedCandidateIds(
   supabase: ReturnType<typeof createAuthedClient>,
   excludedCompanyTerms: string[],
 ) {
   const candidateIds = new Set<string>();
-  for (let offset = 0; ; offset += SEARCH_REST_PAGE_SIZE) {
-    const {data, error} = await supabase
+  for (let offset = 0;; offset += SEARCH_REST_PAGE_SIZE) {
+    const { data, error } = await supabase
       .from("candidate_search_cache")
       .select("candidate_id, companies")
       .range(offset, offset + SEARCH_REST_PAGE_SIZE - 1);

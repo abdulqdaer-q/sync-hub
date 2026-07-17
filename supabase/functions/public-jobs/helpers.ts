@@ -1,7 +1,7 @@
-import {corsHeaders} from "../_shared/cors.ts";
-import {asString, asRecord} from "../_shared/utils.ts";
-import {type JsonRecord} from "./types.ts";
-import {ALLOWED_RESUME_TYPES} from "./constants.ts";
+import { corsHeaders } from "../_shared/cors.ts";
+import { asRecord, asString } from "../_shared/utils.ts";
+import { type JsonRecord } from "./types.ts";
+import { ALLOWED_RESUME_TYPES } from "./constants.ts";
 
 export function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body, null, 2), {
@@ -126,7 +126,10 @@ export function safeFileName(value: string) {
   return (normalized || "candidate-cv.pdf").slice(0, 160);
 }
 
-export function contentTypeForFile(fileName: string, contentType: string | null) {
+export function contentTypeForFile(
+  fileName: string,
+  contentType: string | null,
+) {
   if (contentType && ALLOWED_RESUME_TYPES.has(contentType)) {
     return contentType;
   }

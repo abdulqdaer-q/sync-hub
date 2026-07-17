@@ -1,24 +1,28 @@
 import { corsHeaders, fastApiProxyTimeoutMs } from "./constants.ts";
 import { detectAllowedMimeType } from "./helpers.ts";
 
-export async function handleUploadCv(req: Request, user: any, supabase: any): Promise<Response> {
+export async function handleUploadCv(
+  req: Request,
+  user: any,
+  supabase: any,
+): Promise<Response> {
   const formData = await req.formData();
   const file = formData.get("file") as File;
 
   if (!file) {
-    return new Response(JSON.stringify({error: "No file uploaded"}), {
+    return new Response(JSON.stringify({ error: "No file uploaded" }), {
       status: 400,
-      headers: {...corsHeaders, "Content-Type": "application/json"},
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
   const MAX_SIZE = 5 * 1024 * 1024;
   if (file.size > MAX_SIZE) {
     return new Response(
-      JSON.stringify({error: "File exceeds 5MB limit"}),
+      JSON.stringify({ error: "File exceeds 5MB limit" }),
       {
         status: 400,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
@@ -37,12 +41,11 @@ export async function handleUploadCv(req: Request, user: any, supabase: any): Pr
   ) {
     return new Response(
       JSON.stringify({
-        error:
-          "Invalid file type. Only PDF and Word documents are allowed.",
+        error: "Invalid file type. Only PDF and Word documents are allowed.",
       }),
       {
         status: 400,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
@@ -50,9 +53,9 @@ export async function handleUploadCv(req: Request, user: any, supabase: any): Pr
   const fileName = `${user.id}/${Date.now()}-${
     file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
   }`;
-  const {error: uploadError} = await supabase.storage
+  const { error: uploadError } = await supabase.storage
     .from("candidate-cvs")
-    .upload(fileName, new Blob([fileBytes], {type: detectedType}), {
+    .upload(fileName, new Blob([fileBytes], { type: detectedType }), {
       contentType: detectedType,
       upsert: true,
     });
@@ -64,12 +67,12 @@ export async function handleUploadCv(req: Request, user: any, supabase: any): Pr
       }),
       {
         status: 500,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
 
-  const {error: dbError} = await supabase
+  const { error: dbError } = await supabase
     .from("candidate_registration_drafts")
     .upsert({
       user_id: user.id,
@@ -80,7 +83,7 @@ export async function handleUploadCv(req: Request, user: any, supabase: any): Pr
       parse_status: "parsing",
       parse_started_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }, {onConflict: "user_id"});
+    }, { onConflict: "user_id" });
 
   if (dbError) {
     return new Response(
@@ -89,7 +92,7 @@ export async function handleUploadCv(req: Request, user: any, supabase: any): Pr
       }),
       {
         status: 500,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
@@ -124,7 +127,7 @@ export async function handleUploadCv(req: Request, user: any, supabase: any): Pr
   let proxyRes: Response;
 
   try {
-    proxyRes = await fetch(proxyReq, {signal: proxyController.signal});
+    proxyRes = await fetch(proxyReq, { signal: proxyController.signal });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       return new Response(
@@ -133,7 +136,7 @@ export async function handleUploadCv(req: Request, user: any, supabase: any): Pr
         }),
         {
           status: 504,
-          headers: {...corsHeaders, "Content-Type": "application/json"},
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         },
       );
     }
@@ -154,7 +157,7 @@ export async function handleUploadCv(req: Request, user: any, supabase: any): Pr
       }),
       {
         status: 502,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
@@ -169,21 +172,25 @@ export async function handleUploadCv(req: Request, user: any, supabase: any): Pr
   });
 }
 
-export async function handleSaveDraft(req: Request, user: any, supabase: any): Promise<Response> {
+export async function handleSaveDraft(
+  req: Request,
+  user: any,
+  supabase: any,
+): Promise<Response> {
   const body = await req.json();
   const overrides = body.overrides || body.user_overrides_json;
 
   if (!overrides) {
     return new Response(
-      JSON.stringify({error: "Missing overrides data"}),
+      JSON.stringify({ error: "Missing overrides data" }),
       {
         status: 400,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
 
-  const {data: updatedDrafts, error} = await supabase
+  const { data: updatedDrafts, error } = await supabase
     .from("candidate_registration_drafts")
     .update({
       user_overrides_json: overrides,
@@ -193,30 +200,34 @@ export async function handleSaveDraft(req: Request, user: any, supabase: any): P
     .select("id");
 
   if (error) {
-    return new Response(JSON.stringify({error: error.message}), {
+    return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
-      headers: {...corsHeaders, "Content-Type": "application/json"},
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
   if (!updatedDrafts?.length) {
     return new Response(
-      JSON.stringify({error: "Draft not found"}),
+      JSON.stringify({ error: "Draft not found" }),
       {
         status: 404,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
 
-  return new Response(JSON.stringify({success: true}), {
+  return new Response(JSON.stringify({ success: true }), {
     status: 200,
-    headers: {...corsHeaders, "Content-Type": "application/json"},
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
-export async function handlePublish(req: Request, user: any, supabase: any): Promise<Response> {
-  const {data: currentDraft, error: fetchError} = await supabase
+export async function handlePublish(
+  req: Request,
+  user: any,
+  supabase: any,
+): Promise<Response> {
+  const { data: currentDraft, error: fetchError } = await supabase
     .from("candidate_registration_drafts")
     .select("parse_status")
     .eq("user_id", user.id)
@@ -224,10 +235,10 @@ export async function handlePublish(req: Request, user: any, supabase: any): Pro
 
   if (fetchError || !currentDraft) {
     return new Response(
-      JSON.stringify({error: "Draft not found"}),
+      JSON.stringify({ error: "Draft not found" }),
       {
         status: 404,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
@@ -240,12 +251,12 @@ export async function handlePublish(req: Request, user: any, supabase: any): Pro
       }),
       {
         status: 409,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
 
-  const {data: updatedDrafts, error} = await supabase
+  const { data: updatedDrafts, error } = await supabase
     .from("candidate_registration_drafts")
     .update({
       parse_status: "pending_validation",
@@ -257,20 +268,20 @@ export async function handlePublish(req: Request, user: any, supabase: any): Pro
 
   if (error) {
     return new Response(
-      JSON.stringify({error: "Failed to publish draft"}),
+      JSON.stringify({ error: "Failed to publish draft" }),
       {
         status: 500,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
 
   if (!updatedDrafts?.length) {
     return new Response(
-      JSON.stringify({error: "Draft is not ready to publish"}),
+      JSON.stringify({ error: "Draft is not ready to publish" }),
       {
         status: 409,
-        headers: {...corsHeaders, "Content-Type": "application/json"},
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
@@ -282,7 +293,7 @@ export async function handlePublish(req: Request, user: any, supabase: any): Pro
     }),
     {
       status: 200,
-      headers: {...corsHeaders, "Content-Type": "application/json"},
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     },
   );
 }

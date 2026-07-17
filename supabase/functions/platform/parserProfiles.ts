@@ -1,5 +1,5 @@
-import {createAuthedClient} from "../_shared/client.ts";
-import {asString, type JsonRecord} from "../_shared/utils.ts";
+import { createAuthedClient } from "../_shared/client.ts";
+import { asString, type JsonRecord } from "../_shared/utils.ts";
 
 export const parserProfileSelect = [
   "id",
@@ -37,14 +37,14 @@ export async function getParserProfiles(
   let query = supabase
     .from("parser_profiles")
     .select(parserProfileSelect)
-    .order("status", {ascending: true})
-    .order("updated_at", {ascending: false});
+    .order("status", { ascending: true })
+    .order("updated_at", { ascending: false });
 
   if (tenantIds.length) {
     query = query.in("tenant_id", tenantIds);
   }
 
-  const {data, error} = await query;
+  const { data, error } = await query;
   if (error) {
     throw error;
   }
@@ -97,7 +97,7 @@ export async function saveParserProfile(
       .select(parserProfileSelect)
       .single();
 
-  const {data, error} = await mutation;
+  const { data, error } = await mutation;
   if (error) {
     throw error;
   }
@@ -108,7 +108,7 @@ export async function publishParserProfile(
   supabase: ReturnType<typeof createAuthedClient>,
   profileId: string,
 ) {
-  const {data, error} = await supabase.rpc("publish_parser_profile_v1", {
+  const { data, error } = await supabase.rpc("publish_parser_profile_v1", {
     p_profile_id: profileId,
   });
   if (error) {

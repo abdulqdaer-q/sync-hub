@@ -2,7 +2,7 @@ import {
   getRuntimeSetting,
   type RuntimeSettingKey,
 } from "./platformRuntimeSettings.ts";
-import { envText, envNumber, isLocalRuntime } from "./utils.ts";
+import { envNumber, envText, isLocalRuntime } from "./utils.ts";
 
 type JsonSchema = Record<string, unknown>;
 

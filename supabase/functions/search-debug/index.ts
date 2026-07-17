@@ -1,31 +1,29 @@
-import {corsHeaders, jsonResponse} from "../_shared/cors.ts";
-import {evaluatePlatformAiInput} from "../_shared/aiGuardrails.ts";
-import {createAuthedClient} from "../_shared/client.ts";
-import {buildQueryEmbedding} from "../_shared/queryEmbedding.ts";
+import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { evaluatePlatformAiInput } from "../_shared/aiGuardrails.ts";
+import { createAuthedClient } from "../_shared/client.ts";
+import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
 import {
   excludeCompanyMatches,
   resolveSearchFilters,
   type SearchIntentFacetOptions,
   type SearchIntentPayload,
 } from "../_shared/searchIntent.ts";
-import {
-  asStringArray,
-} from "../_shared/utils.ts";
+import { asStringArray } from "../_shared/utils.ts";
 import {
   attachMatchRates,
   extractIntentWithLlm,
   fetchSearchIntentFacets,
   normalizeExplicitFilters,
 } from "../_shared/searchScoring.ts";
-import {fetchExcludedCandidateIds} from "./helpers.ts";
+import { fetchExcludedCandidateIds } from "./helpers.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", {headers: corsHeaders});
+    return new Response("ok", { headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse(405, {error: "method_not_allowed"});
+    return jsonResponse(405, { error: "method_not_allowed" });
   }
 
   try {
@@ -136,7 +134,7 @@ Deno.serve(async (req) => {
       p_filter_location: scopedRequestFilters.location ?? null,
     };
 
-    let {data, error} = await supabase.rpc(
+    let { data, error } = await supabase.rpc(
       "search_candidates_with_rate_v1",
       rpcPayload,
     );
@@ -199,13 +197,13 @@ Deno.serve(async (req) => {
           ...rpcPayload,
           p_query_embedding: undefined,
           p_query_embedding_dimensions: Array.isArray(
-            queryEmbeddingPayload.embedding,
-          )
+              queryEmbeddingPayload.embedding,
+            )
             ? queryEmbeddingPayload.embedding.length
             : 0,
           p_query_embedding_preview: Array.isArray(
-            queryEmbeddingPayload.embedding,
-          )
+              queryEmbeddingPayload.embedding,
+            )
             ? queryEmbeddingPayload.embedding.slice(0, 12)
             : [],
         },

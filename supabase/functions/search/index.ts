@@ -1,11 +1,8 @@
-import {corsHeaders, jsonResponse} from "../_shared/cors.ts";
-import {evaluatePlatformAiInput} from "../_shared/aiGuardrails.ts";
-import {createAuthedClient} from "../_shared/client.ts";
-import {buildQueryEmbedding} from "../_shared/queryEmbedding.ts";
-import {
-  createTraceId,
-  withTraceHeader,
-} from "../_shared/ops";
+import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { evaluatePlatformAiInput } from "../_shared/aiGuardrails.ts";
+import { createAuthedClient } from "../_shared/client.ts";
+import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
+import { createTraceId, withTraceHeader } from "../_shared/ops";
 import {
   excludeCompanyMatches,
   hasExcludedCompanyMatch,
@@ -27,8 +24,8 @@ import {
   normalizeExplicitFilters,
   runFastProfileSearch,
 } from "../_shared/searchScoring";
-import {createResponder} from "./telemetry.ts";
-import {buildRpcPayload} from "./helpers.ts";
+import { createResponder } from "./telemetry.ts";
+import { buildRpcPayload } from "./helpers.ts";
 
 Deno.serve(async (req) => {
   const traceId = createTraceId();
@@ -36,14 +33,14 @@ Deno.serve(async (req) => {
 
   if (req.method === "OPTIONS") {
     return withTraceHeader(
-      new Response("ok", {headers: corsHeaders}),
+      new Response("ok", { headers: corsHeaders }),
       traceId,
     );
   }
 
   if (req.method !== "POST") {
     return withTraceHeader(
-      jsonResponse(405, {error: "method_not_allowed"}),
+      jsonResponse(405, { error: "method_not_allowed" }),
       traceId,
     );
   }
@@ -51,7 +48,12 @@ Deno.serve(async (req) => {
   let supabase: ReturnType<typeof createAuthedClient> | null = null;
   let tenantIds: string[] = [];
 
-  const respond = createResponder(() => supabase, () => tenantIds, traceId, startedAt);
+  const respond = createResponder(
+    () => supabase,
+    () => tenantIds,
+    traceId,
+    startedAt,
+  );
 
   try {
     const body = await req.json();
@@ -95,14 +97,14 @@ Deno.serve(async (req) => {
         provider: "disabled",
       })
       : Array.isArray(body.query_embedding)
-        ? Promise.resolve({
-          embedding: body.query_embedding,
-          embeddingVersion: typeof body.embedding_version === "string"
-            ? body.embedding_version
-            : null,
-          provider: "client",
-        })
-        : buildQueryEmbedding(query);
+      ? Promise.resolve({
+        embedding: body.query_embedding,
+        embeddingVersion: typeof body.embedding_version === "string"
+          ? body.embedding_version
+          : null,
+        provider: "client",
+      })
+      : buildQueryEmbedding(query);
 
     let llmIntent: SearchIntentPayload | null = null;
     let intentFacets: SearchIntentFacetOptions;
@@ -215,7 +217,7 @@ Deno.serve(async (req) => {
       rankVersion,
     );
 
-    let {data, error} = await supabase.rpc(
+    let { data, error } = await supabase.rpc(
       "search_candidates_with_rate_v1",
       rpcPayload,
     );

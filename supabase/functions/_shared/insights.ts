@@ -36,8 +36,17 @@ export const INSIGHTS_JOB_FAMILY_RULES = [
     roleTags: ["full-stack"],
     titleSignals: ["full stack", "full-stack"],
     skillSignals: [
-      "react", "angular", "vue", "node.js", "express", "django", "laravel",
-      "postgresql", "mongodb", "sql", "apis",
+      "react",
+      "angular",
+      "vue",
+      "node.js",
+      "express",
+      "django",
+      "laravel",
+      "postgresql",
+      "mongodb",
+      "sql",
+      "apis",
     ],
   },
   {
@@ -45,9 +54,24 @@ export const INSIGHTS_JOB_FAMILY_RULES = [
     roleTags: ["backend"],
     titleSignals: ["backend", "back-end", "api", "server", "platform"],
     skillSignals: [
-      "node.js", "nestjs", "express", "java", "spring", "python", "django",
-      "fastapi", "laravel", "php", "asp.net", ".net", "postgresql", "mysql",
-      "mongodb", "redis", "graphql", "rest apis",
+      "node.js",
+      "nestjs",
+      "express",
+      "java",
+      "spring",
+      "python",
+      "django",
+      "fastapi",
+      "laravel",
+      "php",
+      "asp.net",
+      ".net",
+      "postgresql",
+      "mysql",
+      "mongodb",
+      "redis",
+      "graphql",
+      "rest apis",
     ],
   },
   {
@@ -55,8 +79,17 @@ export const INSIGHTS_JOB_FAMILY_RULES = [
     roleTags: ["frontend"],
     titleSignals: ["frontend", "front-end", "ui engineer", "web developer"],
     skillSignals: [
-      "react", "next.js", "angular", "vue", "javascript", "typescript",
-      "html", "css", "tailwind", "bootstrap", "redux",
+      "react",
+      "next.js",
+      "angular",
+      "vue",
+      "javascript",
+      "typescript",
+      "html",
+      "css",
+      "tailwind",
+      "bootstrap",
+      "redux",
     ],
   },
   {
@@ -64,41 +97,84 @@ export const INSIGHTS_JOB_FAMILY_RULES = [
     roleTags: ["mobile"],
     titleSignals: ["mobile", "android", "ios", "flutter", "react native"],
     skillSignals: [
-      "flutter", "dart", "android", "ios", "swift", "kotlin",
-      "react native", "firebase",
+      "flutter",
+      "dart",
+      "android",
+      "ios",
+      "swift",
+      "kotlin",
+      "react native",
+      "firebase",
     ],
   },
   {
     label: "AI & Machine Learning",
     roleTags: ["ml"],
     titleSignals: [
-      "machine learning", "ml engineer", "ai engineer", "data scientist", "llm",
+      "machine learning",
+      "ml engineer",
+      "ai engineer",
+      "data scientist",
+      "llm",
     ],
     skillSignals: [
-      "machine learning", "deep learning", "tensorflow", "pytorch", "scikit",
-      "keras", "opencv", "nlp", "llm", "computer vision",
+      "machine learning",
+      "deep learning",
+      "tensorflow",
+      "pytorch",
+      "scikit",
+      "keras",
+      "opencv",
+      "nlp",
+      "llm",
+      "computer vision",
     ],
   },
   {
     label: "Data & Analytics",
     roleTags: ["data"],
     titleSignals: [
-      "data analyst", "data engineer", "business intelligence", "bi developer", "analytics",
+      "data analyst",
+      "data engineer",
+      "business intelligence",
+      "bi developer",
+      "analytics",
     ],
     skillSignals: [
-      "sql", "power bi", "tableau", "excel", "pandas", "numpy", "etl",
-      "data analysis", "data visualization",
+      "sql",
+      "power bi",
+      "tableau",
+      "excel",
+      "pandas",
+      "numpy",
+      "etl",
+      "data analysis",
+      "data visualization",
     ],
   },
   {
     label: "Cloud, DevOps & SRE",
     roleTags: ["devops"],
     titleSignals: [
-      "devops", "sre", "site reliability", "cloud", "infrastructure",
+      "devops",
+      "sre",
+      "site reliability",
+      "cloud",
+      "infrastructure",
     ],
     skillSignals: [
-      "docker", "kubernetes", "terraform", "aws", "azure", "google cloud",
-      "gcp", "ci/cd", "linux", "jenkins", "ansible", "helm",
+      "docker",
+      "kubernetes",
+      "terraform",
+      "aws",
+      "azure",
+      "google cloud",
+      "gcp",
+      "ci/cd",
+      "linux",
+      "jenkins",
+      "ansible",
+      "helm",
     ],
   },
   {
@@ -106,8 +182,14 @@ export const INSIGHTS_JOB_FAMILY_RULES = [
     roleTags: ["security"],
     titleSignals: ["security", "cyber", "soc", "penetration", "threat", "siem"],
     skillSignals: [
-      "cybersecurity", "security", "soc operations", "siem",
-      "penetration testing", "vulnerability", "threat detection", "incident response",
+      "cybersecurity",
+      "security",
+      "soc operations",
+      "siem",
+      "penetration testing",
+      "vulnerability",
+      "threat detection",
+      "incident response",
     ],
   },
   {
@@ -115,18 +197,30 @@ export const INSIGHTS_JOB_FAMILY_RULES = [
     roleTags: ["qa"],
     titleSignals: ["qa", "quality assurance", "test automation", "tester"],
     skillSignals: [
-      "selenium", "playwright", "cypress", "jest", "testing",
-      "test automation", "quality assurance",
+      "selenium",
+      "playwright",
+      "cypress",
+      "jest",
+      "testing",
+      "test automation",
+      "quality assurance",
     ],
   },
   {
     label: "Product & Design",
     roleTags: ["product", "design"],
     titleSignals: [
-      "product designer", "ui/ux", "ux designer", "product manager",
+      "product designer",
+      "ui/ux",
+      "ux designer",
+      "product manager",
     ],
     skillSignals: [
-      "figma", "ui/ux", "wireframing", "prototyping", "user research",
+      "figma",
+      "ui/ux",
+      "wireframing",
+      "prototyping",
+      "user research",
       "product management",
     ],
   },
@@ -135,14 +229,23 @@ export const INSIGHTS_JOB_FAMILY_RULES = [
     roleTags: ["generalist"],
     titleSignals: ["software", "developer", "engineer", "programmer"],
     skillSignals: [
-      "git", "github", "apis", "javascript", "python", "java", "sql",
+      "git",
+      "github",
+      "apis",
+      "javascript",
+      "python",
+      "java",
+      "sql",
       "problem solving",
     ],
   },
 ];
 
 export const INSIGHTS_SKILL_ALIAS_GROUPS = [
-  { skill: "React Native", aliases: ["react native", "react-native", "reactnative", "rn"] },
+  {
+    skill: "React Native",
+    aliases: ["react native", "react-native", "reactnative", "rn"],
+  },
   { skill: "React", aliases: ["react", "react.js", "reactjs"] },
   { skill: "Next.js", aliases: ["next.js", "nextjs", "next"] },
   { skill: "Node.js", aliases: ["node.js", "nodejs", "node js", "node"] },
@@ -153,10 +256,19 @@ export const INSIGHTS_SKILL_ALIAS_GROUPS = [
   { skill: "Docker", aliases: ["docker"] },
   { skill: "AWS", aliases: ["aws", "amazon web services"] },
   { skill: "Azure", aliases: ["azure", "microsoft azure"] },
-  { skill: "Google Cloud", aliases: ["google cloud", "gcp", "google cloud platform"] },
+  {
+    skill: "Google Cloud",
+    aliases: ["google cloud", "gcp", "google cloud platform"],
+  },
   {
     skill: "CI/CD",
-    aliases: ["ci/cd", "cicd", "ci cd", "continuous integration", "continuous deployment"],
+    aliases: [
+      "ci/cd",
+      "cicd",
+      "ci cd",
+      "continuous integration",
+      "continuous deployment",
+    ],
   },
   { skill: "Python", aliases: ["python"] },
   { skill: "Java", aliases: ["java"] },
@@ -164,7 +276,10 @@ export const INSIGHTS_SKILL_ALIAS_GROUPS = [
   { skill: "PostgreSQL", aliases: ["postgresql", "postgres", "postgre sql"] },
   { skill: "MySQL", aliases: ["mysql"] },
   { skill: "MongoDB", aliases: ["mongodb", "mongo db", "mongo"] },
-  { skill: "REST APIs", aliases: ["rest api", "rest apis", "restful api", "restful apis"] },
+  {
+    skill: "REST APIs",
+    aliases: ["rest api", "rest apis", "restful api", "restful apis"],
+  },
   { skill: "APIs", aliases: ["api", "apis"] },
   { skill: "GraphQL", aliases: ["graphql", "graph ql"] },
   { skill: "HTML", aliases: ["html"] },
@@ -251,7 +366,7 @@ export function inferInsightsJobFamily(row: InsightsCandidateSearchCacheRow) {
     score += Math.min(
       60,
       rule.skillSignals.filter((signal) => skillText.includes(signal)).length *
-      12,
+        12,
     );
     if (score > bestScore) {
       bestScore = score;
@@ -369,8 +484,8 @@ function resolveFallbackGapSkills(
     const group = aliasGroupForSkill(skill);
     const label =
       catalogByNorm.get(normalizeInsightsText(group?.skill ?? skill)) ??
-      group?.skill ??
-      skill.trim();
+        group?.skill ??
+        skill.trim();
     const key = normalizeInsightsText(label);
     if (key && !seen.has(key)) {
       seen.add(key);
@@ -430,9 +545,9 @@ function candidateHasFallbackSkill(
     const candidateGroup = aliasGroupForSkill(skill);
     for (
       const alias of candidateGroup
-      ? [candidateGroup.skill, ...candidateGroup.aliases]
-      : [skill]
-      ) {
+        ? [candidateGroup.skill, ...candidateGroup.aliases]
+        : [skill]
+    ) {
       candidateKeys.add(normalizeInsightsText(alias));
     }
   }
@@ -493,7 +608,7 @@ export function buildFallbackGapAnalysis(
       .sort(
         (left, right) =>
           right.missingFromPartialCandidates -
-          left.missingFromPartialCandidates ||
+            left.missingFromPartialCandidates ||
           left.skill.localeCompare(right.skill),
       ),
   };

@@ -1,4 +1,10 @@
-import { parseIntegerEnv, asString, describeError, asRecord, sha256Hex } from "./utils.ts";
+import {
+  asRecord,
+  asString,
+  describeError,
+  parseIntegerEnv,
+  sha256Hex,
+} from "./utils.ts";
 
 export type GcsServiceAccountCredentials = {
   client_email?: string;
@@ -99,8 +105,8 @@ async function signRsaSha256(privateKey: string, value: string) {
 function getGcsBucketName() {
   return (
     asString(Deno.env.get("GCS_ORIGINALS_BUCKET")) ??
-    asString(Deno.env.get("CV_GCS_BUCKET")) ??
-    asString(Deno.env.get("CV_BUCKET_NAME"))
+      asString(Deno.env.get("CV_GCS_BUCKET")) ??
+      asString(Deno.env.get("CV_BUCKET_NAME"))
   );
 }
 
@@ -112,11 +118,11 @@ function getGcsCredentials() {
   const raw = rawJson
     ? normalizeSecretValue(rawJson)
     : rawJsonBase64
-      ? decodeBase64Secret(
-        rawJsonBase64,
-        "GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON_BASE64",
-      )
-      : null;
+    ? decodeBase64Secret(
+      rawJsonBase64,
+      "GCS_SIGNED_URL_SERVICE_ACCOUNT_JSON_BASE64",
+    )
+    : null;
   if (!raw) {
     const clientEmail = asString(Deno.env.get("GCS_SIGNED_URL_CLIENT_EMAIL"));
     const privateKey = asString(Deno.env.get("GCS_SIGNED_URL_PRIVATE_KEY"));
@@ -126,13 +132,13 @@ function getGcsCredentials() {
     const normalizedPrivateKey = privateKey
       ? normalizePrivateKey(privateKey)
       : privateKeyBase64
-        ? normalizePrivateKey(
-          decodeBase64Secret(
-            privateKeyBase64,
-            "GCS_SIGNED_URL_PRIVATE_KEY_BASE64",
-          ),
-        )
-        : null;
+      ? normalizePrivateKey(
+        decodeBase64Secret(
+          privateKeyBase64,
+          "GCS_SIGNED_URL_PRIVATE_KEY_BASE64",
+        ),
+      )
+      : null;
     if (!clientEmail && !normalizedPrivateKey) {
       return null;
     }

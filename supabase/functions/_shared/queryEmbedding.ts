@@ -3,7 +3,7 @@ import {
   DETERMINISTIC_EMBEDDING_VERSION,
 } from "./deterministicEmbedding";
 import { getRuntimeSetting } from "./platformRuntimeSettings.ts";
-import { envText, envNumber, isLocalRuntime } from "./utils.ts";
+import { envNumber, envText, isLocalRuntime } from "./utils.ts";
 
 function normalizeGeminiModelName(model: string) {
   return model.startsWith("models/") ? model : `models/${model}`;

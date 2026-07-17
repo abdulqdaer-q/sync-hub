@@ -5,16 +5,20 @@ import {
 } from "../_shared/aiGuardrails.ts";
 import { createAuthedClient } from "../_shared/client.ts";
 import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
-import { type DossierRow, type EvidenceRow, limitEvidenceRows } from "../_shared/agentHelpers.ts";
+import {
+  type DossierRow,
+  type EvidenceRow,
+  limitEvidenceRows,
+} from "../_shared/agentHelpers.ts";
 
 import {
-  MAX_VISIBLE_CITATIONS,
-  MAX_CONTEXT_BLOCKS,
-  inferIntent,
   buildDeterministicFacts,
+  inferIntent,
+  MAX_CONTEXT_BLOCKS,
+  MAX_VISIBLE_CITATIONS,
   synthesizeAnswerWithLlm,
 } from "./helpers.ts";
-import { type SearchHitRow, type AskSynthesis } from "./types.ts";
+import { type AskSynthesis, type SearchHitRow } from "./types.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {

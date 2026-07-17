@@ -3,7 +3,11 @@ export type JsonRecord = Record<string, unknown>;
 export function describeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object") {
-    try { return JSON.stringify(error); } catch { return String(error); }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
   }
   return String(error);
 }
@@ -16,12 +20,16 @@ export function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return Array.from(
     new Set(
-      value.map((item) => typeof item === "string" ? item.trim() : "").filter(Boolean)
-    )
+      value.map((item) => typeof item === "string" ? item.trim() : "").filter(
+        Boolean,
+      ),
+    ),
   );
 }
 
-export function uniqueStrings(values: Array<string | null | undefined>): string[] {
+export function uniqueStrings(
+  values: Array<string | null | undefined>,
+): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const v of values) {
@@ -35,7 +43,9 @@ export function uniqueStrings(values: Array<string | null | undefined>): string[
 }
 
 export function dedupeSorted(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b)
+  );
 }
 
 export function asArray(value: unknown): unknown[] {
@@ -43,7 +53,9 @@ export function asArray(value: unknown): unknown[] {
 }
 
 export function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as JsonRecord
+    : {};
 }
 
 export function asNumber(value: unknown): number | null {
@@ -56,7 +68,12 @@ export function toFiniteNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function clampInteger(value: unknown, fallback: number, min: number, max: number): number {
+export function clampInteger(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
@@ -88,21 +105,31 @@ export function isMissingRpcError(error: unknown): boolean {
   const record = asRecord(error);
   const code = String(record.code ?? "");
   const message = describeError(error).toLowerCase();
-  return code === "PGRST202" || message.includes("could not find the function") || message.includes("schema cache");
+  return code === "PGRST202" ||
+    message.includes("could not find the function") ||
+    message.includes("schema cache");
 }
 
 export function isBrowserOpenableSource(sourceUri: string | null): boolean {
   return Boolean(sourceUri && /^(https?:)?\/\//i.test(sourceUri));
 }
 
-export function parseIntegerEnv(name: string, fallback: number, min: number, max: number): number {
+export function parseIntegerEnv(
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const parsed = Number(Deno.env.get(name));
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
 export async function sha256Hex(value: string): Promise<string> {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
   return Array.from(new Uint8Array(bytes))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");

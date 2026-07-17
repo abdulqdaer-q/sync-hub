@@ -1,6 +1,12 @@
-import {createAuthedClient} from "../_shared/client.ts";
-import {asNumber, asRecord, asString, asStringArray, type JsonRecord} from "../_shared/utils.ts";
-import {getCurrentUserId} from "../_shared/auth.ts";
+import { createAuthedClient } from "../_shared/client.ts";
+import {
+  asNumber,
+  asRecord,
+  asString,
+  asStringArray,
+  type JsonRecord,
+} from "../_shared/utils.ts";
+import { getCurrentUserId } from "../_shared/auth.ts";
 
 export const shortlistSelect = [
   "user_id",
@@ -28,13 +34,13 @@ async function getCandidateCvSource(
   tenantId: string,
   candidateId: string,
 ) {
-  const {data, error} = await supabase
+  const { data, error } = await supabase
     .from("source_documents")
     .select("source_uri, original_filename")
     .eq("tenant_id", tenantId)
     .eq("candidate_id", candidateId)
-    .order("updated_at", {ascending: false})
-    .order("created_at", {ascending: false})
+    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
@@ -54,13 +60,13 @@ export async function getShortlistItems(
     .from("candidate_shortlist_items")
     .select(shortlistSelect)
     .eq("user_id", userId)
-    .order("created_at", {ascending: false});
+    .order("created_at", { ascending: false });
 
   if (tenantIds.length) {
     query = query.in("tenant_id", tenantIds);
   }
 
-  const {data, error} = await query;
+  const { data, error } = await query;
   if (error) {
     throw error;
   }
@@ -104,9 +110,9 @@ export async function saveShortlistItem(
     notes: asString(item.notes) ?? "",
   };
 
-  const {data, error} = await supabase
+  const { data, error } = await supabase
     .from("candidate_shortlist_items")
-    .upsert(payload, {onConflict: "user_id,tenant_id,candidate_id"})
+    .upsert(payload, { onConflict: "user_id,tenant_id,candidate_id" })
     .select(shortlistSelect)
     .single();
   if (error) {
@@ -136,11 +142,11 @@ export async function deleteShortlistItem(
     query = query.eq("tenant_id", tenantId);
   }
 
-  const {error} = await query;
+  const { error } = await query;
   if (error) {
     throw error;
   }
-  return {ok: true};
+  return { ok: true };
 }
 
 export async function clearShortlistItems(
@@ -157,9 +163,9 @@ export async function clearShortlistItems(
     query = query.in("tenant_id", tenantIds);
   }
 
-  const {error} = await query;
+  const { error } = await query;
   if (error) {
     throw error;
   }
-  return {ok: true};
+  return { ok: true };
 }

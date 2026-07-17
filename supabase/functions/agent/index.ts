@@ -8,26 +8,30 @@ import {
 import { createAuthedClient } from "../_shared/client.ts";
 import { generateText } from "../_shared/llm.ts";
 import { buildQueryEmbedding } from "../_shared/queryEmbedding.ts";
-import { type DossierRow, type EvidenceRow, limitEvidenceRows } from "../_shared/agentHelpers.ts";
+import {
+  type DossierRow,
+  type EvidenceRow,
+  limitEvidenceRows,
+} from "../_shared/agentHelpers.ts";
 
 import {
-  MAX_VISIBLE_CITATIONS,
-  MAX_CONTEXT_BLOCKS,
+  buildFallbackAnswer,
   isCorpusCountQuestion,
   isWorkspaceQuestion,
+  MAX_CONTEXT_BLOCKS,
+  MAX_VISIBLE_CITATIONS,
   normalizeMessages,
   normalizeTenantIds,
-  buildFallbackAnswer,
 } from "./helpers.ts";
 import { type SearchHitRow } from "./types.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", {headers: corsHeaders});
+    return new Response("ok", { headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse(405, {error: "method_not_allowed"});
+    return jsonResponse(405, { error: "method_not_allowed" });
   }
 
   try {
@@ -42,7 +46,7 @@ Deno.serve(async (req) => {
       : [];
 
     if (!question) {
-      return jsonResponse(400, {error: "question is required"});
+      return jsonResponse(400, { error: "question is required" });
     }
 
     const guardResult = evaluatePlatformAiConversation([
@@ -86,19 +90,19 @@ Deno.serve(async (req) => {
         tenantIds.length
           ? supabase
             .from("source_documents")
-            .select("id", {count: "exact", head: true})
+            .select("id", { count: "exact", head: true })
             .in("tenant_id", tenantIds)
           : supabase
             .from("source_documents")
-            .select("id", {count: "exact", head: true}),
+            .select("id", { count: "exact", head: true }),
         tenantIds.length
           ? supabase
             .from("candidates")
-            .select("id", {count: "exact", head: true})
+            .select("id", { count: "exact", head: true })
             .in("tenant_id", tenantIds)
           : supabase
             .from("candidates")
-            .select("id", {count: "exact", head: true}),
+            .select("id", { count: "exact", head: true }),
       ]);
 
       if (documentsCountResult.error) {
@@ -152,7 +156,7 @@ Deno.serve(async (req) => {
     }
 
     if (!candidateIds.length) {
-      const {data: searchRows, error: searchError} = await supabase.rpc(
+      const { data: searchRows, error: searchError } = await supabase.rpc(
         "search_candidates_v1",
         {
           p_q: question,

@@ -1,7 +1,7 @@
 import { buildGuardedSystemPrompt } from "../_shared/aiGuardrails.ts";
 import { generateStructuredObject } from "../_shared/llm.ts";
 import { type DossierRow, type EvidenceRow } from "../_shared/agentHelpers.ts";
-import { type SupportedIntent, type AskSynthesis } from "./types.ts";
+import { type AskSynthesis, type SupportedIntent } from "./types.ts";
 
 export const MAX_VISIBLE_CITATIONS = 3;
 export const MAX_CONTEXT_BLOCKS = 6;

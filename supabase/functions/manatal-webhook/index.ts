@@ -1,6 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { type JsonRecord } from "../_shared/utils.ts";
-import { jsonResponse, candidateIdFromPayload, requestSecret } from "./helpers.ts";
+import {
+  candidateIdFromPayload,
+  jsonResponse,
+  requestSecret,
+} from "./helpers.ts";
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {

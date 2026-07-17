@@ -1,4 +1,4 @@
-import { asString, asRecord, type JsonRecord } from "../_shared/utils.ts";
+import { asRecord, asString, type JsonRecord } from "../_shared/utils.ts";
 
 export function jsonResponse(status: number, payload: JsonRecord) {
   return new Response(JSON.stringify(payload), {
@@ -39,7 +39,7 @@ export function candidateIdFromPayload(payload: JsonRecord) {
 export function requestSecret(req: Request, url: URL) {
   return (
     req.headers.get("x-webhook-secret") ??
-    req.headers.get("x-manatal-webhook-secret") ??
-    url.searchParams.get("secret")
+      req.headers.get("x-manatal-webhook-secret") ??
+      url.searchParams.get("secret")
   );
 }

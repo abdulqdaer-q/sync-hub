@@ -13,7 +13,9 @@ import {
 
 export type JobExtractionPayload = {
   requiredSkills: Array<{ name: string; confidence: number; evidence: string }>;
-  preferredSkills: Array<{ name: string; confidence: number; evidence: string }>;
+  preferredSkills: Array<
+    { name: string; confidence: number; evidence: string }
+  >;
   seniorityLevel: { value: string; confidence: number; evidence: string };
   employmentType: { value: string; confidence: number; evidence: string };
   location: {
@@ -29,7 +31,9 @@ export type JobExtractionPayload = {
 
 export function normalizeStatus(value: unknown): string {
   const normalized = String(value ?? "draft").trim().toLowerCase();
-  return normalized === "active" || normalized === "closed" ? normalized : "draft";
+  return normalized === "active" || normalized === "closed"
+    ? normalized
+    : "draft";
 }
 
 export function normalizePublicSlug(value: unknown): string | null {
@@ -46,7 +50,9 @@ export function normalizePublicSlug(value: unknown): string | null {
 
 export function normalizeRegion(value: unknown): string | null {
   const normalized = String(value ?? "").trim().toUpperCase();
-  return normalized === "GCC" || normalized === "EU" || normalized === "USA" ? normalized : null;
+  return normalized === "GCC" || normalized === "EU" || normalized === "USA"
+    ? normalized
+    : null;
 }
 
 export function normalizeEmploymentType(value: unknown): string {
@@ -82,20 +88,30 @@ export function seniorityRank(value: unknown): number {
   const normalized = normalizeJobSeniority(value).toLowerCase();
   if (normalized.includes("executive")) return 7;
   if (normalized.includes("principal")) return 6;
-  if (normalized.includes("lead") || normalized.includes("architect") || normalized.includes("staff")) return 5;
+  if (
+    normalized.includes("lead") || normalized.includes("architect") ||
+    normalized.includes("staff")
+  ) return 5;
   if (normalized.includes("senior")) return 4;
-  if (normalized.includes("mid") || normalized.includes("intermediate")) return 3;
+  if (normalized.includes("mid") || normalized.includes("intermediate")) {
+    return 3;
+  }
   if (normalized.includes("junior")) return 2;
   if (normalized.includes("intern")) return 1;
   return 0;
 }
 
-export function seniorityAlignment(candidate: unknown, required: unknown): string {
+export function seniorityAlignment(
+  candidate: unknown,
+  required: unknown,
+): string {
   const candidateRank = seniorityRank(candidate);
   const requiredRank = seniorityRank(required);
   if (!candidateRank || !requiredRank) return "Partial Match";
   if (candidateRank === requiredRank) return "Exact Match";
-  if (Math.abs(candidateRank - requiredRank) === 1 || candidateRank > requiredRank) return "Partial Match";
+  if (
+    Math.abs(candidateRank - requiredRank) === 1 || candidateRank > requiredRank
+  ) return "Partial Match";
   return "Mismatch";
 }
 
@@ -123,44 +139,75 @@ export function heuristicJobExtraction(input: {
   const allSkills = extractSkillsFromText(text);
   const preferred = allSkills.filter((skill) => {
     const index = lower.indexOf(skill.toLowerCase());
-    const window = index >= 0 ? lower.slice(Math.max(0, index - 80), index + 120) : "";
+    const window = index >= 0
+      ? lower.slice(Math.max(0, index - 80), index + 120)
+      : "";
     return /preferred|nice to have|plus|bonus|advantage/.test(window);
   });
   const required = allSkills.filter((skill) => !preferred.includes(skill));
   const seniority = normalizeJobSeniority(input.title ?? text) ||
-    (/\blead|architect|principal\b/i.test(text) ? "Lead"
-      : /\bsenior|sr\b/i.test(text) ? "Senior"
-        : /\bjunior|entry|graduate\b/i.test(text) ? "Junior"
-          : "Mid");
-  const employmentType = /contract|contractor/i.test(text) ? "Contract"
-    : /part[-\s]?time/i.test(text) ? "Part-time"
-      : /intern/i.test(text) ? "Internship"
-        : /freelance/i.test(text) ? "Freelance"
-          : "Full-time";
+    (/\blead|architect|principal\b/i.test(text)
+      ? "Lead"
+      : /\bsenior|sr\b/i.test(text)
+      ? "Senior"
+      : /\bjunior|entry|graduate\b/i.test(text)
+      ? "Junior"
+      : "Mid");
+  const employmentType = /contract|contractor/i.test(text)
+    ? "Contract"
+    : /part[-\s]?time/i.test(text)
+    ? "Part-time"
+    : /intern/i.test(text)
+    ? "Internship"
+    : /freelance/i.test(text)
+    ? "Freelance"
+    : "Full-time";
   const locationCountry =
     normalizeLocationValue(text, { allowFallback: false }) ??
-    (input.employerRegion === "GCC" ? "United Arab Emirates"
-      : input.employerRegion === "USA" ? "United States"
+      (input.employerRegion === "GCC"
+        ? "United Arab Emirates"
+        : input.employerRegion === "USA"
+        ? "United States"
         : null);
-  const remotePolicy = /remote/i.test(text) ? "Remote"
-    : /hybrid/i.test(text) ? "Hybrid"
-      : /onsite|on-site/i.test(text) ? "Onsite"
-        : "Unspecified";
+  const remotePolicy = /remote/i.test(text)
+    ? "Remote"
+    : /hybrid/i.test(text)
+    ? "Hybrid"
+    : /onsite|on-site/i.test(text)
+    ? "Onsite"
+    : "Unspecified";
   const responsibilities = text
     .split(/\n|(?:^|\s)[*-]\s+/)
     .map((line) => line.trim().replace(/^[-*]\s*/, ""))
     .filter(
       (line) =>
         line.length >= 24 &&
-        /\b(?:build|develop|design|lead|manage|deliver|collaborate|implement|maintain|support|create|drive)\b/i.test(line),
+        /\b(?:build|develop|design|lead|manage|deliver|collaborate|implement|maintain|support|create|drive)\b/i
+          .test(line),
     )
     .slice(0, 6);
 
   return {
-    requiredSkills: required.map((name) => ({ name, confidence: 0.72, evidence: name })),
-    preferredSkills: preferred.map((name) => ({ name, confidence: 0.66, evidence: name })),
-    seniorityLevel: { value: seniority, confidence: 0.64, evidence: input.title ?? "Job description seniority signals" },
-    employmentType: { value: employmentType, confidence: 0.7, evidence: "Employment type inferred from job description" },
+    requiredSkills: required.map((name) => ({
+      name,
+      confidence: 0.72,
+      evidence: name,
+    })),
+    preferredSkills: preferred.map((name) => ({
+      name,
+      confidence: 0.66,
+      evidence: name,
+    })),
+    seniorityLevel: {
+      value: seniority,
+      confidence: 0.64,
+      evidence: input.title ?? "Job description seniority signals",
+    },
+    employmentType: {
+      value: employmentType,
+      confidence: 0.7,
+      evidence: "Employment type inferred from job description",
+    },
     location: {
       country: locationCountry,
       city: null,
@@ -169,13 +216,21 @@ export function heuristicJobExtraction(input: {
       confidence: locationCountry ? 0.62 : 0.38,
     },
     keyResponsibilities: responsibilities,
-    warnings: required.length ? [] : [{ type: "MISSING", message: "No explicit known technical skills were detected; review required skills manually." }],
+    warnings: required.length ? [] : [{
+      type: "MISSING",
+      message:
+        "No explicit known technical skills were detected; review required skills manually.",
+    }],
   };
 }
 
 export function extractionToJobFields(payload: JobExtractionPayload) {
-  const requiredSkills = normalizeSkillList(payload.requiredSkills.map((skill) => skill.name)).slice(0, 32);
-  const preferredSkills = normalizeSkillList(payload.preferredSkills.map((skill) => skill.name))
+  const requiredSkills = normalizeSkillList(
+    payload.requiredSkills.map((skill) => skill.name),
+  ).slice(0, 32);
+  const preferredSkills = normalizeSkillList(
+    payload.preferredSkills.map((skill) => skill.name),
+  )
     .filter((skill) => !requiredSkills.includes(skill))
     .slice(0, 32);
   return {
@@ -184,10 +239,17 @@ export function extractionToJobFields(payload: JobExtractionPayload) {
     seniorityLevel: normalizeJobSeniority(payload.seniorityLevel.value),
     employmentType: normalizeEmploymentType(payload.employmentType.value),
     locationInfo: asRecord(payload.location),
-    keyResponsibilities: payload.keyResponsibilities.map((item) => item.trim()).filter(Boolean).slice(0, 10),
+    keyResponsibilities: payload.keyResponsibilities.map((item) => item.trim())
+      .filter(Boolean).slice(0, 10),
     aiConfidence: {
-      requiredSkills: payload.requiredSkills.map((skill) => ({ name: skill.name, confidence: skill.confidence })),
-      preferredSkills: payload.preferredSkills.map((skill) => ({ name: skill.name, confidence: skill.confidence })),
+      requiredSkills: payload.requiredSkills.map((skill) => ({
+        name: skill.name,
+        confidence: skill.confidence,
+      })),
+      preferredSkills: payload.preferredSkills.map((skill) => ({
+        name: skill.name,
+        confidence: skill.confidence,
+      })),
       seniorityLevel: payload.seniorityLevel.confidence,
       employmentType: payload.employmentType.confidence,
       location: payload.location.confidence,
@@ -203,14 +265,21 @@ export function buildJobProfile(job: JsonRecord): string {
     `Preferred Skills: ${asStringArray(job.preferred_skills).join(", ")}`,
     `Seniority: ${asString(job.seniority_level) ?? ""}`,
     `Employment Type: ${asString(job.employment_type) ?? ""}`,
-    `Location: ${asString(location.country) ?? asString(job.employer_country) ?? ""} ${asString(location.remotePolicy) ?? ""}`,
+    `Location: ${
+      asString(location.country) ?? asString(job.employer_country) ?? ""
+    } ${asString(location.remotePolicy) ?? ""}`,
     `Responsibilities: ${asStringArray(job.key_responsibilities).join("; ")}`,
     `Description: ${asString(job.job_description) ?? ""}`,
   ];
-  return lines.filter((line) => line.replace(/^[^:]+:\s*/, "").trim()).join("\n");
+  return lines.filter((line) => line.replace(/^[^:]+:\s*/, "").trim()).join(
+    "\n",
+  );
 }
 
-function textIncludesSkill(candidateSkills: string[], requiredSkill: string): boolean {
+function textIncludesSkill(
+  candidateSkills: string[],
+  requiredSkill: string,
+): boolean {
   const normalized = requiredSkill.toLowerCase();
   return candidateSkills.some((skill) => skill.toLowerCase() === normalized);
 }
@@ -224,11 +293,18 @@ export function scoreCandidateForJob(candidate: JsonRecord, job: JsonRecord) {
     ...asStringArray(asRecord(candidate.candidate_snapshot).top_skills),
   ]);
 
-  const matchedSkills = requiredSkills.filter((skill) => textIncludesSkill(candidateSkills, skill));
-  const missingSkills = requiredSkills.filter((skill) => !textIncludesSkill(candidateSkills, skill));
+  const matchedSkills = requiredSkills.filter((skill) =>
+    textIncludesSkill(candidateSkills, skill)
+  );
+  const missingSkills = requiredSkills.filter((skill) =>
+    !textIncludesSkill(candidateSkills, skill)
+  );
 
-  const preferredCoverage = preferredSkills.filter((skill) => textIncludesSkill(candidateSkills, skill)).length / Math.max(1, preferredSkills.length);
-  const requiredCoverage = matchedSkills.length / Math.max(1, requiredSkills.length);
+  const preferredCoverage =
+    preferredSkills.filter((skill) => textIncludesSkill(candidateSkills, skill))
+      .length / Math.max(1, preferredSkills.length);
+  const requiredCoverage = matchedSkills.length /
+    Math.max(1, requiredSkills.length);
 
   const semanticScore = Math.max(
     0,
@@ -236,28 +312,45 @@ export function scoreCandidateForJob(candidate: JsonRecord, job: JsonRecord) {
       100,
       Math.round(
         (asNumber(candidate.match_rate) ?? asNumber(candidate.score) ?? 0) *
-        (asNumber(candidate.match_rate) === null ? 100 : 1),
+          (asNumber(candidate.match_rate) === null ? 100 : 1),
       ),
     ),
   );
 
-  const alignment = seniorityAlignment(candidate.seniority, job.seniority_level);
-  const seniorityScore = alignment === "Exact Match" ? 100 : alignment === "Partial Match" ? 74 : 35;
+  const alignment = seniorityAlignment(
+    candidate.seniority,
+    job.seniority_level,
+  );
+  const seniorityScore = alignment === "Exact Match"
+    ? 100
+    : alignment === "Partial Match"
+    ? 74
+    : 35;
 
   const experienceYears = asNumber(candidate.years_experience) ?? 0;
-  const requiredYears = seniorityRank(job.seniority_level) >= 4 ? 5 : seniorityRank(job.seniority_level) >= 3 ? 3 : 1;
-  const experienceScore = Math.min(100, Math.round((experienceYears / Math.max(1, requiredYears)) * 100));
+  const requiredYears = seniorityRank(job.seniority_level) >= 4
+    ? 5
+    : seniorityRank(job.seniority_level) >= 3
+    ? 3
+    : 1;
+  const experienceScore = Math.min(
+    100,
+    Math.round((experienceYears / Math.max(1, requiredYears)) * 100),
+  );
 
   const aiScore = Math.round(
     0.3 * requiredCoverage * 100 +
-    0.25 * Math.min(100, experienceScore) +
-    0.15 * seniorityScore +
-    0.1 * semanticScore +
-    0.1 * preferredCoverage * 100 +
-    7,
+      0.25 * Math.min(100, experienceScore) +
+      0.15 * seniorityScore +
+      0.1 * semanticScore +
+      0.1 * preferredCoverage * 100 +
+      7,
   );
 
-  const finalScore = Math.max(0, Math.min(100, Math.round(0.2 * semanticScore + 0.8 * aiScore)));
+  const finalScore = Math.max(
+    0,
+    Math.min(100, Math.round(0.2 * semanticScore + 0.8 * aiScore)),
+  );
 
   return {
     semanticScore,
@@ -266,10 +359,22 @@ export function scoreCandidateForJob(candidate: JsonRecord, job: JsonRecord) {
     matchedSkills,
     missingSkills,
     seniorityAlignment: alignment,
-    experienceSummary: `${String(candidate.name ?? "Candidate")} has ${experienceYears || "unspecified"} years of experience and is indexed as ${String(candidate.seniority ?? "unknown")} seniority.`,
+    experienceSummary: `${String(candidate.name ?? "Candidate")} has ${
+      experienceYears || "unspecified"
+    } years of experience and is indexed as ${
+      String(candidate.seniority ?? "unknown")
+    } seniority.`,
     matchExplanation: matchedSkills.length
-      ? `Matches ${matchedSkills.length} required skill${matchedSkills.length === 1 ? "" : "s"} for ${String(job.title ?? "this role")}; ${missingSkills.length ? `missing ${missingSkills.join(", ")}.` : "no required skill gaps detected."}`
-      : `Semantic match found for ${String(job.title ?? "this role")}, but required skill coverage needs recruiter review.`,
+      ? `Matches ${matchedSkills.length} required skill${
+        matchedSkills.length === 1 ? "" : "s"
+      } for ${String(job.title ?? "this role")}; ${
+        missingSkills.length
+          ? `missing ${missingSkills.join(", ")}.`
+          : "no required skill gaps detected."
+      }`
+      : `Semantic match found for ${
+        String(job.title ?? "this role")
+      }, but required skill coverage needs recruiter review.`,
     scoringBreakdown: {
       requiredSkillAlignment: Math.round(requiredCoverage * 30),
       relevantWorkExperience: Math.round(Math.min(25, experienceScore * 0.25)),

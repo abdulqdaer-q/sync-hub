@@ -1,8 +1,10 @@
-import {jsonResponse} from "../_shared/cors.ts";
-import {recordEdgeRequest, withTraceHeader} from "../_shared/ops.ts";
+import { jsonResponse } from "../_shared/cors.ts";
+import { recordEdgeRequest, withTraceHeader } from "../_shared/ops.ts";
 
 export function createResponder(
-  getSupabase: () => ReturnType<typeof import("../_shared/client.ts").createAuthedClient> | null,
+  getSupabase: () =>
+    | ReturnType<typeof import("../_shared/client.ts").createAuthedClient>
+    | null,
   getTenantIds: () => string[],
   traceId: string,
   startedAt: number,

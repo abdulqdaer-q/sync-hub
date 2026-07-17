@@ -1,15 +1,15 @@
-import {corsHeaders, jsonResponse} from "../_shared/cors.ts";
-import {createAuthedClient} from "../_shared/client.ts";
-import {type DossierRow} from "./types.ts";
-import {normalizeTextSet} from "./helpers.ts";
+import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { createAuthedClient } from "../_shared/client.ts";
+import { type DossierRow } from "./types.ts";
+import { normalizeTextSet } from "./helpers.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", {headers: corsHeaders});
+    return new Response("ok", { headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse(405, {error: "method_not_allowed"});
+    return jsonResponse(405, { error: "method_not_allowed" });
   }
 
   try {

@@ -1,7 +1,7 @@
-import {createServiceClient} from "../_shared/platformProvisioning.ts";
-import {asString, asRecord, uniqueStrings} from "../_shared/utils.ts";
-import {type JsonRecord} from "./types.ts";
-import {MAX_RESUME_BYTES} from "./constants.ts";
+import { createServiceClient } from "../_shared/platformProvisioning.ts";
+import { asRecord, asString, uniqueStrings } from "../_shared/utils.ts";
+import { type JsonRecord } from "./types.ts";
+import { MAX_RESUME_BYTES } from "./constants.ts";
 import {
   asStringArray,
   boundedYears,
@@ -9,7 +9,7 @@ import {
   decodeBase64,
   safeFileName,
   skillSlug,
-  splitList
+  splitList,
 } from "./helpers.ts";
 
 export function parseResumeFile(input: JsonRecord) {
@@ -41,7 +41,7 @@ export function parseResumeFile(input: JsonRecord) {
   if (bytes.byteLength === 0) {
     throw new Error("CV upload is empty.");
   }
-  return {fileName, contentType, bytes};
+  return { fileName, contentType, bytes };
 }
 
 export function assertApplication(input: JsonRecord) {
@@ -85,7 +85,7 @@ export function assertApplication(input: JsonRecord) {
       asString(input.linkedinUrl ?? input.linkedin_url)?.slice(0, 500) ?? null,
     portfolioUrl:
       asString(input.portfolioUrl ?? input.portfolio_url)?.slice(0, 500) ??
-      null,
+        null,
     coverNote: asString(input.coverNote ?? input.cover_note)?.slice(0, 4000) ??
       "",
     resumeOriginalFilename: resumeFile?.fileName ??
@@ -95,7 +95,7 @@ export function assertApplication(input: JsonRecord) {
     resumeFile,
     idempotencyKey:
       asString(input.idempotencyKey ?? input.idempotency_key)?.slice(0, 120) ??
-      null,
+        null,
   };
 }
 
@@ -111,7 +111,7 @@ export async function upsertCandidateShell(
   let existingCandidate: JsonRecord | null = null;
 
   if (preferredCandidateId) {
-    const {data, error} = await supabase
+    const { data, error } = await supabase
       .from("candidates")
       .select(
         "id, current_title, years_experience, seniority, primary_role, top_skills, links, latest_document_id, summary_short, status, metadata_json",
@@ -124,14 +124,14 @@ export async function upsertCandidateShell(
   }
 
   if (!existingCandidate) {
-    const {data, error} = await supabase
+    const { data, error } = await supabase
       .from("candidates")
       .select(
         "id, current_title, years_experience, seniority, primary_role, top_skills, links, latest_document_id, summary_short, status, metadata_json",
       )
       .eq("tenant_id", tenantId)
       .eq("email", application.email)
-      .order("updated_at", {ascending: false})
+      .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (error) throw error;
@@ -195,16 +195,16 @@ export async function upsertCandidateShell(
     hub_visibility: "platform",
   };
 
-  const {error: upsertError} = await supabase
+  const { error: upsertError } = await supabase
     .from("candidates")
-    .upsert(candidatePayload, {onConflict: "id"});
+    .upsert(candidatePayload, { onConflict: "id" });
   if (upsertError) throw upsertError;
 
   if (topSkills.length) {
     const skillRows = topSkills
-      .map((skill) => ({skill, slug: skillSlug(skill)}))
+      .map((skill) => ({ skill, slug: skillSlug(skill) }))
       .filter((skill) => skill.slug)
-      .map(({skill, slug}) => ({
+      .map(({ skill, slug }) => ({
         id: crypto.randomUUID(),
         tenant_id: tenantId,
         candidate_id: candidateId,
@@ -216,7 +216,7 @@ export async function upsertCandidateShell(
         },
       }));
     if (skillRows.length) {
-      const {error: skillError} = await supabase
+      const { error: skillError } = await supabase
         .from("candidate_skill_map")
         .upsert(skillRows, {
           onConflict: "tenant_id,candidate_id,skill_slug",
@@ -227,9 +227,9 @@ export async function upsertCandidateShell(
   }
 
   if (resumeSourceDocumentId) {
-    const {error: sourceError} = await supabase
+    const { error: sourceError } = await supabase
       .from("source_documents")
-      .update({candidate_id: candidateId})
+      .update({ candidate_id: candidateId })
       .eq("tenant_id", tenantId)
       .eq("id", resumeSourceDocumentId)
       .is("candidate_id", null);
