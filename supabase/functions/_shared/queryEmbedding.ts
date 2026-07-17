@@ -1,7 +1,7 @@
 import {
   buildDeterministicQueryEmbedding,
   DETERMINISTIC_EMBEDDING_VERSION,
-} from "./deterministicEmbedding";
+} from "./deterministicEmbedding.ts";
 import { getRuntimeSetting } from "./platformRuntimeSettings.ts";
 import { envNumber, envText, isLocalRuntime } from "./utils.ts";
 

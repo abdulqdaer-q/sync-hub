@@ -116,7 +116,7 @@ export async function getSearchFilterOptions(
     throw tenantResult.error;
   }
   const excludedCompanyTerms = buildCompanyExclusionTerms(
-    (tenantResult.data ?? []).flatMap((tenant) => [
+    (tenantResult.data ?? []).flatMap((tenant: { slug?: string; name?: string }) => [
       String(tenant.slug ?? ""),
       String(tenant.name ?? ""),
     ]),
@@ -130,22 +130,22 @@ export async function getSearchFilterOptions(
   return {
     seniority: dedupeSorted(
       rows
-        .map((row) => row.seniority ?? "")
-        .filter((value) => value && value !== "unclassified"),
+        .map((row: { seniority?: string }) => row.seniority ?? "")
+        .filter((value: string) => value && value !== "unclassified"),
     ),
     skills: dedupeSorted(
-      normalizeSkillList(rows.flatMap((row) => row.skills ?? [])),
+      normalizeSkillList(rows.flatMap((row: { skills?: string[] | null }) => row.skills ?? [])),
     ),
     companies: dedupeSorted(
       excludeCompanyMatches(
-        rows.flatMap((row) => row.companies ?? []),
+        rows.flatMap((row: { companies?: string[] | null }) => row.companies ?? []),
         excludedCompanyTerms,
       ),
     ),
     locations: dedupeSorted(
       rows
-        .map((row) => normalizeLocationValue(row.location))
-        .filter((value): value is string => Boolean(value)),
+        .map((row: { location?: string | null }) => normalizeLocationValue(row.location))
+        .filter((value: string | undefined): value is string => Boolean(value)),
     ),
   };
 }
@@ -824,7 +824,10 @@ function metricValue(metrics: JsonRecord[], key: string, fallback = "0") {
   const metric = metrics.find((item) => asString(item.key) === key);
   if (!metric) return fallback;
   const value = asNumber(metric.value);
-  return Number.isFinite(value) ? String(Math.round(value)) : fallback;
+  if (value !== null && Number.isFinite(value)) {
+    return String(Math.round(value));
+  }
+  return fallback;
 }
 
 function distributionTop(items: JsonRecord[], limit = 3) {

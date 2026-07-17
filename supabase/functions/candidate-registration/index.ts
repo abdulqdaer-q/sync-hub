@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { corsHeaders } from "./constants.ts";
 import { handlePublish, handleSaveDraft, handleUploadCv } from "./handlers.ts";
 
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }

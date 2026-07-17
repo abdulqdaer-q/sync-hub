@@ -33,6 +33,7 @@ import {
   scoreCandidateForJob,
 } from "../_shared/jobMatching.ts";
 import { getCurrentUserId } from "../_shared/auth.ts";
+import { normalizeSeniorityValue } from "../_shared/searchTaxonomy.ts";
 
 export const jobPostingSelect = [
   "id",

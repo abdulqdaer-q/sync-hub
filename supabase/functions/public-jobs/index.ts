@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
         .limit(100);
       if (error) throw error;
       return jsonResponse(200, {
-        jobs: (data ?? []).map((row) => publicJob(asRecord(row))),
+        jobs: (data ?? []).map((row: Record<string, unknown>) => publicJob(asRecord(row))),
       });
     }
 
