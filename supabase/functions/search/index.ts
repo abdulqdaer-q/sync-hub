@@ -85,21 +85,25 @@ Deno.serve(async (req) => {
         }, facets)
       )
       : Promise.resolve(null);
-    const queryEmbeddingPromise = !useSemanticSearch
-      ? Promise.resolve({
+
+    let queryEmbeddingPromise;
+    if (!useSemanticSearch) {
+      queryEmbeddingPromise = Promise.resolve({
         embedding: null,
         embeddingVersion: null,
         provider: "disabled",
-      })
-      : Array.isArray(body.query_embedding)
-        ? Promise.resolve({
-          embedding: body.query_embedding,
-          embeddingVersion: typeof body.embedding_version === "string"
-            ? body.embedding_version
-            : null,
-          provider: "client",
-        })
-        : buildQueryEmbedding(query);
+      });
+    } else if (Array.isArray(body.query_embedding)) {
+      queryEmbeddingPromise = Promise.resolve({
+        embedding: body.query_embedding,
+        embeddingVersion: typeof body.embedding_version === "string"
+          ? body.embedding_version
+          : null,
+        provider: "client",
+      });
+    } else {
+      queryEmbeddingPromise = buildQueryEmbedding(query);
+    }
 
     let llmIntent: SearchIntentPayload | null = null;
     let intentFacets: SearchIntentFacetOptions;
