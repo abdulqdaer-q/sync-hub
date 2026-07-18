@@ -8,6 +8,7 @@ from unittest import mock
 from cv_intelligence_worker.config import WorkerConfig
 from cv_intelligence_worker.discovery import stable_document_id
 from cv_intelligence_worker.extraction import heuristic_extract_profile
+from cv_intelligence_worker.integrations.supabase import build_bundle_rows
 from cv_intelligence_worker.pipeline import IngestionPipeline
 from cv_intelligence_worker.supabase import SupabaseClient
 
@@ -142,9 +143,20 @@ class SupabaseClientTests(unittest.TestCase):
             with mock.patch("cv_intelligence_worker.pipeline.extract_candidate_profile", side_effect=lambda source, document, config: heuristic_extract_profile(source, document)):
                 result = pipeline.ingest_paths([str(path)], tenant_id="tenant-1", sync_to_supabase=False)
             bundle = result.bundles[0]
-            client = RecordingSupabaseClient(config)
-            first_rows, _ = client._rows_for_bundle(bundle, "source-a", bundle.profile.candidate_id)
-            second_rows, _ = client._rows_for_bundle(bundle, "source-b", bundle.profile.candidate_id)
+            first_rows = build_bundle_rows(
+                bundle,
+                "source-a",
+                bundle.profile.candidate_id,
+                source_storage_path=None,
+                source_uri=bundle.source.source_path,
+            )
+            second_rows = build_bundle_rows(
+                bundle,
+                "source-b",
+                bundle.profile.candidate_id,
+                source_storage_path=None,
+                source_uri=bundle.source.source_path,
+            )
             first_chunk_ids = {row["id"] for row in first_rows["candidate_chunks"]}
             second_chunk_ids = {row["id"] for row in second_rows["candidate_chunks"]}
             self.assertTrue(first_chunk_ids)
