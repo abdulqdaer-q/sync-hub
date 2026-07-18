@@ -1,5 +1,6 @@
+import asyncio
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -147,6 +148,26 @@ def test_client_rejects_empty_completion() -> None:
             prompt={"cv": "Jane Doe"},
             response_model=CandidateExtraction,
         )
+
+
+def test_async_client_uses_validated_structured_output() -> None:
+    parsed = candidate_extraction()
+    sdk_client = MagicMock()
+    sdk_client.chat.completions.parse = AsyncMock(
+        return_value=SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed, refusal=None))])
+    )
+
+    result = asyncio.run(
+        LLMClient(WorkerConfig(), async_client=sdk_client).parse_async(
+            model="test-model",
+            system_prompt="Extract a profile.",
+            prompt={"cv": "Jane Doe"},
+            response_model=CandidateExtraction,
+        )
+    )
+
+    assert result is parsed
+    sdk_client.chat.completions.parse.assert_awaited_once()
 
 
 def test_client_validates_and_orders_embeddings() -> None:
