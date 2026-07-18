@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 
 from fastapi.testclient import TestClient
 
-from realtime_extractor import app, build_extended_system_prompt, sync_to_supabase_background
+from cv_intelligence_worker.realtime_extractor import app, build_extended_system_prompt, sync_to_supabase_background
 from cv_intelligence_worker.config import WorkerConfig
 
 client = TestClient(app)
@@ -23,13 +23,13 @@ def test_build_extended_system_prompt():
     assert "work_mode" in prompt
 
 def test_detect_allowed_mime_type_matches_magic_bytes():
-    from realtime_extractor import _detect_allowed_mime_type
+    from cv_intelligence_worker.realtime_extractor import _detect_allowed_mime_type
 
     assert _detect_allowed_mime_type(b"%PDF-1.7\nrest") == "application/pdf"
     assert _detect_allowed_mime_type(b"PK\x03\x04rest") == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     assert _detect_allowed_mime_type(b"not a document") is None
 
-@patch("realtime_extractor.SupabaseSyncClient")
+@patch("cv_intelligence_worker.realtime_extractor.SupabaseSyncClient")
 def test_sync_to_supabase_background_success(mock_supabase_client_class):
     """Test successful DB sync, extracting field_confidence and setting completed status."""
     mock_instance = MagicMock()
@@ -77,7 +77,7 @@ def test_sync_to_supabase_background_success(mock_supabase_client_class):
     # Ensure field_confidence_json received the popped data
     assert row["field_confidence_json"] == {"name": 100}
 
-@patch("realtime_extractor.logger")
+@patch("cv_intelligence_worker.realtime_extractor.logger")
 def test_sync_to_supabase_background_missing_config(mock_logger):
     """Test that sync aborts if supabase config is missing."""
     config = WorkerConfig(supabase_url="", supabase_service_key="")
@@ -86,8 +86,8 @@ def test_sync_to_supabase_background_missing_config(mock_logger):
 
     mock_logger.info.assert_called_with("[DB SYNC] No Supabase credentials, skipping sync")
 
-@patch("realtime_extractor.SupabaseSyncClient")
-@patch("realtime_extractor.logger")
+@patch("cv_intelligence_worker.realtime_extractor.SupabaseSyncClient")
+@patch("cv_intelligence_worker.realtime_extractor.logger")
 def test_sync_to_supabase_background_invalid_json(mock_logger, mock_supabase_client_class):
     """Test that sync marks draft as failed on malformed JSON."""
     mock_instance = MagicMock()
