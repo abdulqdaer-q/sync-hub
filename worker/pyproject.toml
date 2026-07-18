@@ -15,6 +15,7 @@ dependencies = [
     "httpx",
     "openai>=2.0,<3.0",
     "pydantic>=2.9,<3.0",
+    "PyYAML>=6.0,<7.0",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +37,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+cv_intelligence_worker = ["candidate_extraction/prompts/*.yaml"]
 
 [tool.pytest.ini_options]
 addopts = [

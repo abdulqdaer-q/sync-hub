@@ -32,6 +32,20 @@ def test_installed_worker_processes_start_outside_repository(tmp_path) -> None:
     assert cli.returncode == 0, cli.stderr
     assert "Offline worker for the CV Intelligence Platform" in cli.stdout
 
+    prompt = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from cv_intelligence_worker.candidate_extraction import build_candidate_system_prompt; assert 'Output schema:' in build_candidate_system_prompt()",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert prompt.returncode == 0, prompt.stderr
+
     port = _available_port()
     process = subprocess.Popen(
         [
