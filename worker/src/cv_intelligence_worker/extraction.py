@@ -753,6 +753,10 @@ def _validated_job_family_result(value: JobFamilyExtraction, profile: CandidateP
     confidence = value.confidence
     if confidence < max(0.0, min(1.0, config.job_family_min_confidence)):
         return None
+    matched_role_tags = dedupe_keep_order(value.matched_role_tags)
+    matched_skills = dedupe_keep_order(value.matched_skills)
+    if not set(matched_role_tags).issubset(profile.role_tags) or not set(matched_skills).issubset(profile.skills):
+        return None
     deterministic_family = _string_value(profile.metadata.get("job_family")) or "Unclassified"
     deterministic_confidence = _number_value(profile.metadata.get("job_family_confidence"))
     auto_accept_confidence = max(config.job_family_min_confidence, min(1.0, config.job_family_auto_accept_confidence))
@@ -774,8 +778,8 @@ def _validated_job_family_result(value: JobFamilyExtraction, profile: CandidateP
         "job_family_rules_baseline": deterministic_family,
         "job_family_rules_confidence": deterministic_confidence,
         "job_family_rationale": compact_whitespace(value.rationale)[:500],
-        "job_family_matched_role_tags": dedupe_keep_order(value.matched_role_tags),
-        "job_family_matched_skills": dedupe_keep_order(value.matched_skills),
+        "job_family_matched_role_tags": matched_role_tags,
+        "job_family_matched_skills": matched_skills,
         "job_family_alternate": value.alternate_job_family.value if value.alternate_job_family else "",
     }
 

@@ -205,6 +205,31 @@ Python, Node.js, GraphQL, PostgreSQL, Docker
         self.assertEqual(classified.metadata["job_family_source"], "llm")
         self.assertIs(parse_mock.call_args.kwargs["response_model"], JobFamilyExtraction)
 
+    def test_job_family_classification_rejects_unsupported_evidence(self) -> None:
+        source = self._source("doc-job-family-evidence")
+        document = DocumentText(
+            source=source,
+            raw_text="Jane Doe\nSenior Backend Engineer\njane@example.com\nPython PostgreSQL APIs",
+            parser_name="plain-text",
+            parser_version="2.0.0",
+        )
+        profile = heuristic_extract_profile(source, document)
+        config = WorkerConfig(extraction_model="test-model", job_family_model="test-model")
+
+        with patch("cv_intelligence_worker.extraction.LLMClient.parse") as parse_mock:
+            parse_mock.return_value = JobFamilyExtraction(
+                job_family=JobFamily("Backend Engineering"),
+                confidence=0.95,
+                rationale="Backend title and invented skill.",
+                matched_role_tags=["backend"],
+                matched_skills=["Invented Framework"],
+                alternate_job_family=None,
+            )
+            classified = classify_job_family_with_llm(profile, config)
+
+        self.assertEqual(classified.metadata["job_family_llm_status"], "rejected")
+        self.assertEqual(classified.metadata["job_family_review_status"], "needs_review")
+
     def test_missing_extraction_model_raises_instead_of_using_heuristics(self) -> None:
         source = self._source("doc-model-required")
         document = DocumentText(

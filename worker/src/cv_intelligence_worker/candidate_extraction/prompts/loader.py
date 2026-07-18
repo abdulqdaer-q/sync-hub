@@ -39,6 +39,7 @@ class PromptTemplate(BaseModel):
 _PROMPT_FILES = {
     "candidate_system": "candidate_system.yaml",
     "job_family_system": "job_family_system.yaml",
+    "realtime_candidate_rules": "realtime_candidate_rules.yaml",
 }
 
 

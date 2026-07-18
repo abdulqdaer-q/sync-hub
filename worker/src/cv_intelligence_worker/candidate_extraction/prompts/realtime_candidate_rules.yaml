@@ -1,0 +1,7 @@
+version: 1
+input_variables: []
+template: |-
+  Additional Registration Flow Rules:
+  - field_confidence must contain a 0-100 confidence score for each populated leaf field, using paths such as name, experience[0].title, and skills[0].name.
+  - Extract employment_type and work_mode only when the source states or clearly supports them; otherwise use null.
+  - Populate skill proficiency, years_of_experience, and last_used only when explicitly stated or directly calculable from dated evidence; otherwise use null.

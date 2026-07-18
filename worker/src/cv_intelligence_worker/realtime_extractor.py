@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import json
 import time
 import tempfile
 import asyncio
@@ -18,7 +17,7 @@ from fastapi.security import APIKeyHeader
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-from cv_intelligence_worker.candidate_extraction import build_candidate_system_prompt
+from cv_intelligence_worker.candidate_extraction import build_realtime_candidate_system_prompt
 from cv_intelligence_worker.config import WorkerConfig
 from cv_intelligence_worker.extraction import build_candidate_prompt
 from cv_intelligence_worker.llm import LLMClient, LLMResponseError
@@ -80,17 +79,7 @@ def verify_api_key(api_key: str = Security(api_key_header)):
     return api_key
 
 def build_extended_system_prompt() -> str:
-    base_prompt = build_candidate_system_prompt().split("Output schema:\n")[0]
-    schema_text = json.dumps(RealtimeCandidateExtraction.model_json_schema(), indent=2, ensure_ascii=True)
-
-    additional_rules = (
-        "Additional Registration Flow Rules:\n"
-        "- For `field_confidence`, provide a confidence score (0-100) for every single field extracted (e.g. 'name': 90, 'experience[0].title': 85).\n"
-        "- Ensure employment_type and work_mode are extracted from the experience descriptions.\n"
-        "- Ensure proficiency, years_of_experience, and last_used are estimated for skills if possible, otherwise use null.\n\n"
-    )
-
-    return base_prompt + additional_rules + "Output schema:\n" + schema_text
+    return build_realtime_candidate_system_prompt()
 
 def sync_to_supabase_background(user_id: str, extraction: RealtimeCandidateExtraction, config: WorkerConfig) -> None:
     if not config.supabase_url or not config.supabase_service_key:

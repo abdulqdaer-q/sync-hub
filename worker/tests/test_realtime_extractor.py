@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 import pytest
 
+from cv_intelligence_worker.candidate_extraction import build_realtime_candidate_system_prompt
 from cv_intelligence_worker.config import WorkerConfig
 from cv_intelligence_worker.llm_models import RealtimeCandidateExtraction
 from cv_intelligence_worker.realtime_extractor import (
@@ -19,15 +20,13 @@ client = TestClient(app)
 
 
 def test_build_extended_system_prompt():
-    """Test that the extended system prompt successfully merges base prompt, extra rules, and schema."""
     prompt = build_extended_system_prompt()
 
-    # Check base components
+    assert prompt == build_realtime_candidate_system_prompt()
     assert "You are an expert ATS" in prompt or "Extract" in prompt, "Base prompt logic is missing"
     assert "Output schema:" in prompt
     assert "Additional Registration Flow Rules:" in prompt
 
-    # Check that new required fields were added dynamically
     assert "field_confidence" in prompt
     assert "employment_type" in prompt
     assert "work_mode" in prompt
