@@ -43,7 +43,7 @@ class LLMClient:
         except ValidationError as exc:
             raise LLMResponseError("structured model response failed validation") from exc
         except OpenAIError as exc:
-            raise self._request_error(exc) from exc
+            raise self._request_error("structured model", exc) from exc
         return self._completion_output(completion, response_model)
 
     async def parse_async(

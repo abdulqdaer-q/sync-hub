@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from openai import OpenAIError
 from pydantic import ValidationError
 
 from cv_intelligence_worker.config import WorkerConfig
@@ -118,6 +119,23 @@ def test_client_does_not_expose_invalid_model_output() -> None:
 
     assert str(error.value) == "structured model response failed validation"
     assert error.value.__cause__ is validation.value
+
+
+def test_client_translates_sdk_request_errors() -> None:
+    sdk_client = MagicMock()
+    provider_error = OpenAIError("private provider response")
+    sdk_client.chat.completions.parse.side_effect = provider_error
+
+    with pytest.raises(LLMResponseError) as error:
+        LLMClient(WorkerConfig(), client=sdk_client).parse(
+            model="test-model",
+            system_prompt="Extract a profile.",
+            prompt={"cv": "private CV content"},
+            response_model=CandidateExtraction,
+        )
+
+    assert str(error.value) == "structured model request failed"
+    assert error.value.__cause__ is provider_error
 
 
 def test_client_does_not_expose_refusal_content() -> None:
