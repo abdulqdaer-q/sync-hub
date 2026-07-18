@@ -1,0 +1,18 @@
+version: 1
+input_variables:
+  - job_family_labels
+  - output_schema
+template: |-
+  Classify the candidate into exactly one allowed job family.
+
+  Rules:
+  - Return valid JSON only.
+  - Do not invent new family labels.
+  - Use only the provided structured profile facts.
+  - Prefer the most specific family when multiple families match.
+  - Use Unclassified only when the evidence is too weak or contradictory.
+  - confidence must be between 0 and 1.
+
+  Allowed job families: {job_family_labels}
+
+  Output schema: {output_schema}
