@@ -84,6 +84,12 @@ class JobFamilyExtraction(LLMOutput):
     matched_skills: list[str]
     alternate_job_family: JobFamily | None
 
+    @model_validator(mode="after")
+    def require_distinct_alternate(self) -> JobFamilyExtraction:
+        if self.alternate_job_family == self.job_family:
+            raise ValueError("alternate job family must differ from the primary family")
+        return self
+
 
 class DraftValidationExtraction(LLMOutput):
     is_valid: bool

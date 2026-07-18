@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from cv_intelligence_worker.config import WorkerConfig
 from cv_intelligence_worker.llm import LLMClient, LLMResponseError
-from cv_intelligence_worker.llm_models import CandidateExtraction, DraftValidationExtraction, EmbeddingVector
+from cv_intelligence_worker.llm_models import CandidateExtraction, DraftValidationExtraction, EmbeddingVector, JobFamily, JobFamilyExtraction
 
 
 def candidate_extraction(**overrides: object) -> CandidateExtraction:
@@ -48,6 +48,18 @@ def test_draft_validation_rejects_coerced_and_malformed_fields() -> None:
 def test_draft_validation_requires_rejection_reason() -> None:
     with pytest.raises(ValidationError, match="requires a reason"):
         DraftValidationExtraction(is_valid=False, reason="  ")
+
+
+def test_job_family_requires_a_distinct_alternate() -> None:
+    with pytest.raises(ValidationError, match="must differ"):
+        JobFamilyExtraction(
+            job_family=JobFamily("Backend Engineering"),
+            confidence=0.9,
+            rationale="Backend role.",
+            matched_role_tags=["backend"],
+            matched_skills=["Python"],
+            alternate_job_family=JobFamily("Backend Engineering"),
+        )
 
 
 def test_embedding_vector_rejects_coerced_and_non_finite_values() -> None:

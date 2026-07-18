@@ -108,7 +108,7 @@ def _default_model_version() -> str:
 
 
 def _default_prompt_version() -> str:
-    return "openai-json-v1"
+    return "openai-json-v2"
 
 
 def _default_job_family_model() -> str:

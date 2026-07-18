@@ -8,6 +8,12 @@ from cv_intelligence_worker.config import WorkerConfig
 
 
 class WorkerConfigTests(unittest.TestCase):
+    def test_prompt_version_defaults_to_v2(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True):
+            config = WorkerConfig.from_env()
+
+        self.assertEqual("openai-json-v2", config.prompt_version)
+
     def test_batch_size_does_not_implicitly_change_ingest_concurrency(self) -> None:
         env = {
             "CV_BATCH_SIZE": "2",
