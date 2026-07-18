@@ -19,6 +19,7 @@ from cv_intelligence_worker.schema import (
     DocumentSource,
     DocumentText,
 )
+from tests.test_helpers.realtime import realtime_extraction
 
 
 # ---------------------------------------------------------------------------
@@ -46,17 +47,17 @@ def _make_config(**overrides: Any) -> WorkerConfig:
 # ===========================================================================
 
 class TestSyncToSupabaseBackground:
-    """sync_to_supabase_background: JSON upload to Supabase after streaming."""
+    """Persist validated realtime extraction output to Supabase."""
 
-    @patch("realtime_extractor.SupabaseSyncClient")
-    def test_valid_json_sets_completed(self, mock_cls):
-        from realtime_extractor import sync_to_supabase_background
+    @patch("cv_intelligence_worker.realtime_extractor.SupabaseSyncClient")
+    def test_validated_extraction_sets_completed(self, mock_cls):
+        from cv_intelligence_worker.realtime_extractor import sync_to_supabase_background
         config = _make_config()
-        raw_json = json.dumps({"name": "Ahmed", "skills": ["Python"], "field_confidence": {"name": 95}})
+        extraction = realtime_extraction(name="Ahmed", field_confidence={"name": 95})
         mock_client = mock_cls.return_value
         mock_client.upsert_rows.return_value = {"status": 200}
 
-        sync_to_supabase_background("user-1", "cv.pdf", "application/pdf", raw_json, config)
+        sync_to_supabase_background("user-1", extraction, config)
 
         mock_client.upsert_rows.assert_called_once()
         call_args = mock_client.upsert_rows.call_args
@@ -66,25 +67,25 @@ class TestSyncToSupabaseBackground:
         assert row["parsed_profile_json"]["name"] == "Ahmed"
         assert row["field_confidence_json"]["name"] == 95
 
-    @patch("realtime_extractor.SupabaseSyncClient")
-    def test_invalid_json_sets_failed(self, mock_cls):
-        from realtime_extractor import sync_to_supabase_background
+    @patch("cv_intelligence_worker.realtime_extractor.SupabaseSyncClient")
+    def test_extraction_failure_sets_failed(self, mock_cls):
+        from cv_intelligence_worker.realtime_extractor import mark_extraction_failed
         config = _make_config()
         mock_client = mock_cls.return_value
         mock_client.upsert_rows.return_value = {"status": 200}
 
-        sync_to_supabase_background("user-2", "cv.pdf", "application/pdf", "NOT JSON {{{{", config)
+        mark_extraction_failed("user-2", "structured model response failed validation", config)
 
         mock_client.upsert_rows.assert_called_once()
         row = mock_client.upsert_rows.call_args[0][1][0]
         assert row["parse_status"] == "failed"
-        assert "JSON decode error" in row["parse_error"]
+        assert row["parse_error"] == "structured model response failed validation"
 
-    @patch("realtime_extractor.SupabaseSyncClient")
-    def test_valid_json_db_error_fallback_to_failed(self, mock_cls):
-        from realtime_extractor import sync_to_supabase_background
+    @patch("cv_intelligence_worker.realtime_extractor.SupabaseSyncClient")
+    def test_validated_extraction_db_error_falls_back_to_failed(self, mock_cls):
+        from cv_intelligence_worker.realtime_extractor import sync_to_supabase_background
         config = _make_config()
-        raw_json = json.dumps({"name": "Ahmed"})
+        extraction = realtime_extraction(name="Ahmed")
         mock_client = mock_cls.return_value
         mock_client.upsert_rows.side_effect = [
             Exception("DB write failed"),  # first call (completed) fails
@@ -92,7 +93,7 @@ class TestSyncToSupabaseBackground:
         ]
 
         # Should NOT raise — fallback handles it
-        sync_to_supabase_background("user-3", "cv.pdf", "application/pdf", raw_json, config)
+        sync_to_supabase_background("user-3", extraction, config)
 
         assert mock_client.upsert_rows.call_count == 2
         fallback_row = mock_client.upsert_rows.call_args_list[1][0][1][0]
@@ -100,10 +101,10 @@ class TestSyncToSupabaseBackground:
         assert "DB sync error" in fallback_row["parse_error"]
 
     def test_no_supabase_credentials_skips(self):
-        from realtime_extractor import sync_to_supabase_background
+        from cv_intelligence_worker.realtime_extractor import sync_to_supabase_background
         config = _make_config(supabase_url="", supabase_service_key="")
         # Should not raise, should return early
-        sync_to_supabase_background("user-4", "cv.pdf", "application/pdf", '{"name":"X"}', config)
+        sync_to_supabase_background("user-4", realtime_extraction(), config)
 
 
 # ===========================================================================
@@ -553,29 +554,29 @@ class TestVerifyApiKey:
     """verify_api_key: security gate for the FastAPI endpoint."""
 
     def test_valid_key_returns_key(self):
-        from realtime_extractor import verify_api_key
+        from cv_intelligence_worker.realtime_extractor import verify_api_key
         config = _make_config(api_key="secret-123")
 
-        with patch("realtime_extractor.WorkerConfig.from_env", return_value=config):
+        with patch("cv_intelligence_worker.realtime_extractor.WorkerConfig.from_env", return_value=config):
             result = verify_api_key("secret-123")
             assert result == "secret-123"
 
     def test_wrong_key_raises_403(self):
-        from realtime_extractor import verify_api_key
+        from cv_intelligence_worker.realtime_extractor import verify_api_key
         from fastapi import HTTPException
         config = _make_config(api_key="secret-123")
 
-        with patch("realtime_extractor.WorkerConfig.from_env", return_value=config):
+        with patch("cv_intelligence_worker.realtime_extractor.WorkerConfig.from_env", return_value=config):
             with pytest.raises(HTTPException) as exc_info:
                 verify_api_key("wrong-key")
             assert exc_info.value.status_code == 403
 
     def test_no_server_key_configured_raises_403(self):
-        from realtime_extractor import verify_api_key
+        from cv_intelligence_worker.realtime_extractor import verify_api_key
         from fastapi import HTTPException
         config = _make_config(api_key="")
 
-        with patch("realtime_extractor.WorkerConfig.from_env", return_value=config):
+        with patch("cv_intelligence_worker.realtime_extractor.WorkerConfig.from_env", return_value=config):
             with pytest.raises(HTTPException) as exc_info:
                 verify_api_key("any-key")
             assert exc_info.value.status_code == 403
