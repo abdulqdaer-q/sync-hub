@@ -12,12 +12,16 @@ from .candidate_normalization.experience import (
     infer_years_experience,
 )
 from .candidate_normalization.locations import normalize_location as normalize_location
+from .candidate_normalization.skills import (
+    canonical_skill as canonical_skill,
+    infer_additional_skills as infer_additional_skills,
+)
 from .candidate_normalization.titles import (
     count_work_like_experience_entries as count_work_like_experience_entries,
 )
 from .candidate_normalization.titles import is_title_like as _is_title_like
 from .schema import CandidateProfile
-from .utils import compact_whitespace, dedupe_keep_order, skill_slugify, slugify
+from .utils import compact_whitespace, dedupe_keep_order, slugify
 from .normalization_constants import (
     JOB_FAMILY_RULES,
     JOB_FAMILY_TAXONOMY_VERSION,
@@ -26,54 +30,7 @@ from .normalization_constants import (
     ROLE_TAG_ALIASES,
     SENIORITY_ALIASES,
     SENIOR_SIGNAL_RE,
-    SKILL_ALIASES,
-    SKILL_CONTACT_RE,
-    SKILL_DATE_RANGE_RE,
-    SKILL_DROP_EXACT,
-    SKILL_PHRASE_ALIASES,
-    SKILL_ROLE_ONLY_RE,
 )
-
-
-def canonical_skill(value: object) -> str:
-    if not isinstance(value, str):
-        return ""
-    normalized = compact_whitespace(value)
-    if not normalized:
-        return ""
-    normalized = re.sub(r"^[▪•●◦\-*]+\s*", "", normalized).strip(" ;:,")
-    normalized = re.sub(
-        r"^(?:good at|basic knowledge of|basic knowledge in|knowledge of|familiarity with|proficiency in|experience in)\s*:?\s+",
-        "",
-        normalized,
-        flags=re.IGNORECASE,
-    )
-    normalized = re.sub(r"^(?:backend|frontend)\s*:\s+", "", normalized, flags=re.IGNORECASE)
-    slug = skill_slugify(normalized)
-    if slug in SKILL_DROP_EXACT:
-        return ""
-    if SKILL_CONTACT_RE.search(normalized) and slug not in {"github", "gitlab"}:
-        return ""
-    if re.fullmatch(r"[\d\W_]+", normalized):
-        return ""
-    if re.fullmatch(r"(?:19|20)\d{2}(?:\s*[-/.]\s*\d{1,2})?\.?", normalized):
-        return ""
-    if SKILL_DATE_RANGE_RE.match(normalized):
-        return ""
-    if normalized.count("!") >= 2:
-        return ""
-    if slug in SKILL_ALIASES:
-        return SKILL_ALIASES[slug]
-    for pattern, canonical in SKILL_PHRASE_ALIASES:
-        if pattern.search(normalized):
-            return canonical
-    if SKILL_ROLE_ONLY_RE.match(normalized):
-        return ""
-    if len(normalized) > 90:
-        return ""
-    if normalized.isupper() and len(normalized) <= 5:
-        return normalized
-    return normalized
 
 
 def _normalize_role_tag(value: object) -> str:
@@ -176,27 +133,6 @@ def infer_role_tags(profile: CandidateProfile) -> list[str]:
         if score >= threshold
     ]
     return ranked or ["generalist"]
-
-
-def infer_additional_skills(profile: CandidateProfile) -> list[str]:
-    corpus = "\n".join(
-        compact_whitespace(part)
-        for part in (
-            profile.current_title,
-            profile.headline,
-            profile.summary,
-            profile.raw_text,
-            " ".join(entry.title for entry in profile.experience),
-            " ".join(project.name for project in profile.projects),
-        )
-        if isinstance(part, str) and part.strip()
-    ).lower()
-    inferred: list[str] = []
-    for alias, canonical in sorted(SKILL_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
-        expression = re.compile(rf"(^|[^a-z0-9+#.]){re.escape(alias.lower())}([^a-z0-9+#.]|$)")
-        if expression.search(corpus):
-            inferred.append(canonical)
-    return dedupe_keep_order(inferred)
 
 
 def _contains_any(haystack: str, needles: tuple[str, ...]) -> bool:
