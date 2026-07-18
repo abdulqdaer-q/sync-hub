@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cv_intelligence_worker.config import WorkerConfig
+from cv_intelligence_worker.llm import LLMResponseError
+from cv_intelligence_worker.llm_models import DraftValidationExtraction
 from cv_intelligence_worker.schema import (
     CandidateProfile,
     DocumentSource,
@@ -127,14 +129,14 @@ class TestValidateUserOverrides:
         assert is_valid is True
         assert reason == ""
 
-    @patch("cv_intelligence_worker.draft_validation._call_openai_compatible_json")
+    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
     def test_illogical_override_rejected(self, mock_llm):
         from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
         config = _make_config()
-        mock_llm.return_value = {
-            "is_valid": False,
-            "reason": "Drastic seniority change from Junior to CEO without evidence",
-        }
+        mock_llm.return_value = DraftValidationExtraction(
+            is_valid=False,
+            reason="Drastic seniority change from Junior to CEO without evidence",
+        )
         original = {"title": "Junior Developer"}
         overrides = {"title": "CEO"}
         is_valid, reason = validate_user_overrides_with_llm(original, overrides, config)
@@ -143,14 +145,14 @@ class TestValidateUserOverrides:
         assert "CEO" in reason or "Drastic" in reason
         mock_llm.assert_called_once()
 
-    @patch("cv_intelligence_worker.draft_validation._call_openai_compatible_json")
+    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
     def test_logical_override_accepted(self, mock_llm):
         from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
         config = _make_config()
-        mock_llm.return_value = {
-            "is_valid": True,
-            "reason": "Minor name correction, acceptable",
-        }
+        mock_llm.return_value = DraftValidationExtraction(
+            is_valid=True,
+            reason="Minor name correction, acceptable",
+        )
         original = {"name": "Ahmed"}
         overrides = {"name": "Ahmed K."}
         is_valid, reason = validate_user_overrides_with_llm(original, overrides, config)
@@ -158,33 +160,32 @@ class TestValidateUserOverrides:
         assert is_valid is True
         mock_llm.assert_called_once()
 
-    def test_disabled_provider_auto_accepts(self):
+    def test_disabled_provider_fails_closed(self):
         from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
-        config = _make_config(job_family_provider="disabled")
-        is_valid, reason = validate_user_overrides_with_llm(
-            {"title": "Intern"}, {"title": "President"}, config
-        )
-        assert is_valid is True
+        config = _make_config(extraction_provider="disabled")
+        with pytest.raises(LLMResponseError, match="not configured"):
+            validate_user_overrides_with_llm(
+                {"title": "Intern"}, {"title": "President"}, config
+            )
 
-    @patch("cv_intelligence_worker.draft_validation._call_openai_compatible_json")
+    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
     def test_llm_exception_rejects(self, mock_llm):
         from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
         config = _make_config()
-        mock_llm.side_effect = ConnectionError("LLM unreachable")
-        is_valid, reason = validate_user_overrides_with_llm(
-            {"name": "A"}, {"name": "B"}, config
-        )
-        assert is_valid is True
-        assert "LLM validation unavailable" in reason
+        mock_llm.side_effect = LLMResponseError("LLM unreachable")
+        with pytest.raises(LLMResponseError, match="LLM unreachable"):
+            validate_user_overrides_with_llm(
+                {"name": "A"}, {"name": "B"}, config
+            )
 
-    @patch("cv_intelligence_worker.draft_validation._call_ollama_json")
-    def test_ollama_provider_uses_ollama_caller(self, mock_ollama):
+    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+    def test_ollama_provider_uses_shared_client(self, mock_llm):
         from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
-        config = _make_config(job_family_provider="ollama", extraction_provider="ollama")
-        mock_ollama.return_value = {"is_valid": True, "reason": "OK"}
+        config = _make_config(extraction_provider="ollama")
+        mock_llm.return_value = DraftValidationExtraction(is_valid=True, reason="OK")
         is_valid, _ = validate_user_overrides_with_llm({"a": 1}, {"b": 2}, config)
         assert is_valid is True
-        mock_ollama.assert_called_once()
+        mock_llm.assert_called_once()
 
 
 # ===========================================================================
