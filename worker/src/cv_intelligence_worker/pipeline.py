@@ -9,11 +9,10 @@ from uuid import uuid4
 from .artifacts import ArtifactGenerator, LLMArtifactGenerator, comparison_key
 from .chunking import build_chunks
 from .config import WorkerConfig
-from .discovery import discover_documents
+from .documents import discover_documents, parse_document
 from .embeddings import Embedder, build_embedder
 from .extraction import extract_candidate_profile
 from .ingestion import SyncBatcher, build_processing_run
-from .parsing import parse_document
 from .schema import ArtifactBundle, CandidateProfile, DocumentSource, DocumentText, candidate_profile_from_dict
 from .store import LocalArtifactStore
 from .supabase import SupabaseClient

@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterable
 from uuid import uuid4
 
 from .config import WorkerConfig
-from .discovery import guess_mime_type, stable_document_id
+from .documents import guess_mime_type, stable_document_id
 from .gcs_storage import GcsJsonClient
 from .integrations.manatal import ManatalCandidate, ManatalClient, ManatalResumeDownload
 from .integrations.manatal.client import _redact_url_for_error

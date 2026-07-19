@@ -7,7 +7,7 @@ from uuid import uuid4
 
 
 from .config import WorkerConfig
-from .discovery import compute_sha256, guess_mime_type, stable_document_id
+from .documents import compute_sha256, guess_mime_type, stable_document_id
 from .pipeline import IngestionPipeline
 from .schema import DocumentSource
 from .supabase import SupabaseClient

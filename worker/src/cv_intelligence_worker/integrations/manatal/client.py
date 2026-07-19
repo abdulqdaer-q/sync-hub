@@ -10,7 +10,7 @@ from typing import Any, Iterable
 import httpx
 
 from ...config import WorkerConfig
-from ...discovery import compute_sha256, guess_mime_type
+from ...documents import compute_sha256, guess_mime_type
 from ...utils import format_error_message
 from .models import ManatalCandidate, ManatalResumeDownload
 

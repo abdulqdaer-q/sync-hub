@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from cv_intelligence_worker.config import WorkerConfig
-from cv_intelligence_worker.discovery import discover_documents
+from cv_intelligence_worker.documents import discover_documents
 from cv_intelligence_worker.pipeline import IngestionPipeline
 from cv_intelligence_worker.schema import DocumentSource
 from tests.test_helpers.profiles import FakeArtifactGenerator, FakeEmbedder, build_test_profile

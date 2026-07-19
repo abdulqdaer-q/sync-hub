@@ -18,9 +18,9 @@ from fastapi.security import APIKeyHeader
 
 from cv_intelligence_worker.candidate_extraction import build_candidate_prompt, build_realtime_candidate_system_prompt
 from cv_intelligence_worker.config import WorkerConfig
+from cv_intelligence_worker.documents import parse_document
 from cv_intelligence_worker.integrations.llm import LLMClient, LLMResponseError
 from cv_intelligence_worker.integrations.llm.models import RealtimeCandidateExtraction
-from cv_intelligence_worker.parsing import parse_document
 from cv_intelligence_worker.schema import DocumentSource, DocumentText
 from cv_intelligence_worker.supabase import SupabaseClient
 
