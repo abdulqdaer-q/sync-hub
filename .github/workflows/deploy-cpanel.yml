@@ -1,5 +1,4 @@
-# Build the static frontend and upload to cPanel over FTPS.
-#
+# Build the static frontend and upload to cPanel over FTPS (production / main).#
 # Required GitHub repository secrets:
 #   VITE_SUPABASE_URL
 #   VITE_SUPABASE_ANON_KEY
