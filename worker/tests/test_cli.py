@@ -10,7 +10,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from cv_intelligence_worker.cli import main
+from cv_intelligence_worker.cli import build_parser, main
+from cv_intelligence_worker.commands import CommandRegistry, command_registry
+from cv_intelligence_worker.config import WorkerConfig
 from cv_intelligence_worker.public_applications import PublicApplicationIngestionResult
 from cv_intelligence_worker.supabase import SupabaseSyncStats
 from tests.test_helpers.profiles import FakeArtifactGenerator, FakeEmbedder, build_test_profile
@@ -119,7 +121,7 @@ class CliTests(unittest.TestCase):
             ingestion_result=None,
         )
         buffer = io.StringIO()
-        with mock.patch("cv_intelligence_worker.cli.ManatalSync") as manatal_sync_cls:
+        with mock.patch("cv_intelligence_worker.commands.manatal.ManatalSync") as manatal_sync_cls:
             manatal_sync_cls.return_value.sync.return_value = result
             with redirect_stdout(buffer):
                 exit_code = main(["manatal-sync", "--tenant-id", "tenant-1", "--pending"])
@@ -138,11 +140,32 @@ class CliTests(unittest.TestCase):
             ingestion_result=None,
         )
         buffer = io.StringIO()
-        with mock.patch("cv_intelligence_worker.cli.ManatalSync") as manatal_sync_cls:
+        with mock.patch("cv_intelligence_worker.commands.manatal.ManatalSync") as manatal_sync_cls:
             manatal_sync_cls.return_value.sync.return_value = result
             with redirect_stdout(buffer):
                 exit_code = main(["manatal-sync", "--tenant-id", "tenant-1", "--candidate-id", "candidate-1"])
         self.assertEqual(2, exit_code)
+
+    def test_manatal_sync_preserves_empty_configured_tenant(self) -> None:
+        result = SimpleNamespace(
+            fetched_candidates=0,
+            queued_candidates=0,
+            skipped_candidates=0,
+            downloaded_resumes=0,
+            synced_resumes=0,
+            failures=[],
+            ingestion_result=None,
+        )
+        config = WorkerConfig(device_id="device-fallback", tenant_id="")
+
+        with mock.patch("cv_intelligence_worker.cli.WorkerConfig.from_env", return_value=config):
+            with mock.patch("cv_intelligence_worker.commands.manatal.ManatalSync") as manatal_sync_cls:
+                manatal_sync_cls.return_value.sync.return_value = result
+                with redirect_stdout(io.StringIO()):
+                    exit_code = main(["manatal-sync"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("", manatal_sync_cls.call_args.args[0].tenant_id)
 
     def test_public_applications_outputs_queue_summary(self) -> None:
         result = PublicApplicationIngestionResult(
@@ -154,7 +177,7 @@ class CliTests(unittest.TestCase):
         )
         buffer = io.StringIO()
         with mock.patch.dict(os.environ, {"SUPABASE_URL": "http://example.test", "SUPABASE_SERVICE_ROLE_KEY": "test-service-role"}):
-            with mock.patch("cv_intelligence_worker.cli.PublicApplicationIngestion") as ingestion_cls:
+            with mock.patch("cv_intelligence_worker.commands.queues.PublicApplicationIngestion") as ingestion_cls:
                 ingestion_cls.return_value.run.return_value = result
                 with redirect_stdout(buffer):
                     exit_code = main(["public-applications", "--limit", "2", "--no-progress"])
@@ -175,12 +198,44 @@ class CliTests(unittest.TestCase):
         )
         buffer = io.StringIO()
         with mock.patch.dict(os.environ, {"SUPABASE_URL": "http://example.test", "SUPABASE_SERVICE_ROLE_KEY": "test-service-role"}):
-            with mock.patch("cv_intelligence_worker.cli.PublicApplicationIngestion") as ingestion_cls:
+            with mock.patch("cv_intelligence_worker.commands.queues.PublicApplicationIngestion") as ingestion_cls:
                 ingestion_cls.return_value.run.return_value = result
                 with redirect_stdout(buffer):
                     exit_code = main(["public-applications", "--limit", "1", "--no-progress"])
         self.assertEqual(2, exit_code)
         self.assertEqual("bad cv", json.loads(buffer.getvalue())["failures"][0]["error"])
+
+    def test_process_drafts_command_dispatches_registered_handler(self) -> None:
+        buffer = io.StringIO()
+        with mock.patch("cv_intelligence_worker.commands.queues.DraftIngestion") as ingestion_cls:
+            ingestion_cls.return_value.run.return_value = 3
+            with redirect_stdout(buffer):
+                exit_code = main(["process-drafts", "--limit", "3", "--no-progress"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual({"processed": 3}, json.loads(buffer.getvalue()))
+        ingestion_cls.return_value.run.assert_called_once()
+        self.assertEqual(3, ingestion_cls.return_value.run.call_args.kwargs["limit"])
+
+    def test_parser_commands_match_registered_commands(self) -> None:
+        command_action = next(action for action in build_parser()._actions if action.dest == "command")
+
+        self.assertEqual(
+            {spec.name for spec in command_registry.specs()},
+            set(command_action.choices),
+        )
+
+    def test_registry_rejects_duplicate_command_names(self) -> None:
+        registry = CommandRegistry()
+        decorator = registry.command("example", help="Example", configure=lambda _parser: None)
+        decorator(lambda _args, _config: 0)
+
+        with self.assertRaisesRegex(ValueError, "command already registered"):
+            decorator(lambda _args, _config: 0)
+
+    def test_registry_rejects_blank_command_names(self) -> None:
+        with self.assertRaisesRegex(ValueError, "command name cannot be blank"):
+            CommandRegistry().command(" ", help="Invalid", configure=lambda _parser: None)
 
 
 if __name__ == "__main__":
