@@ -4,11 +4,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from ..artifacts import LocalArtifactStore
 from ..config import WorkerConfig
-from ..schema import ArtifactBundle
-from ..store import LocalArtifactStore
-from ..supabase import SupabaseClient
-from ..utils import format_error_message
+from ..integrations.supabase import SupabaseClient
+from ..domain.models import ArtifactBundle
+from ..core.errors import format_error_message
 
 
 @dataclass

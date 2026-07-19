@@ -72,15 +72,15 @@ TRANSITIONS: dict[tuple[str, str], dict[str, str]] = {
     },
     ("pending_validation", "parsing"): {
         "trigger": "DraftIngestion starts processing",
-        "source": "draft_ingestion.py:40-43",
+        "source": "workflows/draft_ingestion.py:40-43",
     },
     ("parsing", "published"): {
         "trigger": "DraftIngestion succeeds",
-        "source": "draft_ingestion.py:107-109",
+        "source": "workflows/draft_ingestion.py:107-109",
     },
     ("parsing", "failed"): {
         "trigger": "DraftIngestion fails",
-        "source": "draft_ingestion.py:114-117",
+        "source": "workflows/draft_ingestion.py:114-117",
     },
 }
 

@@ -221,7 +221,7 @@ class TestDraftIngestionE2E:
 
             # 4) Run DraftIngestion
             config = _make_config(tenant_id)
-            from cv_intelligence_worker.draft_ingestion import DraftIngestion
+            from cv_intelligence_worker.workflows import DraftIngestion
             processed = DraftIngestion(config).run(limit=10)
 
             assert processed >= 1, "Expected at least one draft processed"
@@ -291,7 +291,7 @@ class TestDraftIngestionE2E:
 
             # Run DraftIngestion
             config = _make_config(tenant_id)
-            from cv_intelligence_worker.draft_ingestion import DraftIngestion
+            from cv_intelligence_worker.workflows import DraftIngestion
             processed = DraftIngestion(config).run(limit=10)
 
             # Pipeline was never invoked for this draft (download failed → continue)

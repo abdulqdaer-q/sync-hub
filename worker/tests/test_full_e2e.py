@@ -285,7 +285,7 @@ class TestFullE2E:
                 progress_log.append(msg)
                 print(f"  [progress] {msg}")
 
-            from cv_intelligence_worker.draft_ingestion import DraftIngestion
+            from cv_intelligence_worker.workflows import DraftIngestion
             processed = DraftIngestion(config).run(limit=10, progress=on_progress)
 
             assert processed >= 1, "Expected at least one draft processed"

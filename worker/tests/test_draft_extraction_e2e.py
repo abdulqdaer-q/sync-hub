@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cv_intelligence_worker.config import WorkerConfig
-from cv_intelligence_worker.schema import (
+from cv_intelligence_worker.domain.models import (
     CandidateProfile,
     DocumentSource,
     DocumentText,
@@ -83,7 +83,7 @@ class TestDraftExtractionE2E:
     """extract_candidate_profile: is_draft merge + validate + classify flow."""
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_merge_preserves_original_when_no_overrides(
         self, mock_validate: MagicMock, mock_classify: MagicMock
     ) -> None:
@@ -105,7 +105,7 @@ class TestDraftExtractionE2E:
         mock_validate.assert_called_once_with(FULL_ORIGINAL, overrides, config)
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_merge_applies_scalar_overrides(
         self, mock_validate: MagicMock, mock_classify: MagicMock
     ) -> None:
@@ -127,7 +127,7 @@ class TestDraftExtractionE2E:
         mock_validate.assert_called_once_with(FULL_ORIGINAL, overrides, config)
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_validation_rejection_raises_value_error(
         self, mock_validate: MagicMock, mock_classify: MagicMock
     ) -> None:
@@ -148,7 +148,7 @@ class TestDraftExtractionE2E:
         mock_classify.assert_not_called()
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_empty_draft_data_raises_key_error(
         self, mock_validate: MagicMock, mock_classify: MagicMock
     ) -> None:
@@ -163,7 +163,7 @@ class TestDraftExtractionE2E:
             extract_candidate_profile(source, _make_document_text(), config)
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_validated_draft_passes_through_classify(
         self, mock_validate: MagicMock, mock_classify: MagicMock
     ) -> None:

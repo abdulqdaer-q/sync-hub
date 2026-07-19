@@ -50,7 +50,7 @@ def test_installed_worker_processes_start_outside_repository(tmp_path) -> None:
         [
             sys.executable,
             "-c",
-            "from cv_intelligence_worker.draft_validation import build_draft_validation_system_prompt; "
+            "from cv_intelligence_worker.candidate_extraction import build_draft_validation_system_prompt; "
             "from cv_intelligence_worker.prompts import load_prompt_template; "
             "from cv_intelligence_worker.skill_cleanup import SkillClassifier, build_plan; "
             "assert 'Output schema:' not in build_draft_validation_system_prompt(); "

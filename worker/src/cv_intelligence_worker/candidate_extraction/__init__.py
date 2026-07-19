@@ -1,3 +1,4 @@
+from .draft_validation import build_draft_validation_system_prompt, validate_user_overrides_with_llm
 from .inputs import build_candidate_prompt
 from .mapping import candidate_id_for_profile, profile_from_extraction, string_value
 from .prompts import (
@@ -12,6 +13,7 @@ from .service import classify_job_family_with_llm, extract_candidate_profile
 __all__ = [
     "build_candidate_prompt",
     "build_candidate_system_prompt",
+    "build_draft_validation_system_prompt",
     "build_job_family_prompt",
     "build_job_family_system_prompt",
     "build_realtime_candidate_system_prompt",
@@ -21,4 +23,5 @@ __all__ = [
     "missing_profile_fields",
     "profile_from_extraction",
     "string_value",
+    "validate_user_overrides_with_llm",
 ]
