@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   encodeCandidateListRequest,
+  parseCandidateDossierResponse,
   parseCandidateListResponse,
+  parseOriginalDocumentUrl,
 } from '@/features/candidates/api/candidatesApi'
-import { candidateListItemFixture, candidateListResponseFixture } from '@/test/fixtures/candidates'
+import {
+  candidateDossierResponseFixture,
+  candidateListItemFixture,
+  candidateListResponseFixture,
+} from '@/test/fixtures/candidates'
 
 describe('candidate-list compatibility adapter', () => {
   it('parses the one backend-verified camelCase response shape', () => {
@@ -90,5 +96,84 @@ describe('candidate-list compatibility adapter', () => {
       updated_to: null,
       group_by: 'status',
     })
+  })
+})
+
+describe('candidate-dossier compatibility adapter', () => {
+  it('maps the worker-verified snake_case profile into the canonical dossier', () => {
+    expect(
+      parseCandidateDossierResponse(
+        candidateDossierResponseFixture,
+        candidateListItemFixture.candidateId,
+      ),
+    ).toMatchObject({
+      candidateId: candidateListItemFixture.candidateId,
+      name: 'Maya Hassan',
+      currentTitle: 'Senior Platform Engineer',
+      yearsExperience: 9,
+      skills: ['TypeScript', 'Kubernetes', 'PostgreSQL'],
+      timeline: [
+        {
+          employer: 'Acme Cloud',
+          role: 'Senior Platform Engineer',
+          start: '2022-01',
+          end: null,
+        },
+      ],
+      evidence: [
+        {
+          id: 'chunk-1',
+          chunkType: 'experience',
+          excerpt: 'Led the internal platform and reliability roadmap for six product teams.',
+        },
+      ],
+      jobReadinessLevel: 'L4',
+      originalDocumentAvailable: true,
+    })
+  })
+
+  it('rejects speculative title and experience aliases', () => {
+    expect(() =>
+      parseCandidateDossierResponse(
+        {
+          ...candidateDossierResponseFixture,
+          candidate: {
+            ...candidateDossierResponseFixture.candidate,
+            profile_json: {
+              ...candidateDossierResponseFixture.candidate.profile_json,
+              currentTitle: 'Speculative title',
+              yearsExperience: 99,
+            },
+          },
+        },
+        candidateListItemFixture.candidateId,
+      ),
+    ).toThrow()
+  })
+
+  it('rejects conflicting verified years-experience sources', () => {
+    expect(() =>
+      parseCandidateDossierResponse(
+        {
+          ...candidateDossierResponseFixture,
+          profile: {
+            ...candidateDossierResponseFixture.profile,
+            years_of_experience: 12,
+          },
+        },
+        candidateListItemFixture.candidateId,
+      ),
+    ).toThrow('Conflicting years of experience')
+  })
+
+  it('reduces the backend-owned signed-document response to a URL string', () => {
+    expect(
+      parseOriginalDocumentUrl({
+        url: 'https://storage.example.com/signed/candidate.pdf',
+        source: 'gcs_signed_url',
+        expires_at: '2026-07-20T12:15:00.000Z',
+        original_filename: 'maya-hassan.pdf',
+      }),
+    ).toBe('https://storage.example.com/signed/candidate.pdf')
   })
 })

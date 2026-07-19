@@ -65,7 +65,10 @@ const InsightsPage = lazyPlaceholder('Insights')
 const ChatPage = lazyPlaceholder('SYNC AI')
 const ComparePage = lazyPlaceholder('Intelligent comparison')
 const SettingsPage = lazyPlaceholder('Account settings')
-const DossierPage = lazyPlaceholder('Candidate dossier')
+const DossierPage = lazyNamed(
+  () => import('@/features/candidates/pages/CandidateDossierPage'),
+  'CandidateDossierPage',
+)
 const AdminDashboardPage = lazyPlaceholder('Platform dashboard')
 const AdminAccountsPage = lazyPlaceholder('Account provisioning')
 const AdminSettingsPage = lazyPlaceholder('Runtime settings')

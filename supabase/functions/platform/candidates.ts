@@ -21,7 +21,7 @@ export async function getCandidateDetail(
     supabase
       .from("candidate_dossier_v1")
       .select(
-        "profile_json, timeline_json, skill_matrix_json, profile_attributes, raw_text, confidence, missing_fields, parse_warnings",
+        "profile_json, timeline_json, skill_matrix_json, confidence, missing_fields, parse_warnings, location, summary_short, long_summary",
       )
       .eq("candidate_id", candidateId)
       .maybeSingle(),
@@ -75,7 +75,7 @@ export async function getCandidateDetail(
     throw dossier.error;
   }
   if (!dossier.data) {
-    throw new Error(`Candidate ${candidateId} was not found.`);
+    return null;
   }
   if (chunks.error) {
     throw chunks.error;
@@ -106,7 +106,6 @@ export async function getCandidateDetail(
     candidate: dossier.data,
     chunks: chunks.data ?? [],
     profile: profile ?? null,
-    profileAttributes: profile?.profile_attributes ?? null,
     manatalCandidateId,
   };
 }

@@ -142,6 +142,13 @@ Deno.serve(async (req) => {
           asString(body.candidate_id) ?? "",
         );
 
+        if (!result) {
+          return jsonResponse(404, {
+            error: "not_found",
+            details: "Candidate was not found.",
+          });
+        }
+
         return jsonResponse(200, {
           candidate: result.candidate,
           chunks: result.chunks,

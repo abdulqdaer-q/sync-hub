@@ -10,18 +10,26 @@ from the candidate shortlist covered here (`shortlist_items` etc.) — covered b
 
 ---
 
-## ⚠️ Top finding: `candidate_detail`'s `candidate` object is missing most fields `mapRemoteCandidate` reads
+## `candidate_detail` — verified and repaired by ticket 09
 
-**This needs backend verification before any adapter ships — do not assume the current frontend mapper's
-field access is valid wire behavior.**
+Ticket 09 verified the durable profile contract against the worker producer and repaired the Edge Function
+query before its adapter shipped. The canonical dossier deliberately reads identity, title, experience,
+skills, education, projects, languages, certifications, and summary from the worker-owned `profile_json`;
+it does not reproduce the old mapper's speculative reads from unselected dossier-row columns.
 
-`supabase/functions/platform/candidates.ts:16-35` (`getCandidateDetail`) queries `candidate_dossier_v1` with:
+Before ticket 09, `getCandidateDetail` queried `candidate_dossier_v1` with:
 
 ```
 .select("profile_json, timeline_json, skill_matrix_json, profile_attributes, raw_text, confidence, missing_fields, parse_warnings")
 ```
 
-That result becomes `payload.candidate` (`supabase/functions/platform/index.ts:145`, `result.candidate`).
+`profile_attributes` and `raw_text` are not columns on `candidate_dossier_v1`, so that request failed before
+it could return any dossier. Ticket 09 removed both nonexistent columns and added an explicit 404 response
+for a missing candidate. The successful `candidate` payload now contains `profile_json`,
+`timeline_json`, `skill_matrix_json`, `confidence`, `missing_fields`, `parse_warnings`, `location`,
+`summary_short`, and `long_summary`.
+
+That result becomes `payload.candidate` (`supabase/functions/platform/index.ts`, `result.candidate`).
 But `frontend/src/lib/platformApi.ts:741-751` (`getCandidate`) passes that same narrow object straight into
 `mapRemoteCandidate(candidateRow, ...)` as `row`, and `mapRemoteCandidate`
 (`frontend/src/features/candidates/apiMappers.ts:172-650`) reads `row.candidate_id`, `row.name`,
@@ -42,7 +50,7 @@ always `{}`.
 Also, `payload.candidate ?? payload.dossier` at `platformApi.ts:741-743`: the backend response only ever
 has a `candidate` key (`index.ts:145`), never `dossier` — the `?? payload.dossier` half is speculative/dead.
 
-Separately, the backend *does* build a rich, already-snake_case-normalized `profile` object
+Separately, the backend _does_ build a rich, already-snake_case-normalized `profile` object
 (`index.ts:149-186`: `job_readiness_level`, `preferred_work_mode`, `years_of_experience`, `primary_skills`,
 `notice_period`, `english_proficiency`, `expected_salary`, `is_pre_screened`, `sync_affiliation`,
 `internal_vetting_notes`, `current_location_city`, `willingness_to_relocate`, `external_profiles`,
@@ -54,10 +62,9 @@ data today** — flag this to the backend/product owner rather than silently wir
 dropping it; the new adapter should decide deliberately which of the two `profile` shapes (backend's
 normalized object vs. the dossier row's raw JSONB) is canonical, not silently keep both like today.
 
-**Recommendation for the ticket that builds `features/candidates/api/`:** capture a real `candidate_detail`
-response fixture first and diff it against both code paths above before writing the wire schema — this
-audit found the mismatch from static analysis but a live payload is the only way to be sure which fields
-actually arrive.
+The producer contract is verified at `worker/src/cv_intelligence_worker/schema.py` (`CandidateProfile`) and
+`worker/src/cv_intelligence_worker/integrations/supabase/rows.py` (`profile_payload` and `timeline_json`).
+It emits snake_case only. The ticket-09 fixture mirrors that producer and the repaired Edge response.
 
 ---
 
@@ -74,6 +81,7 @@ match_rate, subscores, matched_filters, summary_short, evidence, meta`), then ev
 Frontend mapper: `mapRemoteSearch` (`frontend/src/features/search/apiMappers.ts:143-193`).
 
 ### `results[].candidateId`, `.name`, `.currentTitle`, `.location`, `.yearsExperience`, `.seniority`, `.primaryRole`, `.shortSummary`/`.matchNarrative` (from `summary_short`)
+
 - **Accepted wire names**: single wire name each — `candidate_id`, `name`, `current_title`, `location`,
   `years_experience`, `seniority`, `primary_role`, `summary_short`. No camelCase variants are read by the
   mapper for these fields.
@@ -87,10 +95,11 @@ Frontend mapper: `mapRemoteSearch` (`frontend/src/features/search/apiMappers.ts:
 - **Retirement notes**: none — this is the canonical, currently-correct shape.
 
 ### `results[].matchScore` / `.backendMatchRate` (from `match_rate`)
+
 - **Accepted wire names**: `match_rate` only, via `backendMatchRate()` helper
   (`apiMappers.ts:135-141`), which falls back to a client-side `calibrateBackendMatchRate`/
   `normalizeBackendMatchScore` recompute if `match_rate` is missing/non-finite.
-- **Evidence**: `_shared/searchScoring.ts:242-260` (`attachMatchRates`) guarantees `match_rate` is *always*
+- **Evidence**: `_shared/searchScoring.ts:242-260` (`attachMatchRates`) guarantees `match_rate` is _always_
   present and valid (0-100) on every result row, for both search paths, before the HTTP response is built.
   **The client-side recompute fallback is dead code under the current backend** — not a real alias, just
   defensive duplication of business logic that now lives server-side. Recommend the new adapter treat
@@ -101,6 +110,7 @@ Frontend mapper: `mapRemoteSearch` (`frontend/src/features/search/apiMappers.ts:
 - **Retirement notes**: drop the recompute fallback logic when this feature is rebuilt.
 
 ### `results[].backendScoreRaw` (from `score_raw ?? score`)
+
 - **Accepted wire names**: `score_raw` (precedence), `score` (fallback).
 - **Evidence**: both fields are always present post-`attachMatchRates` (`searchScoring.ts:253-257` sets both
   unconditionally). The `?? score` fallback is redundant/defensive, not a real legacy-shape alias — backend
@@ -108,19 +118,22 @@ Frontend mapper: `mapRemoteSearch` (`frontend/src/features/search/apiMappers.ts:
 - **Retirement notes**: safe to require `score_raw` only in the canonical schema.
 
 ### `results[].topSkills` (from `matched_filters.matched_skills`)
+
 - **Accepted wire name**: `matched_filters.matched_skills` only.
 - **Evidence**: backend field `matched_filters: { required_skills, matched_skills, required_companies,
-  matched_companies, role, seniority, min_years_experience, location }` — confirmed
+matched_companies, role, seniority, min_years_experience, location }` — confirmed
   `_shared/searchScoring.ts:751-760`.
 - **Required/nullable/optional**: `matched_filters` always present (object), `matched_skills` always an
   array (possibly empty).
 
 ### `results[].matchSignals.{semantic,skill,experience}` (from `subscores.*`)
+
 - **Accepted wire names**: `subscores.semantic_similarity`, `subscores.skill_match`,
   `subscores.experience_match` — single names, confirmed present in both search paths
   (`searchScoring.ts:716-737`, migration `20260501010000...sql:82` `subscores jsonb`).
 
 ### `meta.rankVersion` (from `meta.rank_version ?? "v2-rate"`) and `meta.intentSource` (from `meta.intent_source`)
+
 - **Accepted wire names**: `rank_version`, `intent_source` — single names.
 - **Evidence**: both branches of `search/index.ts` (lines 184-196 and 261-270) always include
   `rank_version` and `intent_source` in `meta`. The `?? "v2-rate"` default in the frontend mapper is
@@ -129,12 +142,14 @@ Frontend mapper: `mapRemoteSearch` (`frontend/src/features/search/apiMappers.ts:
   payload.
 
 ### `meta.intent` (from `meta.intent`, mapped via `mapSearchIntentFilters`)
+
 - **Accepted wire names**: `intent.role`, `intent.seniority`, `intent.min_years_experience`,
   `intent.location`, `intent.skills`, `intent.companies` — all single snake_case names, confirmed present in
   `search/index.ts:187-188/265` (`intent: filters`, where `filters` is `resolveSearchFilters(...)`'s
   output — snake_case per its call site at `search/index.ts:142-154`).
 
 ### `nextCursor` (from `next_cursor`)
+
 - **Accepted wire name**: `next_cursor` only, typed `number | null`. Confirmed
   `search/index.ts:183/260`.
 
@@ -165,6 +180,7 @@ Backend: `supabase/functions/_shared/platformOps.ts:105-156` (`getSearchFilterOp
 `platform` aggregator (`supabase/functions/platform/index.ts:93-97`).
 
 ### `skills`, `companies`, `seniority`, `locations`
+
 - **Accepted wire names**: single names (`skills`, `companies`, `seniority`, `locations`), each `string[]`.
 - **Evidence**: `_shared/platformOps.ts:132-156` returns exactly this shape; frontend
   `fetchSearchFacetRows` (`platformApi.ts:163-205`) reads `payload.skills`, `payload.companies`,
@@ -189,17 +205,18 @@ and top-level `{items, itemsTotalCount, pageLimit, pageOffset, groupBy, groups: 
 filterOptions: {statuses, roles, sources, locations}}` (migration lines 193-243).
 
 ### Every field in `mapRemoteCandidateListItem` (`frontend/src/features/candidates/apiMappers.ts:652-684`) and `mapRemoteCandidateListResponse` (`apiMappers.ts:686-723`)
+
 - **Canonical fields**: `tenantId`, `candidateId`, `name`, `email`, `location`, `primaryRole`, `appliedRole`,
   `stage`, `stageKey`, `source`, `seniority`, `updatedAt`, `groupKey`, `groupLabel` (items); `items`,
   `itemsTotalCount`, `pageLimit`, `pageOffset`, `groupBy`, `groups`, `filterOptions` (response).
-- **Accepted wire names in the current frontend mapper**: each field checks camelCase *or* a snake_case
+- **Accepted wire names in the current frontend mapper**: each field checks camelCase _or_ a snake_case
   fallback, e.g. `row.tenantId ?? row.tenant_id`, `row.candidateId ?? row.candidate_id`, `row.primaryRole ??
-  row.primary_role ?? row.current_title`, `row.appliedRole` / `row.applied_role`, `row.stageKey ??
-  row.stage_key ?? row.stage`, `row.updatedAt ?? row.updated_at`, `row.groupKey ?? row.group_key`,
+row.primary_role ?? row.current_title`, `row.appliedRole` / `row.applied_role`, `row.stageKey ??
+row.stage_key ?? row.stage`, `row.updatedAt ?? row.updated_at`, `row.groupKey ?? row.group_key`,
   `row.groupLabel ?? row.group_label`; and at the response level `payload.groupBy ?? payload.group_by`,
   `payload.filterOptions ?? payload.filter_options`, `payload.items ?? payload.data ?? payload.rows`,
   `payload.itemsTotalCount ?? payload.items_total_count ?? payload.total`, `payload.pageLimit ??
-  payload.page_limit`, `payload.pageOffset ?? payload.page_offset`.
+payload.page_limit`, `payload.pageOffset ?? payload.page_offset`.
 - **Evidence**: the RPC (migration source, ground truth for this endpoint) **only ever emits the camelCase
   form**. None of the snake_case variants (`tenant_id`, `candidate_id`, `primary_role`, `applied_role`,
   `stage_key`, `updated_at`, `group_key`, `group_label`, `group_by`, `filter_options`, `data`, `rows`,
@@ -223,35 +240,35 @@ See the ⚠️ top finding above for the major structural gap. Additional specif
 (`{...asRecord(row.profile_json), ...asRecord(row.profile_attributes), ...asRecord(row.metadata)}` —
 **note `row.metadata` is confirmed always empty**, see top finding):
 
-**Caveat for this whole section**: `profile_json`/`profile_attributes` are free-form JSONB written by the
-CV-parsing pipeline (not documented/typed Edge Function output), so unlike the REST-shaped endpoints above,
-these field-name variants can't be confirmed against Deno source in this repo — they'd need either the
-parser's own code (out of this audit's scope) or a captured real `profile_json` sample. Treat every alias
-below as **unverified against a real payload**, not confirmed-dead and not confirmed-legitimate.
+**Ticket-09 verification:** the current worker persists one strict snake_case `profile_json` shape. The v2
+adapter accepts that shape only. The old mapper's camelCase and legacy-title aliases are speculative and are
+rejected by fixture tests. `profile.years_of_experience` is a second, backend-verified enriched column; when
+it is non-null and conflicts with `profile_json.years_experience`, parsing fails.
 
-| Canonical field | Accepted wire names (precedence) | Notes |
-|---|---|---|
-| `currentTitle` | `profile.current_title`, `profile.currentTitle`, `profile.job_title`, `profile.title`, `row.current_title` (dead, see top finding) | default `"Candidate"` if all absent |
-| `headline` | `profile.headline`, `profile.summary`, `profile.short_summary`, `profile.current_title`, `row.headline`/`row.short_summary`/`row.summary_short` (dead) | default `"Candidate"` |
-| `yearsExperience` | `profile.years_experience`, `profile.yearsExperience`, `profile.total_experience`, `row.years_experience` (dead) | default `0` via `toNumber` |
-| `yearsOfExperience` (separate canonical field, duplicate of above) | `profile.years_of_experience`, `profile.yearsExperience`, `row.years_experience` (dead) | note: two canonical fields (`yearsExperience` and `yearsOfExperience`) exist side by side in `CandidateDetail` today for what looks like the same concept — flag to the ticket that owns this schema, may be collapsible |
-| `seniority` | `row.seniority` (dead), `profile.seniority`, `profile.level`, `profile.experience_level` | passed through `normalizeSeniority()` (buckets to Senior/Mid/Junior/Professional) — this bucketing is presentation logic, not wire parsing |
-| `topSkills`/`primarySkills` | `profile.skills`, `profile.primary_skills`, `profile.technical_skills`, `profile.core_skills`, `profile.skill_matrix`, fallback `row.top_skills` (dead) | `primarySkills` separately tries `profile.primary_skills ?? profile.primarySkills ?? profile.skills` |
-| `employmentTypePreference` | `profile.employment_type_preference`, `profile.employmentTypePreference` | |
-| `externalLinks`/`externalProfiles` | `row.external_links` (dead), `profile.external_links`, `profile.externalLinks` | then parsed into linkedin/github/portfolio by URL hostname matching (presentation logic) |
-| `englishProficiency` | `profile.english_proficiency`, `profile.english`, `profile.language_level` | |
-| `currentLocationCity` | `profile.current_location_city`, `profile.currentLocationCity`, `profile.location_city`, `profile.city`, fallback `row.location` (dead) | |
-| `lastInteractionDate` | `profile.last_interaction_date`, `profile.lastInteractionDate` | |
-| `aiProfileSummary` | `profile.ai_profile_summary`, `profile.aiProfileSummary` | |
-| `certifications` | `profile.certifications`, `profile.certificates`, `profile.licenses` | |
-| `languages` | `profile.languages`, `profile.language` | |
-| `expectedSalary` | `profile.expected_salary.amount`, `.currency` (default `"USD"`) | |
-| `matchScore`/`backendMatchRate`/`backendScoreRaw` | `rowMeta.match_score ?? rowMeta.match_rate ?? rowMeta.score_raw ?? profile.match_score` | **`rowMeta` is cast from `row` (the same under-selected dossier row, see top finding) — these fields are not in the 8-column select list either, likely always `undefined` today** |
+| Canonical field                                                    | Accepted wire names (precedence)                                                                                                                        | Notes                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `currentTitle`                                                     | `profile_json.current_title` only                                                                                                                       | Worker-verified; camelCase/`job_title`/`title` aliases are rejected                                                                                                                                                      |
+| `headline`                                                         | `profile.headline`, `profile.summary`, `profile.short_summary`, `profile.current_title`, `row.headline`/`row.short_summary`/`row.summary_short` (dead)  | default `"Candidate"`                                                                                                                                                                                                    |
+| `yearsExperience`                                                  | `profile_json.years_experience`; verified cross-check `profile.years_of_experience`                                                                     | Both are exact numbers; conflict fails; no default/coercion                                                                                                                                                              |
+| `yearsOfExperience` (separate canonical field, duplicate of above) | `profile.years_of_experience`, `profile.yearsExperience`, `row.years_experience` (dead)                                                                 | note: two canonical fields (`yearsExperience` and `yearsOfExperience`) exist side by side in `CandidateDetail` today for what looks like the same concept — flag to the ticket that owns this schema, may be collapsible |
+| `seniority`                                                        | `row.seniority` (dead), `profile.seniority`, `profile.level`, `profile.experience_level`                                                                | passed through `normalizeSeniority()` (buckets to Senior/Mid/Junior/Professional) — this bucketing is presentation logic, not wire parsing                                                                               |
+| `topSkills`/`primarySkills`                                        | `profile.skills`, `profile.primary_skills`, `profile.technical_skills`, `profile.core_skills`, `profile.skill_matrix`, fallback `row.top_skills` (dead) | `primarySkills` separately tries `profile.primary_skills ?? profile.primarySkills ?? profile.skills`                                                                                                                     |
+| `employmentTypePreference`                                         | `profile.employment_type_preference`, `profile.employmentTypePreference`                                                                                |                                                                                                                                                                                                                          |
+| `externalLinks`/`externalProfiles`                                 | `row.external_links` (dead), `profile.external_links`, `profile.externalLinks`                                                                          | then parsed into linkedin/github/portfolio by URL hostname matching (presentation logic)                                                                                                                                 |
+| `englishProficiency`                                               | `profile.english_proficiency`, `profile.english`, `profile.language_level`                                                                              |                                                                                                                                                                                                                          |
+| `currentLocationCity`                                              | `profile.current_location_city`, `profile.currentLocationCity`, `profile.location_city`, `profile.city`, fallback `row.location` (dead)                 |                                                                                                                                                                                                                          |
+| `lastInteractionDate`                                              | `profile.last_interaction_date`, `profile.lastInteractionDate`                                                                                          |                                                                                                                                                                                                                          |
+| `aiProfileSummary`                                                 | `profile.ai_profile_summary`, `profile.aiProfileSummary`                                                                                                |                                                                                                                                                                                                                          |
+| `certifications`                                                   | `profile.certifications`, `profile.certificates`, `profile.licenses`                                                                                    |                                                                                                                                                                                                                          |
+| `languages`                                                        | `profile.languages`, `profile.language`                                                                                                                 |                                                                                                                                                                                                                          |
+| `expectedSalary`                                                   | `profile.expected_salary.amount`, `.currency` (default `"USD"`)                                                                                         |                                                                                                                                                                                                                          |
+| `matchScore`/`backendMatchRate`/`backendScoreRaw`                  | `rowMeta.match_score ?? rowMeta.match_rate ?? rowMeta.score_raw ?? profile.match_score`                                                                 | **`rowMeta` is cast from `row` (the same under-selected dossier row, see top finding) — these fields are not in the 8-column select list either, likely always `undefined` today**                                       |
 
 ### BANNED PATTERN found: `role_tags` — no default-injection bug found, but flag `stage: "Indexed"` and `matchSignals.semantic: 0` as hardcoded, not wire-derived
+
 - `apiMappers.ts:470` hardcodes `stage: "Indexed"` unconditionally (not a parsing default — always this
   literal, regardless of response). `apiMappers.ts:443` hardcodes `matchSignals.semantic: 0` unconditionally
-  for candidate-detail views (search results *do* get a real `semantic` value from `subscores`, but
+  for candidate-detail views (search results _do_ get a real `semantic` value from `subscores`, but
   candidate-detail never has subscores available, so this is a structural "not applicable here" value, not
   a defaulted-away-a-real-value bug). Neither is the `role → "owner"` class of bug, but both should be
   modeled explicitly as constants in the canonical schema/presentation layer, not disguised as parsed wire
@@ -271,6 +288,7 @@ upsert payload (lines 91-111) both use a single, consistent snake_case field set
 `search_snapshot`, `notes`, `created_at`, `updated_at`.
 
 ### All fields in `mapRemoteShortlistItem` (`search/apiMappers.ts:14-35`)
+
 - **Accepted wire names**: single snake_case name per field, exact match to `shortlistSelect` — **no
   aliasing at all**. Confirmed clean 1:1 mapping.
 - **Required/nullable/optional**: matches DB nullability as returned; mapper applies UI-only defaults
@@ -286,10 +304,11 @@ upsert payload (lines 91-111) both use a single, consistent snake_case field set
 Backend: `supabase/functions/compare/index.ts`.
 
 ### Response shape is a **confirmed real dual-shape**, not speculative
+
 - **Cached path** (lines 38-45): `{ source: "cached_artifact", artifact_key, artifact_version, comparison:
-  <comparison_json column> }` — the comparison data is **nested under `comparison`**.
+<comparison_json column> }` — the comparison data is **nested under `comparison`**.
 - **Fresh-compute path** (lines 103-111): `{ source: "deterministic_fallback", overlap,
-  recommended_candidate_id, items: [...], meta: { compared_count } }` — **flat, top-level**.
+recommended_candidate_id, items: [...], meta: { compared_count } }` — **flat, top-level**.
 - The frontend's `mapRemoteComparison` (`platformApi.ts:350-396`) handling —
   `nested = asRecord(payload.comparison); normalized = Object.keys(nested).length ? nested : payload;` —
   is a **legitimate, backend-verified encoding of this real dual shape**, not a speculative alias. Keep this
@@ -300,24 +319,29 @@ Backend: `supabase/functions/compare/index.ts`.
   in the files reviewed here).
 
 ### `source` (top-level)
+
 - **Accepted wire names**: `source` (top-level) or `normalized.source` — confirmed the backend always puts
   `source` at the top level in both paths (line 40, line 104); the `normalized.source` fallback path is for
   the (unverified) cached-artifact-nested case and is plausible but not directly confirmed.
 
 ### `recommendedCandidateId`
+
 - **Accepted wire names**: `recommended_candidate_id` only. **`recommendedCandidateId` (camelCase) is
   confirmed speculative** — never emitted (`index.ts:106`).
 
 ### `items[].candidateId`, `.currentTitle`, `.yearsExperience`, `.matchedSkills`
+
 - **Accepted wire names**: `candidate_id`, `current_title`, `years_experience`, `matched_skills` only
   (`index.ts:84-98`). **All camelCase variants (`candidateId`, `currentTitle`, `yearsExperience`,
   `matchedSkills`) read by `mapRemoteComparison` (`platformApi.ts:369-380`) are confirmed speculative/dead.**
 
 ### `meta.comparedCount`
+
 - **Accepted wire names**: `meta.compared_count` only (`index.ts:109`). `meta.comparedCount` (camelCase)
   is confirmed speculative.
 
 ### Fields with no aliasing (already clean, single wire name)
+
 `tenant_id`, `name`, `seniority`, `score`, `gaps`, `strengths`, `risks`, `summary` (`summary` itself has a
 real, backend-confirmed alias: `row.short_summary ?? row.long_summary ?? ""`, `index.ts:98` — genuine
 dual-source, not speculative).
@@ -340,7 +364,7 @@ has never emitted them (confirmed from current source, not just "not found").
 - **`toNumber(value, fallback = 0)`** — the highest-risk helper: any non-finite value (including `undefined`,
   `NaN`, objects, `null`) silently becomes `0` (or the given fallback) with no way to distinguish
   "genuinely zero" from "missing/malformed." This is the general form of the banned defaulting pattern —
-  every use of `toNumber` on a field that should be *required* (e.g. `yearsExperience`, `matchRate` in
+  every use of `toNumber` on a field that should be _required_ (e.g. `yearsExperience`, `matchRate` in
   places where the backend guarantees presence) must become `z.number()` (fails loud), not
   `z.number().catch(0)` or similar.
 - **`nullableString`** — not used in this slice's reviewed files (candidates/search); no findings.
