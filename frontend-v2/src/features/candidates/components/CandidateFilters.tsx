@@ -123,6 +123,28 @@ export function CandidateFilters({ params, options, onChange, onClear }: Candida
           </select>
         </label>
 
+        <label htmlFor="candidates-updated-from">
+          <span className="sr-only">Updated from</span>
+          <Input
+            id="candidates-updated-from"
+            type="date"
+            value={params.updatedFrom}
+            onChange={(event) => onChange({ updatedFrom: event.target.value })}
+            aria-label="Updated from"
+          />
+        </label>
+
+        <label htmlFor="candidates-updated-to">
+          <span className="sr-only">Updated to</span>
+          <Input
+            id="candidates-updated-to"
+            type="date"
+            value={params.updatedTo}
+            onChange={(event) => onChange({ updatedTo: event.target.value })}
+            aria-label="Updated to"
+          />
+        </label>
+
         <label>
           <span className="sr-only">Group candidates by</span>
           <select
@@ -146,29 +168,6 @@ export function CandidateFilters({ params, options, onChange, onClear }: Candida
             <option value="role">Group by role</option>
             <option value="source">Group by source</option>
             <option value="location">Group by location</option>
-          </select>
-        </label>
-
-        <label>
-          <span className="sr-only">Sort candidates</span>
-          <select
-            className={selectClassName}
-            value={`${params.sort}:${params.direction}`}
-            onChange={(event) => {
-              const [sort, direction] = event.target.value.split(':')
-              if (
-                (sort === 'updatedAt' || sort === 'name') &&
-                (direction === 'asc' || direction === 'desc')
-              ) {
-                onChange({ sort, direction })
-              }
-            }}
-            aria-label="Sort candidates"
-          >
-            <option value="updatedAt:desc">Recently updated</option>
-            <option value="updatedAt:asc">Oldest updated</option>
-            <option value="name:asc">Name A–Z</option>
-            <option value="name:desc">Name Z–A</option>
           </select>
         </label>
       </CardContent>

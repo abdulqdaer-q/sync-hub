@@ -32,7 +32,13 @@ export function CandidatesPage() {
   const query = useCandidateListQuery(params)
   const { scope } = query
   const hasFilters = Boolean(
-    params.query || params.status || params.role || params.source || params.location,
+    params.query ||
+    params.status ||
+    params.role ||
+    params.source ||
+    params.location ||
+    params.updatedFrom ||
+    params.updatedTo,
   )
 
   return (

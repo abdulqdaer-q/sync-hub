@@ -5,6 +5,7 @@ import {
   parsePublicJobList,
   parsePublicJobReceipt,
 } from '@/features/careers/api/careersApi'
+import { publicApplicationFormSchema } from '@/features/careers/types'
 import { publicJobFixture } from '@/test/fixtures/publicJobs'
 
 describe('careers compatibility adapters', () => {
@@ -109,5 +110,26 @@ describe('careers compatibility adapters', () => {
       consent: true,
       idempotencyKey: 'application-attempt-1',
     })
+  })
+
+  it('rejects a delimiter-only skills value before submission', () => {
+    expect(
+      publicApplicationFormSchema.safeParse({
+        name: 'Mina Nabil',
+        email: 'mina@example.com',
+        phone: '',
+        location: '',
+        currentTitle: 'Engineer',
+        yearsExperience: 5,
+        seniority: 'Senior',
+        topSkills: ', ;\n',
+        linkedinUrl: '',
+        portfolioUrl: '',
+        coverNote: '',
+        consent: true,
+        resumeFile: new File(['resume'], 'mina.pdf', { type: 'application/pdf' }),
+        idempotencyKey: 'attempt-1',
+      }).success,
+    ).toBe(false)
   })
 })

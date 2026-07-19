@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail, Search, ShieldCheck } from 'lucide-react'
 import { useForm } from 'react-hook-form'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { z } from 'zod'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useSignOutAction } from '@/features/auth/hooks/useSignOutAction'
 import { useAuth } from '@/lib/auth/authContextStore'
 import { getUserErrorMessage } from '@/lib/errors/userErrorMessage'
 
@@ -30,6 +31,15 @@ const passwordSchema = z
     path: ['confirmation'],
     message: 'Passwords do not match.',
   })
+
+const signInLocationStateSchema = z
+  .object({
+    returnTo: z
+      .string()
+      .startsWith('/')
+      .refine((value) => !value.startsWith('//')),
+  })
+  .strict()
 
 type SignInValues = z.infer<typeof signInSchema>
 type ResetRequestValues = z.infer<typeof resetRequestSchema>
@@ -105,6 +115,7 @@ function PasswordInput({
 }
 
 export function SignInScreen() {
+  const location = useLocation()
   const { session, passwordRecovery, signIn, requestPasswordReset } = useAuth()
   const [mode, setMode] = useState<'sign-in' | 'reset'>('sign-in')
   const [submissionMessage, setSubmissionMessage] = useState<string | null>(null)
@@ -116,7 +127,10 @@ export function SignInScreen() {
     return <PasswordRecoveryScreen />
   }
   if (session) {
-    return <Navigate to="/candidates" replace />
+    const locationState = signInLocationStateSchema.safeParse(location.state)
+    return (
+      <Navigate to={locationState.success ? locationState.data.returnTo : '/candidates'} replace />
+    )
   }
 
   const submitSignIn = signInForm.handleSubmit(async (values) => {
@@ -261,7 +275,8 @@ export function SignInScreen() {
 }
 
 export function PasswordRecoveryScreen() {
-  const { updatePassword, signOut } = useAuth()
+  const { updatePassword } = useAuth()
+  const signOut = useSignOutAction()
   const [submissionError, setSubmissionError] = useState<string | null>(null)
   const form = useForm<PasswordValues>({ resolver: zodResolver(passwordSchema) })
 
@@ -310,7 +325,8 @@ export function PasswordRecoveryScreen() {
 }
 
 export function AccessPendingScreen() {
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
+  const signOut = useSignOutAction()
   return (
     <AuthShell
       title="Your account is not active yet."

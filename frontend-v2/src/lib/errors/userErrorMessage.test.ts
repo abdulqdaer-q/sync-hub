@@ -1,3 +1,4 @@
+import { AuthApiError } from '@supabase/supabase-js'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api/client'
 import { getUserErrorMessage } from '@/lib/errors/userErrorMessage'
@@ -19,5 +20,17 @@ describe('getUserErrorMessage', () => {
       'Something went wrong. Please try again.',
     )
     expect(logger).toHaveBeenCalledWith('Unexpected application error', expect.any(Error))
+  })
+
+  it('maps expected authentication failures without exposing provider text', () => {
+    const logger = vi.fn()
+
+    expect(
+      getUserErrorMessage(
+        new AuthApiError('provider-specific credential detail', 400, 'invalid_credentials'),
+        logger,
+      ),
+    ).toBe('The email or password is incorrect.')
+    expect(logger).not.toHaveBeenCalled()
   })
 })

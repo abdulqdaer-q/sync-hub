@@ -55,7 +55,13 @@ export function RequireAuth() {
     return authScreen(<PasswordRecoveryScreen />)
   }
   if (!auth.session) {
-    return <Navigate to="/sign-in" state={{ returnTo: location.pathname }} replace />
+    return (
+      <Navigate
+        to="/sign-in"
+        state={{ returnTo: `${location.pathname}${location.search}${location.hash}` }}
+        replace
+      />
+    )
   }
   if (auth.memberships.length === 0 && !auth.isPlatformAdmin) {
     return authScreen(<AccessPendingScreen />)

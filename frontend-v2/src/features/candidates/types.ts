@@ -1,8 +1,11 @@
 import { z } from 'zod'
 
 export const candidateListGroupBySchema = z.enum(['status', 'role', 'source', 'location'])
-export const candidateListSortSchema = z.enum(['updatedAt', 'name'])
-export const candidateListDirectionSchema = z.enum(['asc', 'desc'])
+// The current RPC has one server-side order: updatedAt descending. Model that
+// exact capability instead of offering page-local sorting that would lie once
+// the result set spans multiple backend pages.
+export const candidateListSortSchema = z.literal('updatedAt')
+export const candidateListDirectionSchema = z.literal('desc')
 
 export const candidateListItemSchema = z
   .object({

@@ -9,6 +9,11 @@ import { careersSitemapPlugin } from './tooling/careersSitemap.js'
 export default defineConfig(({ mode }) => {
   const envDir = path.resolve(__dirname, '..')
   const env = loadEnv(mode, envDir, 'VITE_')
+  if (env.VITE_SITE_URL && (!env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY)) {
+    throw new Error(
+      'VITE_SITE_URL requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY so the sitemap cannot be incomplete.',
+    )
+  }
 
   return {
     envDir,
@@ -16,11 +21,15 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      careersSitemapPlugin({
-        siteUrl: env.VITE_SITE_URL || 'http://localhost:5173',
-        supabaseUrl: env.VITE_SUPABASE_URL || undefined,
-        supabaseAnonKey: env.VITE_SUPABASE_ANON_KEY || undefined,
-      }),
+      ...(env.VITE_SITE_URL
+        ? [
+            careersSitemapPlugin({
+              siteUrl: env.VITE_SITE_URL,
+              supabaseUrl: env.VITE_SUPABASE_URL,
+              supabaseAnonKey: env.VITE_SUPABASE_ANON_KEY,
+            }),
+          ]
+        : []),
     ],
 
     resolve: {

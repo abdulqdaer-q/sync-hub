@@ -80,6 +80,7 @@ describe('public careers pages', () => {
     expect(document.querySelector('script[type="application/ld+json"]')?.textContent).toContain(
       'JobPosting',
     )
+    expect(screen.getByText(/Deadline Aug 31, 2026/)).toBeInTheDocument()
     await userEvent.type(screen.getByLabelText('Name'), 'Mina Nabil')
     await userEvent.type(screen.getByLabelText('Email'), 'mina@example.com')
     await userEvent.type(screen.getByLabelText('Current title'), 'Platform Engineer')

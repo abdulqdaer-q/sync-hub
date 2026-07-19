@@ -9,8 +9,8 @@ const publicJobsForSitemapSchema = z
 
 const sitemapConfigSchema = z.object({
   siteUrl: z.url(),
-  supabaseUrl: z.url().optional(),
-  supabaseAnonKey: z.string().min(1).optional(),
+  supabaseUrl: z.url(),
+  supabaseAnonKey: z.string().min(1),
 })
 
 type SitemapConfig = z.infer<typeof sitemapConfigSchema>
@@ -39,10 +39,6 @@ ${urls}
 }
 
 async function fetchPublicJobSlugs(config: SitemapConfig) {
-  if (!config.supabaseUrl || !config.supabaseAnonKey) {
-    return []
-  }
-
   const baseUrl = config.supabaseUrl.endsWith('/')
     ? config.supabaseUrl.slice(0, -1)
     : config.supabaseUrl
@@ -69,14 +65,7 @@ export function careersSitemapPlugin(input: SitemapConfig): Plugin {
     name: 'careers-sitemap',
     apply: 'build',
     async generateBundle() {
-      let slugs: string[] = []
-      try {
-        slugs = await fetchPublicJobSlugs(config)
-      } catch (error) {
-        this.warn(
-          `Could not load public job slugs while generating sitemap.xml; emitting the careers index only. ${error instanceof Error ? error.message : 'Unknown build error'}`,
-        )
-      }
+      const slugs = await fetchPublicJobSlugs(config)
       this.emitFile({
         type: 'asset',
         fileName: 'sitemap.xml',

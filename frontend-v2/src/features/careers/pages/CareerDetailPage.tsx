@@ -33,6 +33,17 @@ import { getUserErrorMessage } from '@/lib/errors/userErrorMessage'
 const routeParamsSchema = z.object({ slug: z.string().trim().min(1) }).strict()
 const seniorityOptions = ['Intern', 'Junior', 'Mid', 'Senior', 'Lead', 'Principal', 'Executive']
 
+function formatDeadline(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat(undefined, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }).format(date)
+}
+
 function FormError({ message }: { message?: string }) {
   return message ? <p className="text-xs text-destructive">{message}</p> : null
 }
@@ -323,6 +334,11 @@ export function CareerDetailPage() {
                   </Badge>
                   <Badge variant="outline">{jobQuery.data.seniorityLevel}</Badge>
                   <Badge variant="secondary">{jobQuery.data.remotePolicy}</Badge>
+                  {jobQuery.data.applicationDeadline ? (
+                    <Badge variant="outline">
+                      Deadline {formatDeadline(jobQuery.data.applicationDeadline)}
+                    </Badge>
+                  ) : null}
                 </div>
               </header>
               <p className="whitespace-pre-line text-sm leading-7 text-muted-foreground">

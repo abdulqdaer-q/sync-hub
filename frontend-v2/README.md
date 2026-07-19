@@ -26,9 +26,12 @@ lists only the vars this app reads) to `../.env` and fill in:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-Set `VITE_SITE_URL` for production builds. The build uses it as the sitemap
-origin and reads the public `public-jobs` Edge Function to include each live
-`/careers/:slug` URL in `dist/sitemap.xml`.
+Set `VITE_SITE_URL` for production builds. When configured, the build uses it
+as the sitemap origin and reads the public `public-jobs` Edge Function to
+include each live `/careers/:slug` URL in `dist/sitemap.xml`. Without it, the
+build omits `sitemap.xml` instead of publishing localhost URLs. A configured
+sitemap build fails if the public-jobs endpoint cannot provide the complete
+slug list, so an outage cannot silently publish an incomplete sitemap.
 
 ## Scripts
 

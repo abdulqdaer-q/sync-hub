@@ -46,19 +46,6 @@ function formatDate(value: string | null): string {
       }).format(date)
 }
 
-function sortItems(items: CandidateListItem[], params: CandidateListParams): CandidateListItem[] {
-  const direction = params.direction === 'asc' ? 1 : -1
-  return [...items].sort((left, right) => {
-    if (params.groupBy) {
-      const groupOrder = (left.groupLabel ?? '').localeCompare(right.groupLabel ?? '')
-      if (groupOrder !== 0) return groupOrder
-    }
-    const leftValue = params.sort === 'name' ? left.name : (left.updatedAt ?? '')
-    const rightValue = params.sort === 'name' ? right.name : (right.updatedAt ?? '')
-    return leftValue.localeCompare(rightValue) * direction
-  })
-}
-
 export function CandidateListTable({
   response,
   params,
@@ -116,12 +103,11 @@ export function CandidateListTable({
     ],
     [showTenant],
   )
-  const data = useMemo(() => sortItems(response.items, params), [params, response.items])
   // TanStack Table intentionally returns callable table methods; React Compiler
   // cannot memoize this third-party hook, but the table owns no compiler state.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data,
+    data: response.items,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getRowId: (row) => `${row.tenantId}:${row.candidateId}`,

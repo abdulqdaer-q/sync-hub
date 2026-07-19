@@ -40,7 +40,14 @@ export const publicApplicationFormSchema = z
     currentTitle: z.string().trim().min(1, 'Enter your current title.').max(180),
     yearsExperience: z.number().min(0).max(80),
     seniority: z.string().trim().min(1, 'Select your seniority.').max(80),
-    topSkills: z.string().trim().min(1, 'Add at least one skill.'),
+    topSkills: z
+      .string()
+      .trim()
+      .min(1, 'Add at least one skill.')
+      .refine(
+        (value) => value.split(/[,;\n]/).some((skill) => skill.trim().length > 0),
+        'Add at least one skill.',
+      ),
     linkedinUrl: z.union([z.url('Enter a valid LinkedIn URL.'), z.literal('')]),
     portfolioUrl: z.union([z.url('Enter a valid portfolio URL.'), z.literal('')]),
     coverNote: z.string().trim().max(4000),

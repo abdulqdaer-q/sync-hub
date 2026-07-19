@@ -19,18 +19,21 @@ const pageSizeSchema = z
   .transform((value) => Number.parseInt(value, 10))
   .pipe(z.union([z.literal(25), z.literal(50), z.literal(100)]))
   .catch(25)
+const queryTextSchema = z.string().trim().max(160).catch('')
+const shortTextSchema = z.string().trim().max(120).catch('')
 const boundedTextSchema = z.string().trim().max(180).catch('')
+const isoDateSchema = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).catch('')
 const groupByUrlSchema = z.union([candidateListGroupBySchema, z.literal('')]).catch('')
 
 export const candidateListSearchParamsSchema = z
   .object({
-    q: boundedTextSchema,
-    status: boundedTextSchema,
+    q: queryTextSchema,
+    status: shortTextSchema,
     role: boundedTextSchema,
-    source: boundedTextSchema,
+    source: shortTextSchema,
     location: boundedTextSchema,
-    updatedFrom: z.string().trim().max(40).catch(''),
-    updatedTo: z.string().trim().max(40).catch(''),
+    updatedFrom: isoDateSchema,
+    updatedTo: isoDateSchema,
     groupBy: groupByUrlSchema,
     page: positivePageSchema,
     pageSize: pageSizeSchema,

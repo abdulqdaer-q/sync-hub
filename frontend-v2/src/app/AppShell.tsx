@@ -17,6 +17,8 @@ import {
 import { NavLink, Outlet, useMatches } from 'react-router-dom'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { useSignOutAction } from '@/features/auth/hooks/useSignOutAction'
 import { useAuth } from '@/lib/auth/authContextStore'
 
 const routeHandleSchema = z.object({
@@ -83,7 +85,8 @@ function ShellNavigation({ onNavigate }: { onNavigate: () => void }) {
 export function AppShell() {
   const [navigationOpen, setNavigationOpen] = useState(false)
   const matches = useMatches()
-  const { currentTenant, user, signOut } = useAuth()
+  const { currentTenant, user } = useAuth()
+  const signOut = useSignOutAction()
   const matchedHandle = [...matches]
     .reverse()
     .map((match) => routeHandleSchema.safeParse(match.handle))
@@ -116,9 +119,13 @@ export function AppShell() {
         </div>
       </aside>
 
-      {navigationOpen ? (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm lg:hidden">
-          <aside className="flex h-full w-[min(20rem,88vw)] flex-col border-r border-sidebar-border bg-sidebar">
+      <Dialog open={navigationOpen} onOpenChange={setNavigationOpen}>
+        <DialogContent
+          showCloseButton={false}
+          className="top-0 left-0 h-svh w-[min(20rem,88vw)] max-w-none -translate-x-0 -translate-y-0 gap-0 rounded-none border-0 border-r border-sidebar-border bg-sidebar p-0 ring-0 lg:hidden"
+        >
+          <DialogTitle className="sr-only">Workspace navigation</DialogTitle>
+          <aside className="flex h-full flex-col">
             <div className="flex h-20 items-center justify-between border-b border-sidebar-border px-5">
               <span className="text-base font-medium">SYNC</span>
               <Button
@@ -133,50 +140,51 @@ export function AppShell() {
             </div>
             <ShellNavigation onNavigate={() => setNavigationOpen(false)} />
           </aside>
-        </div>
-      ) : null}
+        </DialogContent>
 
-      <div className="min-w-0">
-        <header className="sticky top-0 flex min-h-20 items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur sm:px-6 lg:px-8">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="lg:hidden"
-            onClick={() => setNavigationOpen(true)}
-            aria-label="Open navigation"
-          >
-            <Menu aria-hidden="true" />
-          </Button>
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg font-medium tracking-[-0.025em]">
-              {routeChrome?.title ?? 'SYNC'}
-            </h1>
-            {routeChrome?.subtitle ? (
-              <p className="mt-0.5 hidden truncate text-xs text-muted-foreground sm:block">
-                {routeChrome.subtitle}
-              </p>
-            ) : null}
-          </div>
-          <div className="hidden items-center gap-2 text-right sm:flex">
-            <div>
-              <p className="text-sm">{currentTenant?.name ?? 'All companies'}</p>
-              <p className="text-xs text-muted-foreground">{user?.email ?? 'Platform admin'}</p>
+        <div className="min-w-0">
+          <header className="sticky top-0 flex min-h-20 items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur sm:px-6 lg:px-8">
+            <DialogTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="lg:hidden"
+                aria-label="Open navigation"
+              >
+                <Menu aria-hidden="true" />
+              </Button>
+            </DialogTrigger>
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-lg font-medium tracking-[-0.025em]">
+                {routeChrome?.title ?? 'SYNC'}
+              </h1>
+              {routeChrome?.subtitle ? (
+                <p className="mt-0.5 hidden truncate text-xs text-muted-foreground sm:block">
+                  {routeChrome.subtitle}
+                </p>
+              ) : null}
             </div>
-            <Button type="button" variant="ghost" size="icon" aria-label="Notifications">
-              <Bell aria-hidden="true" />
-            </Button>
-            <Button asChild variant="ghost" size="icon">
-              <NavLink to="/settings" aria-label="Settings">
-                <Settings aria-hidden="true" />
-              </NavLink>
-            </Button>
-          </div>
-        </header>
-        <main className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <Outlet />
-        </main>
-      </div>
+            <div className="hidden items-center gap-2 text-right sm:flex">
+              <div>
+                <p className="text-sm">{currentTenant?.name ?? 'All companies'}</p>
+                <p className="text-xs text-muted-foreground">{user?.email ?? 'Platform admin'}</p>
+              </div>
+              <Button type="button" variant="ghost" size="icon" aria-label="Notifications">
+                <Bell aria-hidden="true" />
+              </Button>
+              <Button asChild variant="ghost" size="icon">
+                <NavLink to="/settings" aria-label="Settings">
+                  <Settings aria-hidden="true" />
+                </NavLink>
+              </Button>
+            </div>
+          </header>
+          <main className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            <Outlet />
+          </main>
+        </div>
+      </Dialog>
     </div>
   )
 }

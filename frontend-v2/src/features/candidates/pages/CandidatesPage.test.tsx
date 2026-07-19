@@ -98,10 +98,29 @@ describe('candidates page', () => {
 
   it('changes the scope-keyed query and refetches when the company changes', async () => {
     const requestedTenantIds: string[][] = []
+    let releaseTenantB: () => void = () => undefined
+    const tenantBGate = new Promise<void>((resolve) => {
+      releaseTenantB = resolve
+    })
     server.use(
       http.post(platformUrl, async ({ request }) => {
         const body = candidateListRequestSchema.parse(await request.json())
         requestedTenantIds.push(body.tenant_ids)
+        if (body.tenant_ids[0] === tenantB.id) {
+          await tenantBGate
+          return HttpResponse.json({
+            ...candidateListResponseFixture,
+            items: [
+              {
+                ...candidateListResponseFixture.items[0],
+                tenantId: tenantB.id,
+                candidateId: '44444444-4444-4444-8444-444444444444',
+                name: 'Globex Candidate',
+                email: 'candidate@globex.example',
+              },
+            ],
+          })
+        }
         return HttpResponse.json(candidateListResponseFixture)
       }),
     )
@@ -138,9 +157,14 @@ describe('candidates page', () => {
       </QueryClientProvider>,
     )
 
-    await waitFor(() => expect(requestedTenantIds).toEqual([[tenantA.id]]))
+    expect(await screen.findByRole('link', { name: 'Mina Nabil' })).toBeInTheDocument()
+    expect(requestedTenantIds).toEqual([[tenantA.id]])
     await userEvent.selectOptions(screen.getByLabelText('Company'), tenantB.id)
     await waitFor(() => expect(requestedTenantIds).toEqual([[tenantA.id], [tenantB.id]]))
+    expect(screen.queryByRole('link', { name: 'Mina Nabil' })).not.toBeInTheDocument()
+
+    releaseTenantB()
+    expect(await screen.findByRole('link', { name: 'Globex Candidate' })).toBeInTheDocument()
   })
 
   it('shows a friendly error and retries malformed data', async () => {

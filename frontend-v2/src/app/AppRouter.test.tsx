@@ -1,6 +1,7 @@
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createTestAuthContextValue } from '@/test/createTestAuthContextValue'
 import { createTestSession, createTestUser } from '@/test/createTestSession'
@@ -56,10 +57,42 @@ describe('app routes', () => {
   })
 
   it('redirects an unauthenticated recruiter route to sign in', async () => {
-    const router = renderRoute('/candidates')
+    const router = renderRoute('/jobs/job-1?tab=applications#candidate-2')
 
     expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeInTheDocument()
     await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'))
+    expect(router.state.location.state).toEqual({
+      returnTo: '/jobs/job-1?tab=applications#candidate-2',
+    })
+  })
+
+  it('returns an authenticated user to the guarded deep link', async () => {
+    const router = createMemoryRouter(createAppRoutes(), {
+      initialEntries: [
+        {
+          pathname: '/sign-in',
+          state: { returnTo: '/jobs/job-1?tab=applications#candidate-2' },
+        },
+      ],
+    })
+    const auth = createTestAuthContextValue({
+      session: createTestSession(),
+      user: createTestUser(),
+      memberships: [membership],
+      currentTenant: membership,
+    })
+
+    render(
+      <QueryClientTestProvider>
+        <TestAuthProvider value={auth}>
+          <RouterProvider router={router} />
+        </TestAuthProvider>
+      </QueryClientTestProvider>,
+    )
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/jobs/job-1'))
+    expect(router.state.location.search).toBe('?tab=applications')
+    expect(router.state.location.hash).toBe('#candidate-2')
   })
 
   it('renders authenticated routes inside the app shell with route metadata', async () => {
@@ -73,6 +106,25 @@ describe('app routes', () => {
     expect(await screen.findByRole('heading', { name: 'Candidates' })).toBeInTheDocument()
     expect(screen.getByText('Browse, filter, and group your talent pool')).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'Workspace' })).toBeInTheDocument()
+  })
+
+  it('uses a focus-managed dialog for mobile navigation', async () => {
+    renderRoute('/candidates', {
+      session: createTestSession(),
+      user: createTestUser(),
+      memberships: [membership],
+      currentTenant: membership,
+    })
+
+    await screen.findByRole('heading', { name: 'Candidates' })
+    const trigger = screen.getByRole('button', { name: 'Open navigation' })
+    await userEvent.click(trigger)
+    expect(screen.getByRole('dialog', { name: 'Workspace navigation' })).toBeInTheDocument()
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Workspace navigation' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 
   it('blocks a non-admin who enters an admin URL directly', async () => {
