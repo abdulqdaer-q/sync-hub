@@ -10,7 +10,7 @@ from typing import List
 from xml.etree import ElementTree as ET
 
 
-from ..schema import DocumentSource, DocumentText
+from ..domain.models import DocumentSource, DocumentText
 from ..utils import format_error_message
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime
 
-from ..schema import CandidateProfile
+from ..domain.models import CandidateProfile
 from ..utils import compact_whitespace, dedupe_keep_order
 from .experience import resolve_years_experience
 from .locations import normalize_location

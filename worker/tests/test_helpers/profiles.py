@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cv_intelligence_worker.schema import (
+from cv_intelligence_worker.domain.models import (
     CandidateProfile,
     ChunkRecord,
     ComparisonArtifact,

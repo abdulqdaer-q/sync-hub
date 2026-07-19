@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from ...domain import JOB_FAMILY_LABELS, JOB_FAMILY_TAXONOMY_VERSION
-from ...schema import CandidateProfile
+from ...domain.models import CandidateProfile
 from ...utils import compact_whitespace
 from .loader import load_prompt_template
 

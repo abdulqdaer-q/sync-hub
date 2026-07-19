@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from ..schema import CandidateProfile, ExperienceEntry
+from ..domain.models import CandidateProfile, ExperienceEntry
 from ..utils import compact_whitespace
 
 

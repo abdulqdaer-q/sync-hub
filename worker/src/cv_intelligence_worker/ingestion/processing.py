@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..config import WorkerConfig
-from ..schema import CandidateProfile, ProcessingRun
+from ..domain.models import CandidateProfile, ProcessingRun
 from ..utils import sha256_text
 
 
