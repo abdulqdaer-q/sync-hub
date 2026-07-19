@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import Field, field_validator, model_validator
 
-from ..llm_models import LLMOutput
+from ..integrations.llm.models import LLMOutput
 
 
 NonBlankText = Annotated[str, Field(min_length=1)]

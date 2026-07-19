@@ -8,8 +8,8 @@ from pydantic import ValidationError
 from cv_intelligence_worker.candidate_extraction import build_candidate_prompt, build_candidate_system_prompt, profile_from_extraction
 from cv_intelligence_worker.config import WorkerConfig
 from cv_intelligence_worker.extraction import classify_job_family_with_llm, extract_candidate_profile
-from cv_intelligence_worker.llm import LLMResponseError
-from cv_intelligence_worker.llm_models import CandidateExtraction, JobFamily, JobFamilyExtraction
+from cv_intelligence_worker.integrations.llm import LLMResponseError
+from cv_intelligence_worker.integrations.llm.models import CandidateExtraction, JobFamily, JobFamilyExtraction
 from cv_intelligence_worker.schema import CandidateProfile, DocumentSource, DocumentText
 
 

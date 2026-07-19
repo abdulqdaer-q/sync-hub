@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ..config import WorkerConfig
-from ..llm import LLMClient, LLMResponseError
+from ..integrations.llm import LLMClient, LLMResponseError
 from ..prompts import load_prompt_template
 from ..schema import CandidateProfile, ComparisonArtifact, ComparisonItem, SummaryArtifact, dataclass_to_dict
 from .models import ComparisonArtifactOutput, SummaryArtifactOutput

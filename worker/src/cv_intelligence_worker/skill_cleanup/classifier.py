@@ -5,8 +5,8 @@ from collections.abc import Callable
 from typing import Any
 
 from ..config import WorkerConfig
-from ..llm import LLMClient, LLMResponseError
-from ..llm_models import SkillClassificationBatch
+from ..integrations.llm import LLMClient, LLMResponseError
+from ..integrations.llm.models import SkillClassificationBatch
 from ..prompts import load_prompt_template
 
 

@@ -6,8 +6,8 @@ from typing import Any, TypeVar
 from openai import AsyncOpenAI, OpenAI, OpenAIError
 from pydantic import BaseModel, ValidationError
 
-from .config import WorkerConfig
-from .llm_models import EmbeddingVector
+from ...config import WorkerConfig
+from .models import EmbeddingVector
 
 OutputT = TypeVar("OutputT", bound=BaseModel)
 

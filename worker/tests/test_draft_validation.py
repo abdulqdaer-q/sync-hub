@@ -5,8 +5,8 @@ import pytest
 
 from cv_intelligence_worker.config import WorkerConfig
 from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
-from cv_intelligence_worker.llm import LLMResponseError
-from cv_intelligence_worker.llm_models import DraftValidationExtraction
+from cv_intelligence_worker.integrations.llm import LLMResponseError
+from cv_intelligence_worker.integrations.llm.models import DraftValidationExtraction
 
 
 @pytest.fixture

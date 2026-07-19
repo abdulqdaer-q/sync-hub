@@ -7,7 +7,7 @@ import pytest
 
 from cv_intelligence_worker.candidate_extraction import build_realtime_candidate_system_prompt
 from cv_intelligence_worker.config import WorkerConfig
-from cv_intelligence_worker.llm_models import RealtimeCandidateExtraction
+from cv_intelligence_worker.integrations.llm.models import RealtimeCandidateExtraction
 from cv_intelligence_worker.realtime_extractor import (
     app,
     build_extended_system_prompt,
@@ -123,7 +123,7 @@ def test_mark_extraction_failed_uses_safe_error(mock_logger, mock_supabase_clien
 @patch("cv_intelligence_worker.realtime_extractor._check_rate_limit")
 @patch("cv_intelligence_worker.realtime_extractor.parse_document")
 @patch("cv_intelligence_worker.realtime_extractor.WorkerConfig.from_env")
-@patch("cv_intelligence_worker.llm.AsyncOpenAI")
+@patch("cv_intelligence_worker.integrations.llm.client.AsyncOpenAI")
 def test_parse_endpoint_returns_only_sdk_validated_json(openai, config_from_env, parse_document, _rate_limit):
     extraction = realtime_extraction()
     sdk_client = MagicMock()
@@ -186,7 +186,7 @@ def test_parse_endpoint_rejects_declared_mime_type_mismatch(config_from_env, _ra
 @patch("cv_intelligence_worker.realtime_extractor._check_rate_limit")
 @patch("cv_intelligence_worker.realtime_extractor.parse_document")
 @patch("cv_intelligence_worker.realtime_extractor.WorkerConfig.from_env")
-@patch("cv_intelligence_worker.llm.AsyncOpenAI")
+@patch("cv_intelligence_worker.integrations.llm.client.AsyncOpenAI")
 def test_parse_endpoint_rejects_malformed_model_output(openai, config_from_env, parse_document, _rate_limit):
     payload = realtime_extraction().model_dump()
     payload["nme"] = "private CV content"
