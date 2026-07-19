@@ -116,14 +116,14 @@ class TestValidateUserOverrides:
     """validate_user_overrides_with_llm: LLM-based override sanity check."""
 
     def test_empty_overrides_returns_valid(self):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config()
         is_valid, reason = validate_user_overrides_with_llm({}, {}, config)
         assert is_valid is True
         assert reason == ""
 
     def test_empty_user_overrides_returns_valid(self):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config()
         is_valid, reason = validate_user_overrides_with_llm(
             {"name": "Ahmed"}, {}, config
@@ -131,9 +131,9 @@ class TestValidateUserOverrides:
         assert is_valid is True
         assert reason == ""
 
-    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
     def test_illogical_override_rejected(self, mock_llm):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config()
         mock_llm.return_value = DraftValidationExtraction(
             is_valid=False,
@@ -147,9 +147,9 @@ class TestValidateUserOverrides:
         assert "CEO" in reason or "Drastic" in reason
         mock_llm.assert_called_once()
 
-    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
     def test_logical_override_accepted(self, mock_llm):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config()
         mock_llm.return_value = DraftValidationExtraction(
             is_valid=True,
@@ -163,16 +163,16 @@ class TestValidateUserOverrides:
         mock_llm.assert_called_once()
 
     def test_disabled_provider_fails_closed(self):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config(extraction_provider="disabled")
         with pytest.raises(LLMResponseError, match="not configured"):
             validate_user_overrides_with_llm(
                 {"title": "Intern"}, {"title": "President"}, config
             )
 
-    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
     def test_llm_exception_rejects(self, mock_llm):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config()
         mock_llm.side_effect = LLMResponseError("LLM unreachable")
         with pytest.raises(LLMResponseError, match="LLM unreachable"):
@@ -180,9 +180,9 @@ class TestValidateUserOverrides:
                 {"name": "A"}, {"name": "B"}, config
             )
 
-    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
     def test_ollama_provider_uses_shared_client(self, mock_llm):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config(extraction_provider="ollama")
         mock_llm.return_value = DraftValidationExtraction(is_valid=True, reason="OK")
         is_valid, _ = validate_user_overrides_with_llm({"a": 1}, {"b": 2}, config)
@@ -337,7 +337,7 @@ class TestExtractCandidateProfileDraft:
         )
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_merge_original_and_overrides(self, mock_validate, mock_classify):
         from cv_intelligence_worker.candidate_extraction import extract_candidate_profile
         config = _make_config()
@@ -363,7 +363,7 @@ class TestExtractCandidateProfileDraft:
         assert result is mock_profile
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_experience_list_merge(self, mock_validate, mock_classify):
         from cv_intelligence_worker.candidate_extraction import extract_candidate_profile
         config = _make_config()
@@ -392,7 +392,7 @@ class TestExtractCandidateProfileDraft:
         assert merged_into == overrides
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_empty_draft_data_raises_keyerror(self, mock_validate, mock_classify):
         """draft_data={} → original_profile and user_overrides are both {}.
         merged_profile_json = {} → candidate_profile_from_dict({}) → KeyError."""
@@ -405,7 +405,7 @@ class TestExtractCandidateProfileDraft:
             extract_candidate_profile(source, self._make_document_text(), config)
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_empty_overrides_still_validates(self, mock_validate, mock_classify):
         """Even with empty overrides, the validate function is called.
         If it returns True, profile is built from original."""
@@ -427,7 +427,7 @@ class TestExtractCandidateProfileDraft:
         assert result is not None
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_validation_rejection_raises(self, mock_validate, mock_classify):
         from cv_intelligence_worker.candidate_extraction import extract_candidate_profile
         config = _make_config()

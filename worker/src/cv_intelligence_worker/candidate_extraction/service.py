@@ -139,8 +139,8 @@ def extract_candidate_profile(
     config: WorkerConfig,
 ) -> CandidateProfile:
     if source.metadata.get("is_draft"):
-        from ..draft_validation import validate_user_overrides_with_llm
         from ..schema import candidate_profile_from_dict
+        from .draft_validation import validate_user_overrides_with_llm
 
         draft_data = source.metadata.get("draft_data", {})
         original_profile = draft_data.get("parsed_profile_json") or {}
