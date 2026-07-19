@@ -5,8 +5,8 @@ import pytest
 from pydantic import ValidationError
 
 from cv_intelligence_worker.config import WorkerConfig
-from cv_intelligence_worker.llm import LLMClient, LLMResponseError
-from cv_intelligence_worker.llm_models import SkillClassificationBatch
+from cv_intelligence_worker.integrations.llm import LLMClient, LLMResponseError
+from cv_intelligence_worker.integrations.llm.models import SkillClassificationBatch
 from cv_intelligence_worker.skill_cleanup import SkillClassifier, build_plan
 
 

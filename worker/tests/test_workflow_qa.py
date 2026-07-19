@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cv_intelligence_worker.config import WorkerConfig
-from cv_intelligence_worker.llm import LLMResponseError
-from cv_intelligence_worker.llm_models import DraftValidationExtraction
+from cv_intelligence_worker.integrations.llm import LLMResponseError
+from cv_intelligence_worker.integrations.llm.models import DraftValidationExtraction
 from cv_intelligence_worker.schema import (
     CandidateProfile,
     DocumentSource,

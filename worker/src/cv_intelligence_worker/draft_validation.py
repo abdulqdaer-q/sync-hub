@@ -5,8 +5,8 @@ from html import escape as xml_escape
 from typing import Any
 
 from .config import WorkerConfig
-from .llm import LLMClient, LLMResponseError
-from .llm_models import DraftValidationExtraction
+from .integrations.llm import LLMClient, LLMResponseError
+from .integrations.llm.models import DraftValidationExtraction
 from .prompts import load_prompt_template
 
 

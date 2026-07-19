@@ -7,7 +7,7 @@ import pytest
 from cv_intelligence_worker.artifacts import LLMArtifactGenerator, comparison_key
 from cv_intelligence_worker.artifacts.models import ComparisonArtifactOutput, ComparisonItemOutput, SummaryArtifactOutput
 from cv_intelligence_worker.config import WorkerConfig
-from cv_intelligence_worker.llm import LLMResponseError
+from cv_intelligence_worker.integrations.llm import LLMResponseError
 from cv_intelligence_worker.schema import CandidateProfile
 
 

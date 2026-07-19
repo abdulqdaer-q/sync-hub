@@ -11,8 +11,8 @@ from .candidate_extraction import (
     profile_from_extraction,
 )
 from .config import WorkerConfig
-from .llm import LLMClient, LLMResponseError
-from .llm_models import CandidateExtraction, JobFamilyExtraction
+from .integrations.llm import LLMClient, LLMResponseError
+from .integrations.llm.models import CandidateExtraction, JobFamilyExtraction
 from .job_family_taxonomy import JOB_FAMILY_TAXONOMY_VERSION
 from .schema import CandidateProfile, DocumentSource, DocumentText
 from .utils import compact_whitespace, dedupe_keep_order, format_error_message

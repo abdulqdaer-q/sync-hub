@@ -1,6 +1,6 @@
 from typing import Any
 
-from cv_intelligence_worker.llm_models import RealtimeCandidateExtraction
+from cv_intelligence_worker.integrations.llm.models import RealtimeCandidateExtraction
 
 
 def realtime_extraction(**overrides: Any) -> RealtimeCandidateExtraction:

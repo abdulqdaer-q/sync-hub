@@ -7,8 +7,14 @@ from openai import OpenAIError
 from pydantic import ValidationError
 
 from cv_intelligence_worker.config import WorkerConfig
-from cv_intelligence_worker.llm import LLMClient, LLMResponseError
-from cv_intelligence_worker.llm_models import CandidateExtraction, DraftValidationExtraction, EmbeddingVector, JobFamily, JobFamilyExtraction
+from cv_intelligence_worker.integrations.llm import LLMClient, LLMResponseError
+from cv_intelligence_worker.integrations.llm.models import (
+    CandidateExtraction,
+    DraftValidationExtraction,
+    EmbeddingVector,
+    JobFamily,
+    JobFamilyExtraction,
+)
 
 
 def candidate_extraction(**overrides: object) -> CandidateExtraction:
@@ -84,7 +90,7 @@ def test_client_configures_sdk_retries_timeout_and_provider_url() -> None:
         request_timeout_seconds=45,
     )
 
-    with patch("cv_intelligence_worker.llm.OpenAI", return_value=sdk_client) as openai:
+    with patch("cv_intelligence_worker.integrations.llm.client.OpenAI", return_value=sdk_client) as openai:
         result = LLMClient(config).parse(
             model="test-model",
             system_prompt="Extract a profile.",
