@@ -13,11 +13,13 @@ The project has multiple deployable planes: frontend, Supabase migrations and Ed
 
 ## Deploy Order
 
-1. Apply database migrations.
-2. Deploy Supabase Edge Functions.
+1. Apply database migrations (GitHub Actions: `deploy-supabase-staging.yml` on `dev`, `deploy-supabase-production.yml` on `main`).
+2. Deploy Supabase Edge Functions (same workflows, after `db push`).
 3. Deploy or publish frontend static assets.
 4. Roll out worker/operator changes.
 5. Run smoke tests.
+
+Production Supabase writes are **CI-only** — see [supabase-ci-deploy.md](supabase-ci-deploy.md).
 
 ## Smoke Tests
 

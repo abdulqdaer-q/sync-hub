@@ -10,6 +10,7 @@ Staging lets testers and developers validate changes before production.
 | Supabase | Production project | **Separate** project or branch (you create later) |
 | Edge Functions | Production deploy | Staging project deploy |
 | CI deploy workflow | `deploy-cpanel.yml` | `deploy-cpanel-staging.yml` |
+| Supabase CI | `deploy-supabase-production.yml` (`main`) | `deploy-supabase-staging.yml` (`dev`) |
 
 ## Git workflow
 
@@ -34,11 +35,11 @@ Staging lets testers and developers validate changes before production.
 2. Reuse production **CPANEL_FTP_*** credentials. CI uploads to `../dev-jobs.sync.ngo/` relative to the `jobs` FTP root. Set `STG_CPANEL_FTP_SERVER_DIR=./` only if you create a dedicated FTP user scoped to `dev-jobs.sync.ngo/`.
 3. **Do not** set `server-dir` to `public_html/` when the FTP root is already the dev site folder (same rule as production `jobs/`).
 
-### 2. Supabase (backend — when ready)
+### 2. Supabase (backend)
 
 1. Create a **new** Supabase project (or enable a staging branch).
-2. Apply migrations from `supabase/migrations/`.
-3. Deploy edge functions to staging only.
+2. Add GitHub secrets `STG_SUPABASE_ACCESS_TOKEN` and `STG_SUPABASE_PROJECT_REF` (see [supabase-ci-deploy.md](supabase-ci-deploy.md)).
+3. Migrations and functions deploy automatically on push to `dev` when `supabase/` changes.
 4. In **Auth → URL configuration**:
    - Site URL: `https://dev-jobs.sync.ngo`
    - Redirect URLs: `https://dev-jobs.sync.ngo/**`
