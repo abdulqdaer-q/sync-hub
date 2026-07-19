@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...core.identifiers import stable_uuid
 from ...domain.models import ArtifactBundle, dataclass_to_dict
-from ...utils import normalize_email, skill_slugify, stable_uuid
+from ...utils import normalize_email, skill_slugify
 from .helpers import bounded_years_experience, vector_literal
 
 
