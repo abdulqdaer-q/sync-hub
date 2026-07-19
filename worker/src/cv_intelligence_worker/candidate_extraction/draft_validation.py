@@ -4,10 +4,10 @@ import json
 from html import escape as xml_escape
 from typing import Any
 
-from .config import WorkerConfig
-from .integrations.llm import LLMClient, LLMResponseError
-from .integrations.llm.models import DraftValidationExtraction
-from .prompts import load_prompt_template
+from ..config import WorkerConfig
+from ..integrations.llm import LLMClient, LLMResponseError
+from ..integrations.llm.models import DraftValidationExtraction
+from ..prompts import load_prompt_template
 
 
 def build_draft_validation_system_prompt() -> str:
