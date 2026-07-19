@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from cv_intelligence_worker.schema import CandidateProfile, ChunkRecord, DocumentSource, DocumentText, EmbeddingRecord, ExperienceEntry
+from cv_intelligence_worker.schema import (
+    CandidateProfile,
+    ChunkRecord,
+    ComparisonArtifact,
+    DocumentSource,
+    DocumentText,
+    EmbeddingRecord,
+    ExperienceEntry,
+    SummaryArtifact,
+)
 from cv_intelligence_worker.utils import stable_uuid
 
 
@@ -17,6 +26,34 @@ class FakeEmbedder:
             )
             for chunk in chunks
         ]
+
+
+class FakeArtifactGenerator:
+    def summarize(self, profile: CandidateProfile, artifact_version: str) -> SummaryArtifact:
+        return SummaryArtifact(
+            tenant_id=profile.tenant_id,
+            candidate_id=profile.candidate_id,
+            short_summary=profile.summary,
+            long_summary=profile.summary,
+            strengths=[],
+            risks=[],
+            recommended_roles=profile.role_tags,
+            evidence_refs=["profile.summary"],
+            confidence=profile.confidence,
+            artifact_version=artifact_version,
+        )
+
+    def compare(self, profiles: list[CandidateProfile], artifact_version: str, query: str = "") -> ComparisonArtifact:
+        return ComparisonArtifact(
+            tenant_id=profiles[0].tenant_id,
+            candidate_ids=[profile.candidate_id for profile in profiles],
+            overall_summary="Test comparison.",
+            items=[],
+            overlap=[],
+            recommended_candidate_id="",
+            evidence_refs=[],
+            artifact_version=artifact_version,
+        )
 
 
 def build_test_profile(

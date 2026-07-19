@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
-from .artifacts import build_summary_artifact, comparison_key, build_comparison_artifact
+from .artifacts import ArtifactGenerator, LLMArtifactGenerator, comparison_key
 from .chunking import build_chunks
 from .config import WorkerConfig
 from .discovery import discover_documents
@@ -31,9 +31,16 @@ class IngestionResult:
 
 
 class IngestionPipeline:
-    def __init__(self, config: WorkerConfig, *, embedder: Embedder | None = None) -> None:
+    def __init__(
+        self,
+        config: WorkerConfig,
+        *,
+        embedder: Embedder | None = None,
+        artifact_generator: ArtifactGenerator | None = None,
+    ) -> None:
         self.config = config
         self.embedder = embedder or build_embedder(config)
+        self.artifact_generator = artifact_generator or LLMArtifactGenerator(config)
         self.store = LocalArtifactStore(config)
         self.supabase = SupabaseClient(config) if config.has_supabase_http_credentials() else None
 
@@ -64,7 +71,7 @@ class IngestionPipeline:
         )
         chunks = build_chunks(profile, self.config.chunk_version)
         embeddings = self.embedder.embed_chunks(chunks)
-        summary = build_summary_artifact(profile, self.config.artifact_version)
+        summary = self.artifact_generator.summarize(profile, self.config.artifact_version)
         processing_run = build_processing_run(profile, self.config, ingestion_run_id)
         bundle = ArtifactBundle(
             source=source,
@@ -224,7 +231,7 @@ class IngestionPipeline:
             payload = self.store.load_profile_payload(tenant_id, candidate_id)
             profile = candidate_profile_from_dict(payload["profile"])
             profiles.append(profile)
-        artifact = build_comparison_artifact(profiles, self.config.artifact_version, query=query)
+        artifact = self.artifact_generator.compare(profiles, self.config.artifact_version, query=query)
         artifact_key = comparison_key(tenant_id, candidate_ids, query=query)
         self.store.save_comparison(artifact, artifact_key)
         if sync_to_supabase and self.supabase:

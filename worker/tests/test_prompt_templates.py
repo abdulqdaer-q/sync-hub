@@ -12,6 +12,7 @@ from cv_intelligence_worker.candidate_extraction import (
 )
 from cv_intelligence_worker.candidate_extraction.prompts.loader import PromptConfigurationError, PromptTemplate, load_prompt_template
 from cv_intelligence_worker.draft_validation import build_draft_validation_system_prompt
+from cv_intelligence_worker.prompts import load_prompt_template as load_worker_prompt_template
 from cv_intelligence_worker.skill_cleanup import SkillClassifier
 
 
@@ -22,6 +23,8 @@ def test_yaml_prompts_preserve_reviewed_content() -> None:
         "realtime": build_realtime_candidate_system_prompt(),
         "draft_validation": build_draft_validation_system_prompt(),
         "skill_classification": SkillClassifier.system_prompt(),
+        "candidate_summary": load_worker_prompt_template("candidate_summary").render(),
+        "candidate_comparison": load_worker_prompt_template("candidate_comparison").render(),
     }
 
     assert hashlib.sha256(prompts["candidate"].encode()).hexdigest() == "d122d061498451921936f17e8219f6e9a28fa8028bf0d500a86e336c1e640bcc"
@@ -35,6 +38,8 @@ def test_yaml_prompts_preserve_reviewed_content() -> None:
         hashlib.sha256(prompts["skill_classification"].encode()).hexdigest()
         == "def3bc5cecc40b33276fff823bf3594d602ca4f08b60761f2b8cbf21139ecf1a"
     )
+    assert hashlib.sha256(prompts["candidate_summary"].encode()).hexdigest() == "e2054a674ffb38a28868b6ccf4c6749edb1b3bcca9896773c2515aaa4f084652"
+    assert hashlib.sha256(prompts["candidate_comparison"].encode()).hexdigest() == "beb163cf34cb4dbc9603ff8ec107661d723196e1fdcf588d077163c1c11176a0"
 
 
 def test_candidate_prompt_defines_safety_and_missing_value_contracts() -> None:
@@ -72,6 +77,16 @@ def test_validation_and_skill_prompts_define_boundary_contracts() -> None:
     assert "Reject unsupported seniority changes" in validation
     assert "Classify every supplied item exactly once" in classification
     assert "Do not invent new skills" in classification
+
+
+def test_artifact_prompts_prohibit_heuristic_hiring_decisions() -> None:
+    summary = load_worker_prompt_template("candidate_summary").render()
+    comparison = load_worker_prompt_template("candidate_comparison").render()
+
+    assert "not personality judgments or hiring decisions" in summary
+    assert "Use only facts present in the profile" in summary
+    assert "set every score to 0 and recommended_candidate_id to null" in comparison
+    assert "do not make a final hiring decision" in comparison
 
 
 def test_prompt_template_rejects_mismatched_variables() -> None:
