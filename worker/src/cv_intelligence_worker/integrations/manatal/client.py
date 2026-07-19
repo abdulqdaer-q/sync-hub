@@ -163,7 +163,7 @@ class ManatalClient:
     def _candidate_page(self, page: int, updated_since: str) -> tuple[list[Any], bool]:
         query = {
             "page": str(page),
-            "page_size": str(max(1, self.config.manatal_page_size)),
+            "page_size": str(self.config.manatal_page_size),
         }
         if updated_since:
             query["updated_at__gte"] = updated_since

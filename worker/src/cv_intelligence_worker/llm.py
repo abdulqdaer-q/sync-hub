@@ -148,7 +148,7 @@ class LLMClient:
             "api_key": self.config.model_api_key,
             "base_url": self._base_url(),
             "timeout": self.config.request_timeout_seconds,
-            "max_retries": max(0, self.config.extraction_max_attempts - 1),
+            "max_retries": self.config.extraction_max_attempts - 1,
         }
 
     def _base_url(self) -> str:
