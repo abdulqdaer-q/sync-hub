@@ -42,6 +42,8 @@ _PROMPT_FILES = {
     "realtime_candidate_rules": ("cv_intelligence_worker.candidate_extraction.prompts", "realtime_candidate_rules.yaml"),
     "draft_validation": (__package__, "draft_validation.yaml"),
     "skill_classification": (__package__, "skill_classification.yaml"),
+    "candidate_summary": (__package__, "candidate_summary.yaml"),
+    "candidate_comparison": (__package__, "candidate_comparison.yaml"),
 }
 
 
