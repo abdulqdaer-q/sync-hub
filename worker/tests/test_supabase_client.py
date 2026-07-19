@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from cv_intelligence_worker.config import WorkerConfig
-from cv_intelligence_worker.discovery import stable_document_id
+from cv_intelligence_worker.documents import stable_document_id
 from cv_intelligence_worker.integrations.supabase import build_bundle_rows
 from cv_intelligence_worker.pipeline import IngestionPipeline
 from cv_intelligence_worker.supabase import SupabaseClient

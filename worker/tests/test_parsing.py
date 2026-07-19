@@ -6,8 +6,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from cv_intelligence_worker.discovery import discover_documents
-from cv_intelligence_worker.parsing import normalize_text, parse_document
+from cv_intelligence_worker.documents import discover_documents, normalize_text, parse_document
 
 
 class ParsingTests(unittest.TestCase):
@@ -57,9 +56,9 @@ class ParsingTests(unittest.TestCase):
             source = discover_documents([str(path)], "tenant-1", "run-1")[0]
 
             with (
-                patch("cv_intelligence_worker.parsing._run_pdftotext", return_value=""),
+                patch("cv_intelligence_worker.documents.parsing._run_pdftotext", return_value=""),
                 patch(
-                    "cv_intelligence_worker.parsing._run_pdf_ocr",
+                    "cv_intelligence_worker.documents.parsing._run_pdf_ocr",
                     return_value="Family name: Attar\nFirst names: Ayman\nEmail: candidate@example.com",
                 ),
             ):
@@ -76,7 +75,7 @@ class ParsingTests(unittest.TestCase):
             source = discover_documents([str(path)], "tenant-1", "run-1")[0]
 
             with patch(
-                "cv_intelligence_worker.parsing._run_pdftotext",
+                "cv_intelligence_worker.documents.parsing._run_pdftotext",
                 side_effect=["Jane Doe\nBackend Engineer", "Jane Doe\nSKILLS\nPython\njane@example.com"],
             ) as run_pdftotext:
                 document = parse_document(source)
@@ -93,7 +92,7 @@ class ParsingTests(unittest.TestCase):
             source = discover_documents([str(path)], "tenant-1", "run-1")[0]
 
             with patch(
-                "cv_intelligence_worker.parsing._run_pdftotext",
+                "cv_intelligence_worker.documents.parsing._run_pdftotext",
                 side_effect=["binary\x01", "Jane Doe\nBackend Engineer"],
             ):
                 document = parse_document(source)
@@ -108,9 +107,9 @@ class ParsingTests(unittest.TestCase):
             source = discover_documents([str(path)], "tenant-1", "run-1")[0]
 
             with (
-                patch("cv_intelligence_worker.parsing._run_pdftotext", return_value=""),
-                patch("cv_intelligence_worker.parsing._run_pdf_ocr", side_effect=FileNotFoundError("OCR unavailable")),
-                patch("cv_intelligence_worker.parsing.extract_pdf_text_from_bytes", return_value="2Ê»t½\\Rû\x07\x01binary"),
+                patch("cv_intelligence_worker.documents.parsing._run_pdftotext", return_value=""),
+                patch("cv_intelligence_worker.documents.parsing._run_pdf_ocr", side_effect=FileNotFoundError("OCR unavailable")),
+                patch("cv_intelligence_worker.documents.parsing.extract_pdf_text_from_bytes", return_value="2Ê»t½\\Rû\x07\x01binary"),
             ):
                 document = parse_document(source)
 

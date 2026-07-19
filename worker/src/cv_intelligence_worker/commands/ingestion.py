@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 
 from ..config import WorkerConfig
-from ..discovery import discover_documents
+from ..documents import discover_documents
 from ..pipeline import IngestionPipeline
 from ..schema import dataclass_to_dict
 from .common import emit_json, progress_printer, resolve_discovery_inputs, resolve_tenant_id, with_ingest_overrides
