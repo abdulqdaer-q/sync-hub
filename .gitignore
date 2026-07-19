@@ -60,4 +60,9 @@ tenants-ic.csv
 .agents/skills/
 
 # Custom Agent Skills
-.agents/
+.agents
+.claude
+docs/agents
+.scratch
+skills-lock.json
+AGENTS.md
