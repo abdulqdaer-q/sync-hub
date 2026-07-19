@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from ...schema import ArtifactBundle, dataclass_to_dict
-from ...supabase_helpers import bounded_years_experience, vector_literal
 from ...utils import normalize_email, skill_slugify, stable_uuid
+from .helpers import bounded_years_experience, vector_literal
 
 
 def build_bundle_rows(

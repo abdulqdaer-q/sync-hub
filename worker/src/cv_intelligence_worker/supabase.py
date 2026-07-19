@@ -19,8 +19,8 @@ from .integrations.supabase import (
     validate_optional_row,
     validate_rows,
 )
+from .integrations.supabase.helpers import chunks, dedupe_rows, format_bytes, is_jwt, is_retryable_supabase_error, json_payload_size
 from .schema import ArtifactBundle, ComparisonArtifact, dataclass_to_dict
-from .supabase_helpers import chunks, dedupe_rows, format_bytes, is_jwt, is_retryable_supabase_error, json_payload_size
 from .utils import normalize_email, strip_nul_bytes, urlopen
 
 
