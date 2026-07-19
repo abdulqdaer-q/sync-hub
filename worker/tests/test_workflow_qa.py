@@ -15,7 +15,7 @@ from cv_intelligence_worker.config import WorkerConfig
 from cv_intelligence_worker.integrations.llm import LLMResponseError
 from cv_intelligence_worker.integrations.llm.models import DraftValidationExtraction
 from cv_intelligence_worker.integrations.supabase import SupabaseResponseError
-from cv_intelligence_worker.schema import (
+from cv_intelligence_worker.domain.models import (
     CandidateProfile,
     DocumentSource,
     DocumentText,
@@ -116,14 +116,14 @@ class TestValidateUserOverrides:
     """validate_user_overrides_with_llm: LLM-based override sanity check."""
 
     def test_empty_overrides_returns_valid(self):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config()
         is_valid, reason = validate_user_overrides_with_llm({}, {}, config)
         assert is_valid is True
         assert reason == ""
 
     def test_empty_user_overrides_returns_valid(self):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config()
         is_valid, reason = validate_user_overrides_with_llm(
             {"name": "Ahmed"}, {}, config
@@ -131,9 +131,9 @@ class TestValidateUserOverrides:
         assert is_valid is True
         assert reason == ""
 
-    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
     def test_illogical_override_rejected(self, mock_llm):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config()
         mock_llm.return_value = DraftValidationExtraction(
             is_valid=False,
@@ -147,9 +147,9 @@ class TestValidateUserOverrides:
         assert "CEO" in reason or "Drastic" in reason
         mock_llm.assert_called_once()
 
-    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
     def test_logical_override_accepted(self, mock_llm):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config()
         mock_llm.return_value = DraftValidationExtraction(
             is_valid=True,
@@ -163,16 +163,16 @@ class TestValidateUserOverrides:
         mock_llm.assert_called_once()
 
     def test_disabled_provider_fails_closed(self):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config(extraction_provider="disabled")
         with pytest.raises(LLMResponseError, match="not configured"):
             validate_user_overrides_with_llm(
                 {"title": "Intern"}, {"title": "President"}, config
             )
 
-    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
     def test_llm_exception_rejects(self, mock_llm):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config()
         mock_llm.side_effect = LLMResponseError("LLM unreachable")
         with pytest.raises(LLMResponseError, match="LLM unreachable"):
@@ -180,9 +180,9 @@ class TestValidateUserOverrides:
                 {"name": "A"}, {"name": "B"}, config
             )
 
-    @patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
     def test_ollama_provider_uses_shared_client(self, mock_llm):
-        from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+        from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
         config = _make_config(extraction_provider="ollama")
         mock_llm.return_value = DraftValidationExtraction(is_valid=True, reason="OK")
         is_valid, _ = validate_user_overrides_with_llm({"a": 1}, {"b": 2}, config)
@@ -197,10 +197,10 @@ class TestValidateUserOverrides:
 class TestDraftIngestionRun:
     """DraftIngestion.run: queue polling → pipeline → status update."""
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_empty_drafts_returns_zero(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
+        from cv_intelligence_worker.workflows import DraftIngestion
         config = _make_config()
         mock_sb_cls.return_value.queued_candidate_drafts.return_value = []
 
@@ -208,10 +208,10 @@ class TestDraftIngestionRun:
         assert result == 0
         mock_sb_cls.return_value.update_candidate_draft.assert_not_called()
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_draft_without_user_id_skipped(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
+        from cv_intelligence_worker.workflows import DraftIngestion
         config = _make_config()
         mock_sb_cls.return_value.queued_candidate_drafts.return_value = [
             {"id": "d1", "user_id": None, "cv_storage_path": "a.pdf"},
@@ -222,11 +222,11 @@ class TestDraftIngestionRun:
         mock_sb_cls.return_value.update_candidate_draft.assert_not_called()
         mock_pipe_cls.return_value.ingest_sources.assert_not_called()
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_valid_draft_sets_parsing_then_published(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
-        from cv_intelligence_worker.pipeline import IngestionResult
+        from cv_intelligence_worker.workflows import DraftIngestion
+        from cv_intelligence_worker.workflows import IngestionResult
         config = _make_config()
         mock_sb = mock_sb_cls.return_value
         mock_sb.queued_candidate_drafts.return_value = [
@@ -246,11 +246,11 @@ class TestDraftIngestionRun:
         assert "parsing" in calls
         assert "published" in calls
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_pipeline_failure_sets_failed(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
-        from cv_intelligence_worker.pipeline import IngestionResult
+        from cv_intelligence_worker.workflows import DraftIngestion
+        from cv_intelligence_worker.workflows import IngestionResult
         config = _make_config()
         mock_sb = mock_sb_cls.return_value
         mock_sb.queued_candidate_drafts.return_value = [
@@ -272,10 +272,10 @@ class TestDraftIngestionRun:
         assert len(failed_calls) == 1
         assert "Validation error" in failed_calls[0][0][1]["parse_error"]
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_update_draft_failure_outside_try_31(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
+        from cv_intelligence_worker.workflows import DraftIngestion
         config = _make_config()
         mock_sb = mock_sb_cls.return_value
         mock_sb.queued_candidate_drafts.return_value = [
@@ -287,11 +287,11 @@ class TestDraftIngestionRun:
         assert result == 0
         mock_pipe_cls.return_value.ingest_sources.assert_not_called()
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_progress_callback_called(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
-        from cv_intelligence_worker.pipeline import IngestionResult
+        from cv_intelligence_worker.workflows import DraftIngestion
+        from cv_intelligence_worker.workflows import IngestionResult
         config = _make_config()
         mock_sb = mock_sb_cls.return_value
         mock_sb.queued_candidate_drafts.return_value = [
@@ -337,7 +337,7 @@ class TestExtractCandidateProfileDraft:
         )
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_merge_original_and_overrides(self, mock_validate, mock_classify):
         from cv_intelligence_worker.candidate_extraction import extract_candidate_profile
         config = _make_config()
@@ -363,7 +363,7 @@ class TestExtractCandidateProfileDraft:
         assert result is mock_profile
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_experience_list_merge(self, mock_validate, mock_classify):
         from cv_intelligence_worker.candidate_extraction import extract_candidate_profile
         config = _make_config()
@@ -392,7 +392,7 @@ class TestExtractCandidateProfileDraft:
         assert merged_into == overrides
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_empty_draft_data_raises_keyerror(self, mock_validate, mock_classify):
         """draft_data={} → original_profile and user_overrides are both {}.
         merged_profile_json = {} → candidate_profile_from_dict({}) → KeyError."""
@@ -405,7 +405,7 @@ class TestExtractCandidateProfileDraft:
             extract_candidate_profile(source, self._make_document_text(), config)
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_empty_overrides_still_validates(self, mock_validate, mock_classify):
         """Even with empty overrides, the validate function is called.
         If it returns True, profile is built from original."""
@@ -427,7 +427,7 @@ class TestExtractCandidateProfileDraft:
         assert result is not None
 
     @patch("cv_intelligence_worker.candidate_extraction.service.classify_job_family_with_llm")
-    @patch("cv_intelligence_worker.draft_validation.validate_user_overrides_with_llm")
+    @patch("cv_intelligence_worker.candidate_extraction.draft_validation.validate_user_overrides_with_llm")
     def test_validation_rejection_raises(self, mock_validate, mock_classify):
         from cv_intelligence_worker.candidate_extraction import extract_candidate_profile
         config = _make_config()
@@ -637,11 +637,11 @@ class TestCLIProcessDrafts:
         from cv_intelligence_worker import cli
         assert hasattr(cli, "main") or hasattr(cli, "cli")
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_process_drafts_returns_count(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
-        from cv_intelligence_worker.pipeline import IngestionResult
+        from cv_intelligence_worker.workflows import DraftIngestion
+        from cv_intelligence_worker.workflows import IngestionResult
         config = _make_config()
         mock_sb_cls.return_value.queued_candidate_drafts.return_value = [
             {"user_id": "u10", "id": "d10", "cv_storage_path": "ok.pdf"},
