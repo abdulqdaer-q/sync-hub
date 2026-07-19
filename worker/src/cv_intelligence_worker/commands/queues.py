@@ -3,9 +3,9 @@ from __future__ import annotations
 import argparse
 
 from ..config import WorkerConfig
-from ..draft_ingestion import DraftIngestion
 from ..public_applications import PublicApplicationIngestion
 from ..schema import dataclass_to_dict
+from ..workflows import DraftIngestion
 from .common import emit_json, progress_printer
 from .registry import command_registry
 

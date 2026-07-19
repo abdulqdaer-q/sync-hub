@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from cv_intelligence_worker.config import WorkerConfig
-from cv_intelligence_worker.draft_ingestion import DraftIngestion
+from cv_intelligence_worker.workflows import DraftIngestion
 from cv_intelligence_worker.pipeline import IngestionResult
 
 from dataclasses import replace
@@ -13,8 +13,8 @@ from dataclasses import replace
 def config():
     return replace(WorkerConfig(), tenant_id="test-tenant")
 
-@patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-@patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+@patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+@patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
 def test_draft_ingestion_no_drafts(mock_supabase_cls, mock_pipeline_cls, config):
     mock_supabase = mock_supabase_cls.return_value
     mock_supabase.queued_candidate_drafts.return_value = []
@@ -26,8 +26,8 @@ def test_draft_ingestion_no_drafts(mock_supabase_cls, mock_pipeline_cls, config)
     mock_supabase.update_candidate_draft.assert_not_called()
     mock_pipeline_cls.assert_not_called()
 
-@patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-@patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+@patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+@patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
 def test_draft_ingestion_successful_processing(mock_supabase_cls, mock_pipeline_cls, config):
     mock_supabase = mock_supabase_cls.return_value
     mock_supabase.queued_candidate_drafts.return_value = [
@@ -46,8 +46,8 @@ def test_draft_ingestion_successful_processing(mock_supabase_cls, mock_pipeline_
     mock_supabase.update_candidate_draft.assert_any_call("user-123", {"parse_status": "parsing"})
     mock_supabase.update_candidate_draft.assert_any_call("user-123", {"parse_status": "published"})
 
-@patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-@patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+@patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+@patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
 def test_draft_ingestion_pipeline_failure(mock_supabase_cls, mock_pipeline_cls, config):
     mock_supabase = mock_supabase_cls.return_value
     mock_supabase.queued_candidate_drafts.return_value = [
@@ -72,8 +72,8 @@ def test_draft_ingestion_pipeline_failure(mock_supabase_cls, mock_pipeline_cls, 
     assert len(failed_call) == 1
     assert "Unrealistic edits" in failed_call[0][0][1]["parse_error"]
 
-@patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-@patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+@patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+@patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
 def test_draft_ingestion_db_error_resilience(mock_supabase_cls, mock_pipeline_cls, config):
     mock_supabase = mock_supabase_cls.return_value
     mock_supabase.queued_candidate_drafts.return_value = [
@@ -104,8 +104,8 @@ def test_draft_ingestion_db_error_resilience(mock_supabase_cls, mock_pipeline_cl
     assert published_calls[0][0][0] == "user-456"
 
 
-@patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-@patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+@patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+@patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
 def test_draft_ingestion_records_download_failure_and_deletes_temp_file(
     mock_supabase_cls,
     mock_pipeline_cls,
@@ -120,7 +120,7 @@ def test_draft_ingestion_records_download_failure_and_deletes_temp_file(
     local_path = tmp_path / "download.pdf"
     file_descriptor = os.open(local_path, os.O_CREAT | os.O_RDWR)
 
-    with patch("cv_intelligence_worker.draft_ingestion.tempfile.mkstemp", return_value=(file_descriptor, str(local_path))):
+    with patch("cv_intelligence_worker.workflows.draft_ingestion.tempfile.mkstemp", return_value=(file_descriptor, str(local_path))):
         processed = DraftIngestion(config).run()
 
     assert processed == 0
