@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -11,11 +10,11 @@ from ...config import WorkerConfig
 from ...core.http import urlopen
 from ...core.text import normalize_email
 from ...domain.models import ArtifactBundle, ComparisonArtifact, dataclass_to_dict
+from .batching import SupabaseBatchWriter
 from .helpers import (
     chunks,
     dedupe_rows,
     format_bytes,
-    is_retryable_supabase_error,
     json_payload_size,
 )
 from .responses import (
@@ -52,6 +51,10 @@ class SupabaseClient:
         self.config = config
         self._transport = SupabaseRestTransport(config, opener=urlopen)
         self._storage = SupabaseStorageClient(config, opener=urlopen)
+        self._batch_writer = SupabaseBatchWriter(
+            self.upsert,
+            default_batch_size=config.supabase_batch_size,
+        )
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         return self._transport.headers(extra)
@@ -78,27 +81,8 @@ class SupabaseClient:
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
         )
 
-    def _upsert_batch_with_retry(self, table: str, rows: list[dict[str, Any]], on_conflict: str, attempt: int = 1) -> None:
-        try:
-            self.upsert(table, rows, on_conflict)
-            return
-        except RuntimeError as exc:
-            if not is_retryable_supabase_error(exc):
-                raise
-            if len(rows) > 1:
-                midpoint = max(1, len(rows) // 2)
-                self._upsert_batch_with_retry(table, rows[:midpoint], on_conflict, attempt=attempt)
-                self._upsert_batch_with_retry(table, rows[midpoint:], on_conflict, attempt=attempt)
-                return
-            if attempt >= 3:
-                raise
-            time.sleep(0.5 * attempt)
-            self._upsert_batch_with_retry(table, rows, on_conflict, attempt=attempt + 1)
-
     def upsert_many(self, table: str, rows: list[dict[str, Any]], on_conflict: str, batch_size: int | None = None) -> int:
-        for batch in chunks(rows, batch_size or self.config.supabase_batch_size):
-            self._upsert_batch_with_retry(table, batch, on_conflict)
-        return len(rows)
+        return self._batch_writer.write_many(table, rows, on_conflict, batch_size)
 
     def _select_in(self, table: str, tenant_id: str, column: str, values: list[str], select: str) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
