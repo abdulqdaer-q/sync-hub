@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 import urllib.error
 import urllib.parse
@@ -14,8 +13,14 @@ from ...config import WorkerConfig
 from ...core.http import urlopen
 from ...core.text import normalize_email
 from ...domain.models import ArtifactBundle, ComparisonArtifact, dataclass_to_dict
-from ...core.sanitization import strip_nul_bytes
-from .helpers import chunks, dedupe_rows, format_bytes, is_jwt, is_retryable_supabase_error, json_payload_size
+from .helpers import (
+    chunks,
+    dedupe_rows,
+    format_bytes,
+    is_jwt,
+    is_retryable_supabase_error,
+    json_payload_size,
+)
 from .responses import (
     CandidateDraftRow,
     PublicJobApplicationRow,
@@ -24,6 +29,7 @@ from .responses import (
     validate_rows,
 )
 from .rows import build_bundle_rows
+from .transport import SupabaseRestTransport
 
 
 @dataclass(frozen=True)
@@ -47,43 +53,21 @@ class SupabaseClient:
     def __init__(self, config: WorkerConfig) -> None:
         self.config = config
         self.base_url = config.supabase_url.rstrip("/")
+        self._transport = SupabaseRestTransport(config, opener=urlopen)
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
-        api_key = self.config.supabase_api_key()
-        bearer_token = self.config.supabase_bearer_token()
-        headers = {
-            "apikey": api_key,
-            "Content-Type": "application/json",
-            "User-Agent": self.config.user_agent,
-        }
-        if is_jwt(bearer_token):
-            headers["Authorization"] = f"Bearer {bearer_token}"
-        if extra:
-            headers.update(extra)
-        return headers
+        return self._transport.headers(extra)
 
     def _request_with_headers(self, method: str, path: str, *, data: Any | None = None, headers: dict[str, str] | None = None) -> tuple[Any, dict[str, str]]:
-        body = None
-        if data is not None:
-            body = json.dumps(strip_nul_bytes(data)).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self.base_url}{path}",
-            data=body,
-            headers=self._headers(headers),
-            method=method,
+        return self._transport.request_with_headers(
+            method,
+            path,
+            data=data,
+            headers=headers,
         )
-        try:
-            with urlopen(request, timeout=self.config.request_timeout_seconds) as response:
-                content = response.read().decode("utf-8")
-                response_headers = dict(response.headers.items())
-        except urllib.error.HTTPError as exc:
-            content = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Supabase {method} {path} failed ({exc.code}): {content or exc.reason}") from exc
-        return (json.loads(content) if content else None), response_headers
 
     def _request(self, method: str, path: str, *, data: Any | None = None, headers: dict[str, str] | None = None) -> Any:
-        result, _headers = self._request_with_headers(method, path, data=data, headers=headers)
-        return result
+        return self._transport.request(method, path, data=data, headers=headers)
 
     def upsert(self, table: str, rows: list[dict[str, Any]], on_conflict: str) -> Any:
         if not rows:
