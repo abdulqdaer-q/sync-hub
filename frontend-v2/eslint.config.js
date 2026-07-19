@@ -1,0 +1,123 @@
+import js from '@eslint/js'
+import globals from 'globals'
+import tseslint from 'typescript-eslint'
+import react from 'eslint-plugin-react'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import jsxA11y from 'eslint-plugin-jsx-a11y'
+import checkFile from 'eslint-plugin-check-file'
+import eslintConfigPrettier from 'eslint-config-prettier'
+
+export default tseslint.config(
+  { ignores: ['dist'] },
+  {
+    extends: [
+      js.configs.recommended,
+      ...tseslint.configs.recommendedTypeChecked,
+      ...tseslint.configs.stylisticTypeChecked,
+      react.configs.flat.recommended,
+      react.configs.flat['jsx-runtime'],
+      jsxA11y.flatConfigs.recommended,
+    ],
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      globals: globals.browser,
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    settings: {
+      react: { version: 'detect' },
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      ...reactRefresh.configs.vite.rules,
+
+      // Strict TypeScript — no `any`, no casting, no redundant annotations.
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
+      '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+      '@typescript-eslint/no-inferrable-types': 'error',
+
+      // Stable domain keys only — never the array index.
+      'react/no-array-index-key': 'error',
+
+      // No hardcoded hex colors or non-dynamic inline styles anywhere in TS/TSX.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Literal[value=/^#([0-9a-fA-F]{3}){1,2}$/]',
+          message:
+            'No hardcoded hex colors in TS/TSX — use a semantic token from the design system.',
+        },
+        {
+          selector: "JSXAttribute[name.name='style']",
+          message:
+            'No inline style props — use Tailwind classes or design tokens. Genuinely dynamic values (e.g. a computed bar width) are the only exception, and should go through a CSS custom property where practical.',
+        },
+      ],
+
+      // Parent-traversal imports must go through the `@/` alias instead.
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['../*'],
+              message: 'Use the "@/" alias instead of a parent-relative import.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: { 'check-file': checkFile },
+    rules: {
+      'check-file/filename-naming-convention': [
+        'error',
+        {
+          '**/*.tsx': 'PASCAL_CASE',
+          '**/*.ts': 'CAMEL_CASE',
+        },
+        { ignoreMiddleExtensions: true },
+      ],
+      'check-file/folder-naming-convention': ['error', { 'src/**/': 'KEBAB_CASE' }],
+      'check-file/filename-blocklist': [
+        'error',
+        {
+          '**/*.helpers.{ts,tsx}': '*.ts — no `.helpers.` infix, split into a helpers.ts module',
+          '**/*.constants.{ts,tsx}':
+            '*.ts — no `.constants.` infix, split into a constants.ts module',
+        },
+      ],
+    },
+  },
+  {
+    // Vite's own entry-point convention (lowercase main.tsx) predates and
+    // overrides the component-file naming rule above.
+    files: ['src/main.tsx'],
+    rules: {
+      'check-file/filename-naming-convention': 'off',
+    },
+  },
+  {
+    // shadcn-generated primitives follow shadcn's own conventions (lowercase
+    // filenames, a co-exported `xVariants` cva alongside the component) —
+    // this directory is vendored/regenerated, not house style.
+    files: ['src/components/ui/**'],
+    rules: {
+      'check-file/filename-naming-convention': 'off',
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  // Must stay last — turns off ESLint stylistic rules that would conflict with Prettier.
+  eslintConfigPrettier,
+)
