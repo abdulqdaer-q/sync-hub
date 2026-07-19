@@ -215,7 +215,7 @@ class TestOutputComparison:
         """Given the same deterministic CV file,
         When both normal ingestion and realtime parsing extract the profile,
         Then name, current_title, skills, and experience match field by field."""
-        from cv_intelligence_worker.pipeline import IngestionPipeline
+        from cv_intelligence_worker.workflows import IngestionPipeline
 
         tenant_id = str(uuid.uuid4())
         user_id = _create_auth_user()
