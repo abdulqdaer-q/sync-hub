@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from cv_intelligence_worker.config import WorkerConfig
-from cv_intelligence_worker.draft_validation import validate_user_overrides_with_llm
+from cv_intelligence_worker.candidate_extraction import validate_user_overrides_with_llm
 from cv_intelligence_worker.integrations.llm import LLMResponseError
 from cv_intelligence_worker.integrations.llm.models import DraftValidationExtraction
 
@@ -18,7 +18,7 @@ def config() -> WorkerConfig:
     )
 
 
-@patch("cv_intelligence_worker.draft_validation.LLMClient")
+@patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient")
 def test_validate_user_overrides_skips_empty_overrides(client, config: WorkerConfig) -> None:
     assert validate_user_overrides_with_llm({"name": "Test"}, {}, config) == (True, "")
     client.assert_not_called()
@@ -43,7 +43,7 @@ def test_validate_user_overrides_fails_closed_without_model(config: WorkerConfig
         )
 
 
-@patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+@patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
 def test_validate_user_overrides_accepts_valid_result(parse, config: WorkerConfig) -> None:
     parse.return_value = DraftValidationExtraction(is_valid=True, reason="Minor correction")
 
@@ -59,7 +59,7 @@ def test_validate_user_overrides_accepts_valid_result(parse, config: WorkerConfi
     assert "Senior &lt;b&gt;SE&lt;/b&gt;" in prompt
 
 
-@patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+@patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
 def test_validate_user_overrides_rejects_invalid_result(parse, config: WorkerConfig) -> None:
     parse.return_value = DraftValidationExtraction(is_valid=False, reason="Unrealistic title change")
 
@@ -72,7 +72,7 @@ def test_validate_user_overrides_rejects_invalid_result(parse, config: WorkerCon
     assert result == (False, "Unrealistic title change")
 
 
-@patch("cv_intelligence_worker.draft_validation.LLMClient.parse")
+@patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient.parse")
 def test_validate_user_overrides_fails_closed_on_client_error(parse, config: WorkerConfig) -> None:
     parse.side_effect = LLMResponseError("LLM down")
 
@@ -84,7 +84,7 @@ def test_validate_user_overrides_fails_closed_on_client_error(parse, config: Wor
         )
 
 
-@patch("cv_intelligence_worker.draft_validation.LLMClient")
+@patch("cv_intelligence_worker.candidate_extraction.draft_validation.LLMClient")
 def test_validate_user_overrides_uses_ollama_compatibility(client, config: WorkerConfig) -> None:
     client.return_value.parse.return_value = DraftValidationExtraction(is_valid=True, reason="Supported")
     ollama_config = replace(config, extraction_provider="ollama")

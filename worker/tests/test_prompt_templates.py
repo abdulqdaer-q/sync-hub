@@ -11,7 +11,7 @@ from cv_intelligence_worker.candidate_extraction import (
     build_realtime_candidate_system_prompt,
 )
 from cv_intelligence_worker.candidate_extraction.prompts.loader import PromptConfigurationError, PromptTemplate, load_prompt_template
-from cv_intelligence_worker.draft_validation import build_draft_validation_system_prompt
+from cv_intelligence_worker.candidate_extraction import build_draft_validation_system_prompt
 from cv_intelligence_worker.prompts import load_prompt_template as load_worker_prompt_template
 from cv_intelligence_worker.skill_cleanup import SkillClassifier
 
