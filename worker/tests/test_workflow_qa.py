@@ -15,7 +15,7 @@ from cv_intelligence_worker.config import WorkerConfig
 from cv_intelligence_worker.integrations.llm import LLMResponseError
 from cv_intelligence_worker.integrations.llm.models import DraftValidationExtraction
 from cv_intelligence_worker.integrations.supabase import SupabaseResponseError
-from cv_intelligence_worker.schema import (
+from cv_intelligence_worker.domain.models import (
     CandidateProfile,
     DocumentSource,
     DocumentText,
@@ -197,10 +197,10 @@ class TestValidateUserOverrides:
 class TestDraftIngestionRun:
     """DraftIngestion.run: queue polling → pipeline → status update."""
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_empty_drafts_returns_zero(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
+        from cv_intelligence_worker.workflows import DraftIngestion
         config = _make_config()
         mock_sb_cls.return_value.queued_candidate_drafts.return_value = []
 
@@ -208,10 +208,10 @@ class TestDraftIngestionRun:
         assert result == 0
         mock_sb_cls.return_value.update_candidate_draft.assert_not_called()
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_draft_without_user_id_skipped(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
+        from cv_intelligence_worker.workflows import DraftIngestion
         config = _make_config()
         mock_sb_cls.return_value.queued_candidate_drafts.return_value = [
             {"id": "d1", "user_id": None, "cv_storage_path": "a.pdf"},
@@ -222,11 +222,11 @@ class TestDraftIngestionRun:
         mock_sb_cls.return_value.update_candidate_draft.assert_not_called()
         mock_pipe_cls.return_value.ingest_sources.assert_not_called()
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_valid_draft_sets_parsing_then_published(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
-        from cv_intelligence_worker.pipeline import IngestionResult
+        from cv_intelligence_worker.workflows import DraftIngestion
+        from cv_intelligence_worker.workflows import IngestionResult
         config = _make_config()
         mock_sb = mock_sb_cls.return_value
         mock_sb.queued_candidate_drafts.return_value = [
@@ -246,11 +246,11 @@ class TestDraftIngestionRun:
         assert "parsing" in calls
         assert "published" in calls
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_pipeline_failure_sets_failed(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
-        from cv_intelligence_worker.pipeline import IngestionResult
+        from cv_intelligence_worker.workflows import DraftIngestion
+        from cv_intelligence_worker.workflows import IngestionResult
         config = _make_config()
         mock_sb = mock_sb_cls.return_value
         mock_sb.queued_candidate_drafts.return_value = [
@@ -272,10 +272,10 @@ class TestDraftIngestionRun:
         assert len(failed_calls) == 1
         assert "Validation error" in failed_calls[0][0][1]["parse_error"]
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_update_draft_failure_outside_try_31(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
+        from cv_intelligence_worker.workflows import DraftIngestion
         config = _make_config()
         mock_sb = mock_sb_cls.return_value
         mock_sb.queued_candidate_drafts.return_value = [
@@ -287,11 +287,11 @@ class TestDraftIngestionRun:
         assert result == 0
         mock_pipe_cls.return_value.ingest_sources.assert_not_called()
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_progress_callback_called(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
-        from cv_intelligence_worker.pipeline import IngestionResult
+        from cv_intelligence_worker.workflows import DraftIngestion
+        from cv_intelligence_worker.workflows import IngestionResult
         config = _make_config()
         mock_sb = mock_sb_cls.return_value
         mock_sb.queued_candidate_drafts.return_value = [
@@ -637,11 +637,11 @@ class TestCLIProcessDrafts:
         from cv_intelligence_worker import cli
         assert hasattr(cli, "main") or hasattr(cli, "cli")
 
-    @patch("cv_intelligence_worker.draft_ingestion.IngestionPipeline")
-    @patch("cv_intelligence_worker.draft_ingestion.SupabaseClient")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.IngestionPipeline")
+    @patch("cv_intelligence_worker.workflows.draft_ingestion.SupabaseClient")
     def test_process_drafts_returns_count(self, mock_sb_cls, mock_pipe_cls):
-        from cv_intelligence_worker.draft_ingestion import DraftIngestion
-        from cv_intelligence_worker.pipeline import IngestionResult
+        from cv_intelligence_worker.workflows import DraftIngestion
+        from cv_intelligence_worker.workflows import IngestionResult
         config = _make_config()
         mock_sb_cls.return_value.queued_candidate_drafts.return_value = [
             {"user_id": "u10", "id": "d10", "cv_storage_path": "ok.pdf"},
