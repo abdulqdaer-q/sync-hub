@@ -10,7 +10,7 @@ from cv_intelligence_worker.domain.models import (
     ExperienceEntry,
     SummaryArtifact,
 )
-from cv_intelligence_worker.utils import stable_uuid
+from cv_intelligence_worker.core.identifiers import stable_uuid
 
 
 class FakeEmbedder:
