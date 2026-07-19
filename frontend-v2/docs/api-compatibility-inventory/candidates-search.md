@@ -70,6 +70,12 @@ It emits snake_case only. The ticket-09 fixture mirrors that producer and the re
 
 ## `search` — `POST /functions/v1/search` (direct function invoke, not a `platform` action)
 
+**Ticket-10 verification:** the v2 adapter accepts only the exact snake_case contract documented below,
+including both verified result-meta shapes (fast search and RPC search), and maps it to a strict canonical
+camelCase schema before React Query caching. Fixture tests reject speculative camelCase result fields. The
+request adapter sends the URL-backed query, skill/location/seniority/company filters, pagination offset,
+and tenant scope to this direct function.
+
 Backend: `supabase/functions/search/index.ts`, row shape built by
 `supabase/functions/_shared/searchScoring.ts` (`mapFastProfileResult` for the fast path,
 `search_candidates_with_rate_v1` / `search_candidates_v1` RPC for the embedding path — confirmed identical
@@ -175,6 +181,10 @@ no `??` aliasing present in the mapper. Treat as provisionally clean pending a d
 ---
 
 ## `search` filter options — platform action `search_filter_options`
+
+**Ticket-10 verification:** the v2 adapter requires the exact four-array response documented below. Its
+scope-keyed query calls the platform action directly; no static values or alternate wire names are accepted
+by the adapter.
 
 Backend: `supabase/functions/_shared/platformOps.ts:105-156` (`getSearchFilterOptions`), invoked via the
 `platform` aggregator (`supabase/functions/platform/index.ts:93-97`).

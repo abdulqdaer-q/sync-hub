@@ -59,7 +59,7 @@ const CandidatePage = lazyNamed(
   () => import('@/features/candidates/pages/CandidatesPage'),
   'CandidatesPage',
 )
-const SearchPage = lazyPlaceholder('Talent pool')
+const SearchPage = lazyNamed(() => import('@/features/search/pages/SearchPage'), 'SearchPage')
 const JobsPage = lazyPlaceholder('Job postings')
 const InsightsPage = lazyPlaceholder('Insights')
 const ChatPage = lazyPlaceholder('SYNC AI')

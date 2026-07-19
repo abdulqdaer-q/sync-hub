@@ -20,6 +20,7 @@ export interface ComboboxOption {
 
 interface ComboboxSharedProps {
   options: ComboboxOption[]
+  ariaLabel?: string
   placeholder?: string
   searchPlaceholder?: string
   emptyLabel?: string
@@ -51,6 +52,7 @@ function matches(option: ComboboxOption, query: string) {
 export function Combobox(props: ComboboxProps) {
   const {
     options,
+    ariaLabel,
     placeholder = 'Select',
     searchPlaceholder = 'Search…',
     emptyLabel = 'No matching values',
@@ -150,6 +152,7 @@ export function Combobox(props: ComboboxProps) {
               variant="ghost"
               size="sm"
               role="combobox"
+              aria-label={ariaLabel}
               aria-expanded={open}
               disabled={disabled}
               className="min-w-24 flex-1 justify-between px-1.5 font-normal"
@@ -165,6 +168,7 @@ export function Combobox(props: ComboboxProps) {
             type="button"
             variant="outline"
             role="combobox"
+            aria-label={ariaLabel}
             aria-expanded={open}
             disabled={disabled}
             className={cn('h-auto min-h-8 w-full justify-between font-normal', className)}
