@@ -40,7 +40,8 @@ describe('useTenantScope', () => {
     expect(result.current.resolvedTenantIds).toEqual(['tenant-a'])
     expect(result.current.scopeKey).toBe('tenant:tenant-a')
     expect(result.current.isAllScope).toBe(false)
-    expect(result.current.tenantOptions).toEqual([])
+    expect(result.current.tenantOptions).toEqual([tenantA])
+    expect(result.current.selectTenant).toBe(authValue.selectTenant)
   })
 
   it('returns no resolved tenants and a "none" scope key when nothing is selected', () => {

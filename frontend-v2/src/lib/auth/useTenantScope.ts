@@ -14,16 +14,14 @@ export function useTenantScope() {
     isPlatformAdmin,
     currentTenant,
     memberships,
+    selectTenant,
     scopeMode: storedScopeMode,
     selectScopeMode,
   } = useAuth()
 
   const scopeMode = isPlatformAdmin ? storedScopeMode : 'current'
   const isAllScope = isPlatformAdmin && scopeMode === 'all'
-  const tenantOptions = useMemo(
-    () => (isPlatformAdmin ? memberships : []),
-    [isPlatformAdmin, memberships],
-  )
+  const tenantOptions = useMemo(() => memberships, [memberships])
 
   const resolvedTenantIds = useMemo(() => {
     if (isAllScope) {
@@ -40,11 +38,13 @@ export function useTenantScope() {
   }, [isAllScope, resolvedTenantIds, currentTenant])
 
   return {
+    isPlatformAdmin,
     scopeMode,
     setScopeMode: selectScopeMode,
     isAllScope,
     tenantOptions,
     currentTenant,
+    selectTenant,
     resolvedTenantIds,
     scopeKey,
   }

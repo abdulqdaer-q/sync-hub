@@ -1,11 +1,27 @@
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { createTestAuthContextValue } from '@/test/createTestAuthContextValue'
 import { createTestSession, createTestUser } from '@/test/createTestSession'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import type { TenantMembership } from '@/lib/auth/api/authContext'
 import { createAppRoutes } from '@/app/AppRouter'
+import { QueryClientTestProvider } from '@/test/QueryClientTestProvider'
+import { publicJobFixture } from '@/test/fixtures/publicJobs'
+import { candidateListResponseFixture } from '@/test/fixtures/candidates'
+import { server } from '@/test/msw/server'
+
+beforeEach(() => {
+  server.use(
+    http.post('https://test.supabase.co/functions/v1/public-jobs', () =>
+      HttpResponse.json({ jobs: [publicJobFixture] }),
+    ),
+    http.post('https://test.supabase.co/functions/v1/platform', () =>
+      HttpResponse.json(candidateListResponseFixture),
+    ),
+  )
+})
 
 const membership: TenantMembership = {
   id: 'tenant-1',
@@ -21,9 +37,11 @@ function renderRoute(path: string, overrides = {}) {
   const auth = createTestAuthContextValue(overrides)
 
   render(
-    <TestAuthProvider value={auth}>
-      <RouterProvider router={router} />
-    </TestAuthProvider>,
+    <QueryClientTestProvider>
+      <TestAuthProvider value={auth}>
+        <RouterProvider router={router} />
+      </TestAuthProvider>
+    </QueryClientTestProvider>,
   )
 
   return router
@@ -33,7 +51,7 @@ describe('app routes', () => {
   it('keeps careers public', async () => {
     renderRoute('/careers')
 
-    expect(await screen.findByRole('heading', { name: 'Careers' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Open roles' })).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Workspace' })).not.toBeInTheDocument()
   })
 

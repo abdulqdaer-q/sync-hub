@@ -55,7 +55,10 @@ const CareerDetailPage = lazyNamed(
   () => import('@/features/careers/pages/CareerDetailPage'),
   'CareerDetailPage',
 )
-const CandidatePage = lazyPlaceholder('Candidate directory')
+const CandidatePage = lazyNamed(
+  () => import('@/features/candidates/pages/CandidatesPage'),
+  'CandidatesPage',
+)
 const SearchPage = lazyPlaceholder('Talent pool')
 const JobsPage = lazyPlaceholder('Job postings')
 const InsightsPage = lazyPlaceholder('Insights')
