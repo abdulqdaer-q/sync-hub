@@ -207,7 +207,7 @@ class ManatalSync:
                     ingestion_result=None,
                 )
         if not updated_since and not explicit_candidate_ids:
-            updated_since = _isoformat(_utc_now() - timedelta(hours=max(1, self.config.manatal_lookback_hours)))
+            updated_since = _isoformat(_utc_now() - timedelta(hours=self.config.manatal_lookback_hours))
         candidates = self.client.list_candidates(updated_since=updated_since, candidate_ids=explicit_candidate_ids, limit=limit)
         states = self._existing_state(candidates)
         download_root = Path(self.config.manatal_download_dir)

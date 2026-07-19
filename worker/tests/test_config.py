@@ -4,6 +4,9 @@ import os
 import unittest
 from unittest import mock
 
+import pytest
+from pydantic import ValidationError
+
 from cv_intelligence_worker.config import WorkerConfig
 
 
@@ -48,6 +51,34 @@ class WorkerConfigTests(unittest.TestCase):
 
         self.assertEqual(2, config.batch_size)
         self.assertEqual(5, config.ingest_concurrency)
+
+    def test_config_rejects_unknown_and_coerced_values(self) -> None:
+        with pytest.raises(ValidationError, match="Unexpected keyword argument"):
+            WorkerConfig(unknown_setting=True)
+        with pytest.raises(ValidationError, match="valid integer"):
+            WorkerConfig(batch_size="8")
+
+    def test_config_rejects_invalid_operational_bounds(self) -> None:
+        invalid_values = [
+            ("request_timeout_seconds", 0),
+            ("extraction_max_attempts", 0),
+            ("ingest_concurrency", -1),
+            ("embedding_dimension", 0),
+            ("job_family_min_confidence", 1.1),
+            ("supabase_limit_warning_threshold", -0.1),
+            ("supabase_database_limit_bytes", -1),
+            ("supabase_database_expansion_factor", 0.0),
+            ("manatal_lookback_hours", 0),
+        ]
+        for name, value in invalid_values:
+            with self.subTest(name=name):
+                with pytest.raises(ValidationError):
+                    WorkerConfig(**{name: value})
+
+    def test_environment_values_are_validated_before_startup(self) -> None:
+        with mock.patch.dict(os.environ, {"CV_BATCH_SIZE": "0"}, clear=True):
+            with pytest.raises(ValidationError, match="greater than 0"):
+                WorkerConfig.from_env()
 
 
 if __name__ == "__main__":

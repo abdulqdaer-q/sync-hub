@@ -2,8 +2,18 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import field
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import ConfigDict, Field
+from pydantic.dataclasses import dataclass
+
+
+PositiveInt = Annotated[int, Field(gt=0)]
+NonNegativeInt = Annotated[int, Field(ge=0)]
+AtLeastOneFloat = Annotated[float, Field(ge=1)]
+UnitInterval = Annotated[float, Field(ge=0, le=1)]
 
 
 def _env_any(*names: str, default: str = "") -> str:
@@ -145,7 +155,7 @@ def _default_supabase_storage_limit_bytes() -> int:
     return 0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=ConfigDict(extra="forbid", strict=True, validate_default=True))
 class WorkerConfig:
     source_dir: str = field(default_factory=lambda: _env_any("CV_SOURCE_DIR", "CVI_SOURCE_DIR", default="./cvs"))
     tenant_id: str = field(default_factory=lambda: _env_any("CV_WORKER_TENANT_ID", "CVI_TENANT_ID"))
@@ -167,35 +177,35 @@ class WorkerConfig:
     extraction_model: str = field(default_factory=lambda: _env_any("CV_EXTRACTION_MODEL", "CVI_EXTRACTION_MODEL", default=_default_extraction_model()))
     job_family_provider: str = field(default_factory=lambda: _env_any("CV_JOB_FAMILY_PROVIDER", "CVI_JOB_FAMILY_PROVIDER", default="llm"))
     job_family_model: str = field(default_factory=lambda: _env_any("CV_JOB_FAMILY_MODEL", "CVI_JOB_FAMILY_MODEL", default=_default_job_family_model()))
-    job_family_min_confidence: float = field(default_factory=lambda: _float_env("CV_JOB_FAMILY_MIN_CONFIDENCE", "CVI_JOB_FAMILY_MIN_CONFIDENCE", default="0.62"))
-    job_family_auto_accept_confidence: float = field(default_factory=lambda: _float_env("CV_JOB_FAMILY_AUTO_ACCEPT_CONFIDENCE", "CVI_JOB_FAMILY_AUTO_ACCEPT_CONFIDENCE", default="0.82"))
+    job_family_min_confidence: UnitInterval = field(default_factory=lambda: _float_env("CV_JOB_FAMILY_MIN_CONFIDENCE", "CVI_JOB_FAMILY_MIN_CONFIDENCE", default="0.62"))
+    job_family_auto_accept_confidence: UnitInterval = field(default_factory=lambda: _float_env("CV_JOB_FAMILY_AUTO_ACCEPT_CONFIDENCE", "CVI_JOB_FAMILY_AUTO_ACCEPT_CONFIDENCE", default="0.82"))
     embedding_model: str = field(default_factory=lambda: _env_any("CV_EMBEDDING_MODEL", "CVI_EMBEDDING_MODEL", default=_default_embedding_model()))
     embedding_provider: str = field(default_factory=lambda: _env_any("CV_EMBEDDING_PROVIDER", "CVI_EMBEDDING_PROVIDER", default=_default_embedding_provider()))
-    embedding_dimension: int = field(default_factory=lambda: int(_env_any("CV_EMBEDDING_DIMENSION", "CVI_EMBEDDING_DIMENSION", default="768")))
+    embedding_dimension: PositiveInt = field(default_factory=lambda: int(_env_any("CV_EMBEDDING_DIMENSION", "CVI_EMBEDDING_DIMENSION", default="768")))
     parser_version: str = field(default_factory=lambda: _env_any("CV_PARSER_VERSION", "CVI_PARSER_VERSION", default="1.0.0"))
     model_version: str = field(default_factory=lambda: _env_any("CV_MODEL_VERSION", "CVI_MODEL_VERSION", default=_default_model_version()))
     prompt_version: str = field(default_factory=lambda: _env_any("CV_PROMPT_VERSION", "CVI_PROMPT_VERSION", default=_default_prompt_version()))
     chunk_version: str = field(default_factory=lambda: _env_any("CV_CHUNK_VERSION", "CVI_CHUNK_VERSION", default="1.0.0"))
     embedding_version: str = field(default_factory=lambda: _env_any("CV_EMBEDDING_VERSION", "CVI_EMBEDDING_VERSION", default=_default_embedding_version()))
     artifact_version: str = field(default_factory=lambda: _env_any("CV_ARTIFACT_VERSION", "CVI_ARTIFACT_VERSION", default="1.0.0"))
-    request_timeout_seconds: int = field(default_factory=lambda: _int_env("CV_REQUEST_TIMEOUT_SECONDS", "CVI_REQUEST_TIMEOUT_SECONDS", default="30"))
-    extraction_max_attempts: int = field(default_factory=lambda: _int_env("CV_EXTRACTION_MAX_ATTEMPTS", "CVI_EXTRACTION_MAX_ATTEMPTS", default="2"))
-    batch_size: int = field(default_factory=lambda: _int_env("CV_BATCH_SIZE", "CVI_BATCH_SIZE", default="8"))
-    ingest_concurrency: int = field(default_factory=lambda: _int_env("CV_INGEST_CONCURRENCY", "CVI_INGEST_CONCURRENCY", default=_default_ingest_concurrency()))
-    embedding_batch_size: int = field(default_factory=lambda: _int_env("CV_EMBEDDING_BATCH_SIZE", "CVI_EMBEDDING_BATCH_SIZE", default="16"))
-    supabase_batch_size: int = field(default_factory=lambda: _int_env("CV_SUPABASE_BATCH_SIZE", "CVI_SUPABASE_BATCH_SIZE", default="50"))
-    progress_interval: int = field(default_factory=lambda: _int_env("CV_PROGRESS_INTERVAL", "CVI_PROGRESS_INTERVAL", default="25"))
-    supabase_limit_warning_threshold: float = field(default_factory=lambda: _float_env("CV_SUPABASE_LIMIT_WARNING_THRESHOLD", "CVI_SUPABASE_LIMIT_WARNING_THRESHOLD", default="0.85"))
-    supabase_database_limit_bytes: int = field(default_factory=lambda: _bytes_env("CV_SUPABASE_DATABASE_LIMIT_BYTES", "CVI_SUPABASE_DATABASE_LIMIT_BYTES", default=_default_supabase_database_limit_bytes()))
-    supabase_storage_limit_bytes: int = field(default_factory=lambda: _bytes_env("CV_SUPABASE_STORAGE_LIMIT_BYTES", "CVI_SUPABASE_STORAGE_LIMIT_BYTES", default=_default_supabase_storage_limit_bytes()))
-    supabase_database_expansion_factor: float = field(default_factory=lambda: _float_env("CV_SUPABASE_DATABASE_EXPANSION_FACTOR", "CVI_SUPABASE_DATABASE_EXPANSION_FACTOR", default="1.8"))
+    request_timeout_seconds: PositiveInt = field(default_factory=lambda: _int_env("CV_REQUEST_TIMEOUT_SECONDS", "CVI_REQUEST_TIMEOUT_SECONDS", default="30"))
+    extraction_max_attempts: PositiveInt = field(default_factory=lambda: _int_env("CV_EXTRACTION_MAX_ATTEMPTS", "CVI_EXTRACTION_MAX_ATTEMPTS", default="2"))
+    batch_size: PositiveInt = field(default_factory=lambda: _int_env("CV_BATCH_SIZE", "CVI_BATCH_SIZE", default="8"))
+    ingest_concurrency: PositiveInt = field(default_factory=lambda: _int_env("CV_INGEST_CONCURRENCY", "CVI_INGEST_CONCURRENCY", default=_default_ingest_concurrency()))
+    embedding_batch_size: PositiveInt = field(default_factory=lambda: _int_env("CV_EMBEDDING_BATCH_SIZE", "CVI_EMBEDDING_BATCH_SIZE", default="16"))
+    supabase_batch_size: PositiveInt = field(default_factory=lambda: _int_env("CV_SUPABASE_BATCH_SIZE", "CVI_SUPABASE_BATCH_SIZE", default="50"))
+    progress_interval: PositiveInt = field(default_factory=lambda: _int_env("CV_PROGRESS_INTERVAL", "CVI_PROGRESS_INTERVAL", default="25"))
+    supabase_limit_warning_threshold: UnitInterval = field(default_factory=lambda: _float_env("CV_SUPABASE_LIMIT_WARNING_THRESHOLD", "CVI_SUPABASE_LIMIT_WARNING_THRESHOLD", default="0.85"))
+    supabase_database_limit_bytes: NonNegativeInt = field(default_factory=lambda: _bytes_env("CV_SUPABASE_DATABASE_LIMIT_BYTES", "CVI_SUPABASE_DATABASE_LIMIT_BYTES", default=_default_supabase_database_limit_bytes()))
+    supabase_storage_limit_bytes: NonNegativeInt = field(default_factory=lambda: _bytes_env("CV_SUPABASE_STORAGE_LIMIT_BYTES", "CVI_SUPABASE_STORAGE_LIMIT_BYTES", default=_default_supabase_storage_limit_bytes()))
+    supabase_database_expansion_factor: AtLeastOneFloat = field(default_factory=lambda: _float_env("CV_SUPABASE_DATABASE_EXPANSION_FACTOR", "CVI_SUPABASE_DATABASE_EXPANSION_FACTOR", default="1.8"))
     user_agent: str = field(default_factory=lambda: _env_any("CVI_USER_AGENT", default="cv-intelligence-worker/0.1.0"))
     device_id: str = field(default_factory=lambda: _env_any("CVI_DEVICE_ID", "CV_WORKER_DEVICE_ID"))
     delete_synced_bundles: bool = field(default_factory=lambda: _bool_env("CV_DELETE_SYNCED_BUNDLES", "CVI_DELETE_SYNCED_BUNDLES", default=True))
     manatal_api_token: str = field(default_factory=lambda: _env_any("MANATAL_API_TOKEN", "CV_MANATAL_API_TOKEN", "CVI_MANATAL_API_TOKEN"))
     manatal_api_base_url: str = field(default_factory=lambda: _env_any("MANATAL_API_BASE_URL", "CV_MANATAL_API_BASE_URL", default="https://api.manatal.com/open/v3"))
-    manatal_page_size: int = field(default_factory=lambda: _int_env("MANATAL_PAGE_SIZE", "CV_MANATAL_PAGE_SIZE", default="100"))
-    manatal_lookback_hours: int = field(default_factory=lambda: _int_env("MANATAL_LOOKBACK_HOURS", "CV_MANATAL_LOOKBACK_HOURS", default="24"))
+    manatal_page_size: PositiveInt = field(default_factory=lambda: _int_env("MANATAL_PAGE_SIZE", "CV_MANATAL_PAGE_SIZE", default="100"))
+    manatal_lookback_hours: PositiveInt = field(default_factory=lambda: _int_env("MANATAL_LOOKBACK_HOURS", "CV_MANATAL_LOOKBACK_HOURS", default="24"))
     manatal_download_dir: str = field(default_factory=lambda: _env_any("MANATAL_DOWNLOAD_DIR", "CV_MANATAL_DOWNLOAD_DIR", default="./tmp/manatal_downloads"))
     manatal_sync_state_table: str = field(default_factory=lambda: _env_any("MANATAL_SYNC_STATE_TABLE", "CV_MANATAL_SYNC_STATE_TABLE", default="manatal_candidate_sync"))
     gcs_originals_bucket: str = field(default_factory=lambda: _env_any("GCS_ORIGINALS_BUCKET", "CV_GCS_BUCKET", "CV_BUCKET_NAME"))

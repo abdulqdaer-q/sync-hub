@@ -94,8 +94,7 @@ class IngestionPipeline:
         failures: list[dict[str, str]],
         emit: Callable[[str], None],
     ) -> None:
-        progress_interval = max(1, self.config.progress_interval)
-        with ThreadPoolExecutor(max_workers=max(1, self.config.ingest_concurrency)) as executor:
+        with ThreadPoolExecutor(max_workers=self.config.ingest_concurrency) as executor:
             future_by_source = {executor.submit(self._build_bundle, source, ingestion_run_id): source for source in sources}
             for completed, future in enumerate(as_completed(future_by_source), start=1):
                 source = future_by_source[future]
@@ -106,7 +105,7 @@ class IngestionPipeline:
                 else:
                     bundles.append(bundle)
                     sync_batcher.add(bundle, bundle_path)
-                if completed % progress_interval == 0 or completed == len(sources):
+                if completed % self.config.progress_interval == 0 or completed == len(sources):
                     emit(f"processed {completed}/{len(sources)} documents; completed={len(bundles)} failures={len(failures)}")
 
     def _refresh_search_cache(
@@ -138,8 +137,6 @@ class IngestionPipeline:
         sources, duplicate_source_count = (
             self._dedupe_sources(discovered_sources) if self.config.dedupe_source_documents else (discovered_sources, 0)
         )
-        sync_bundle_batch_size = max(1, self.config.batch_size)
-
         def emit(message: str) -> None:
             if progress:
                 progress(message)
@@ -157,7 +154,7 @@ class IngestionPipeline:
             add_warning=add_warning,
             failures=failures,
             sync_stats=sync_stats,
-            batch_size=sync_bundle_batch_size,
+            batch_size=self.config.batch_size,
         )
 
         emit(f"discovered {total_discovered} documents for tenant {tenant}")

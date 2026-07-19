@@ -246,10 +246,10 @@ class SupabaseClient:
 
     def capacity_warnings(self, tenant_id: str, estimated_database_bytes: int = 0, estimated_storage_bytes: int = 0) -> list[str]:
         warnings: list[str] = []
-        threshold = max(0.0, min(1.0, self.config.supabase_limit_warning_threshold))
+        threshold = self.config.supabase_limit_warning_threshold
         snapshot = self.capacity_snapshot(tenant_id)
         if self.config.supabase_database_limit_bytes and snapshot.database_bytes:
-            projected_database_bytes = snapshot.database_bytes + int(estimated_database_bytes * max(1.0, self.config.supabase_database_expansion_factor))
+            projected_database_bytes = snapshot.database_bytes + int(estimated_database_bytes * self.config.supabase_database_expansion_factor)
             ratio = projected_database_bytes / self.config.supabase_database_limit_bytes
             if ratio >= threshold:
                 warnings.append(

@@ -60,7 +60,7 @@ class SyncBatcher:
     def _warn_when_near_capacity(self, batch_storage_bytes: int) -> None:
         if self.config.supabase_database_limit_bytes and not self.database_limit_warned:
             projected_database_bytes = int(
-                self.sync_stats["estimated_database_bytes"] * max(1.0, self.config.supabase_database_expansion_factor)
+                self.sync_stats["estimated_database_bytes"] * self.config.supabase_database_expansion_factor
             )
             ratio = projected_database_bytes / self.config.supabase_database_limit_bytes
             if ratio >= self.config.supabase_limit_warning_threshold:
