@@ -95,11 +95,18 @@ class LLMClient:
         except OpenAIError as exc:
             raise self._request_error("embedding", exc) from exc
 
+        vectors = self._embedding_vectors(response)
+        ordered_vectors = self._ordered_embedding_vectors(vectors, len(inputs))
+        self._validate_embedding_dimensions(ordered_vectors, expected_dimension)
+        return ordered_vectors
+
+    @staticmethod
+    def _embedding_vectors(response: Any) -> list[EmbeddingVector]:
         data = getattr(response, "data", None)
         if not isinstance(data, list):
             raise LLMResponseError("embedding response failed validation")
         try:
-            vectors = [
+            return [
                 EmbeddingVector.model_validate(
                     {
                         "index": getattr(item, "index", None),
@@ -111,20 +118,25 @@ class LLMClient:
         except ValidationError as exc:
             raise LLMResponseError("embedding response failed validation") from exc
 
-        if len(vectors) != len(inputs):
+    @staticmethod
+    def _ordered_embedding_vectors(vectors: list[EmbeddingVector], expected_count: int) -> list[list[float]]:
+        if len(vectors) != expected_count:
             raise LLMResponseError("embedding response count mismatch")
         if all(vector.index is None for vector in vectors):
-            ordered_vectors = [vector.embedding for vector in vectors]
-        elif any(vector.index is None for vector in vectors):
+            return [vector.embedding for vector in vectors]
+        if any(vector.index is None for vector in vectors):
             raise LLMResponseError("embedding response indices are invalid")
-        else:
-            vectors_by_index = {vector.index: vector.embedding for vector in vectors}
-            if len(vectors_by_index) != len(vectors) or set(vectors_by_index) != set(range(len(inputs))):
-                raise LLMResponseError("embedding response indices are invalid")
-            ordered_vectors = [vectors_by_index[index] for index in range(len(inputs))]
-        if expected_dimension is not None and any(len(vector) != expected_dimension for vector in ordered_vectors):
+        vectors_by_index = {vector.index: vector.embedding for vector in vectors}
+        if len(vectors_by_index) != expected_count or set(vectors_by_index) != set(range(expected_count)):
+            raise LLMResponseError("embedding response indices are invalid")
+        return [vectors_by_index[index] for index in range(expected_count)]
+
+    @staticmethod
+    def _validate_embedding_dimensions(vectors: list[list[float]], expected_dimension: int | None) -> None:
+        if expected_dimension is None:
+            return
+        if any(len(vector) != expected_dimension for vector in vectors):
             raise LLMResponseError("embedding response dimension mismatch")
-        return ordered_vectors
 
     def _sync_client(self) -> OpenAI:
         if self._client is None:
