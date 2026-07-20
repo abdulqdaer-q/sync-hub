@@ -7,7 +7,15 @@ import {
   useReactTable,
   type SortingState,
 } from '@tanstack/react-table'
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Eye } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  Bookmark,
+  BookmarkCheck,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,6 +28,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import type { SearchParams, SearchResponse, SearchResult } from '@/features/search/types'
+import { shortlistItemKey } from '@/features/search/shortlistIdentity'
 
 interface SearchResultsTableProps {
   response: SearchResponse
@@ -27,6 +36,9 @@ interface SearchResultsTableProps {
   isFetching: boolean
   onChange: (patch: Partial<SearchParams>, resetPage?: boolean) => void
   onPreview: (candidate: SearchResult) => void
+  onToggleShortlist: (candidate: SearchResult) => void
+  shortlistKeys: ReadonlySet<string>
+  pendingShortlistKeys: ReadonlySet<string>
 }
 
 const columnHelper = createColumnHelper<SearchResult>()
@@ -37,6 +49,9 @@ export function SearchResultsTable({
   isFetching,
   onChange,
   onPreview,
+  onToggleShortlist,
+  shortlistKeys,
+  pendingShortlistKeys,
 }: SearchResultsTableProps) {
   const sortableHeader = useCallback(
     (label: string, sort: SearchParams['sort']) => {
@@ -116,16 +131,43 @@ export function SearchResultsTable({
         ),
       }),
       columnHelper.display({
-        id: 'preview',
-        header: 'Preview',
-        cell: ({ row }) => (
-          <Button type="button" variant="ghost" size="sm" onClick={() => onPreview(row.original)}>
-            <Eye aria-hidden="true" /> Open
-          </Button>
-        ),
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => {
+          const key = shortlistItemKey(row.original)
+          const shortlisted = shortlistKeys.has(key)
+          const pending = pendingShortlistKeys.has(key)
+          return (
+            <div className="flex justify-end gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onPreview(row.original)}
+              >
+                <Eye aria-hidden="true" /> Open
+              </Button>
+              <Button
+                type="button"
+                variant={shortlisted ? 'secondary' : 'ghost'}
+                size="sm"
+                disabled={pending}
+                onClick={() => onToggleShortlist(row.original)}
+                aria-label={`${shortlisted ? 'Remove' : 'Add'} ${row.original.name} ${shortlisted ? 'from' : 'to'} shortlist`}
+              >
+                {shortlisted ? (
+                  <BookmarkCheck aria-hidden="true" />
+                ) : (
+                  <Bookmark aria-hidden="true" />
+                )}
+                {pending ? 'Saving…' : shortlisted ? 'Saved' : 'Save'}
+              </Button>
+            </div>
+          )
+        },
       }),
     ],
-    [onPreview, sortableHeader],
+    [onPreview, onToggleShortlist, pendingShortlistKeys, shortlistKeys, sortableHeader],
   )
   const sorting: SortingState = [{ id: params.sort, desc: params.direction === 'desc' }]
   // TanStack Table intentionally returns callable table methods; React Compiler
@@ -137,7 +179,7 @@ export function SearchResultsTable({
     state: { sorting },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getRowId: (row) => `${row.tenantId}:${row.candidateId}`,
+    getRowId: shortlistItemKey,
   })
   return (
     <Card className="gap-0 py-0">

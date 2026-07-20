@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Download, RefreshCw } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { BookmarkCheck, Download, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -9,11 +9,15 @@ import {
   useSearchFilterOptionsQuery,
   useSearchResultsQuery,
 } from '@/features/search/api/useSearchApi'
+import { useShortlistResource } from '@/features/search/api/useShortlistApi'
 import { CandidatePreviewDialog } from '@/features/search/components/CandidatePreviewDialog'
 import { SearchFilters } from '@/features/search/components/SearchFilters'
 import { SearchResultsTable } from '@/features/search/components/SearchResultsTable'
-import { downloadCsv } from '@/features/search/downloadCsv'
+import { ShortlistDrawer } from '@/features/search/components/ShortlistDrawer'
+import { ShortlistTray } from '@/features/search/components/ShortlistTray'
+import { downloadCsv, downloadShortlistCsv } from '@/features/search/downloadCsv'
 import { useSearchParams } from '@/features/search/hooks/useSearchParams'
+import { shortlistItemKey } from '@/features/search/shortlistIdentity'
 import type { SearchResult } from '@/features/search/types'
 import { getUserErrorMessage } from '@/lib/errors/userErrorMessage'
 
@@ -35,10 +39,62 @@ export function SearchPage() {
   const { params, updateParams, clearFilters } = useSearchParams()
   const searchQuery = useSearchResultsQuery(params)
   const filterQuery = useSearchFilterOptionsQuery()
+  const shortlist = useShortlistResource()
   const [preview, setPreview] = useState<SearchResult | null>(null)
+  const [shortlistOpen, setShortlistOpen] = useState(false)
+  const shortlistItems = useMemo(() => shortlist.query.data ?? [], [shortlist.query.data])
+  const shortlistKeys = useMemo(
+    () => new Set(shortlistItems.map(shortlistItemKey)),
+    [shortlistItems],
+  )
+  const shortlistCandidateIds = useMemo(
+    () => shortlistItems.map((item) => item.candidateId).slice(0, 8),
+    [shortlistItems],
+  )
+  const shortlistCompareHref = useMemo(() => {
+    if (shortlistCandidateIds.length < 2) return null
+    return `/compare?${new URLSearchParams({ ids: shortlistCandidateIds.join(',') })}`
+  }, [shortlistCandidateIds])
+  const shortlistChatHref = useMemo(() => {
+    if (!shortlistCandidateIds.length) return null
+    return `/chat?${new URLSearchParams({
+      ids: shortlistCandidateIds.join(','),
+      q: 'Which candidate in my shortlist is the strongest fit and why?',
+    })}`
+  }, [shortlistCandidateIds])
+  const pendingShortlistKeys = useMemo(() => {
+    const keys = new Set<string>()
+    if (shortlist.add.isPending && shortlist.add.variables) {
+      keys.add(shortlistItemKey(shortlist.add.variables.candidate))
+    }
+    if (shortlist.remove.isPending && shortlist.remove.variables) {
+      keys.add(shortlistItemKey(shortlist.remove.variables))
+    }
+    return keys
+  }, [
+    shortlist.add.isPending,
+    shortlist.add.variables,
+    shortlist.remove.isPending,
+    shortlist.remove.variables,
+  ])
   const hasCriteria = Boolean(
     params.query || params.skills.length || params.location || params.seniority || params.company,
   )
+
+  async function openShortlistDocument(item: (typeof shortlistItems)[number]) {
+    const target = window.open('about:blank', '_blank')
+    if (target) target.opener = null
+    try {
+      const url = await shortlist.openDocument.mutateAsync({
+        tenantId: item.tenantId,
+        candidateId: item.candidateId,
+      })
+      if (target) target.location.replace(url)
+      else window.location.assign(url)
+    } catch {
+      target?.close()
+    }
+  }
 
   return (
     <div className="mx-auto max-w-[90rem] space-y-6">
@@ -47,15 +103,20 @@ export function SearchPage() {
         title="Talent search"
         description="Search structured candidate profiles using roles, skills, companies, experience, and grounded evidence."
         actions={
-          searchQuery.data?.results.length ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => downloadCsv(searchQuery.data.results)}
-            >
-              <Download aria-hidden="true" /> Export CSV
+          <>
+            <Button type="button" variant="outline" onClick={() => setShortlistOpen(true)}>
+              <BookmarkCheck aria-hidden="true" /> Shortlist ({shortlistItems.length})
             </Button>
-          ) : undefined
+            {searchQuery.data?.results.length ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => downloadCsv(searchQuery.data.results)}
+              >
+                <Download aria-hidden="true" /> Export CSV
+              </Button>
+            ) : null}
+          </>
         }
       />
 
@@ -83,6 +144,31 @@ export function SearchPage() {
           </AlertDescription>
         </Alert>
       ) : null}
+
+      {shortlist.query.isError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Unable to load the shortlist</AlertTitle>
+          <AlertDescription className="mt-2 space-y-3">
+            <p>{getUserErrorMessage(shortlist.query.error)}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void shortlist.query.refetch()}
+            >
+              <RefreshCw aria-hidden="true" /> Try loading the shortlist again
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <ShortlistTray
+        count={shortlistItems.length}
+        isClearing={shortlist.clear.isPending}
+        onClear={() => shortlist.clear.mutate()}
+        onExport={() => downloadShortlistCsv(shortlistItems)}
+        onOpen={() => setShortlistOpen(true)}
+      />
 
       {!hasCriteria ? (
         <EmptyState
@@ -125,10 +211,42 @@ export function SearchPage() {
           isFetching={searchQuery.isFetching}
           onChange={updateParams}
           onPreview={setPreview}
+          onToggleShortlist={(candidate) => {
+            const key = shortlistItemKey(candidate)
+            if (shortlistKeys.has(key)) {
+              shortlist.remove.mutate({
+                tenantId: candidate.tenantId,
+                candidateId: candidate.candidateId,
+              })
+            } else {
+              shortlist.add.mutate({ candidate, sourceQuery: params.query })
+            }
+          }}
+          shortlistKeys={shortlistKeys}
+          pendingShortlistKeys={pendingShortlistKeys}
         />
       ) : null}
 
       <CandidatePreviewDialog candidate={preview} onClose={() => setPreview(null)} />
+      <ShortlistDrawer
+        chatHref={shortlistChatHref}
+        compareHref={shortlistCompareHref}
+        isOpen={shortlistOpen}
+        isPending={shortlist.query.isPending}
+        isClearing={shortlist.clear.isPending}
+        items={shortlistItems}
+        pendingRemove={shortlist.remove.isPending ? shortlist.remove.variables : undefined}
+        pendingDocument={
+          shortlist.openDocument.isPending ? shortlist.openDocument.variables : undefined
+        }
+        onClear={() => shortlist.clear.mutate()}
+        onExport={() => downloadShortlistCsv(shortlistItems)}
+        onOpenDocument={(item) => void openShortlistDocument(item)}
+        onOpenChange={setShortlistOpen}
+        onRemove={(item) =>
+          shortlist.remove.mutate({ tenantId: item.tenantId, candidateId: item.candidateId })
+        }
+      />
     </div>
   )
 }

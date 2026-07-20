@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { toCsv } from '@/features/search/csv'
+import { toCsv, toShortlistCsv } from '@/features/search/csv'
+import { parseShortlistItem } from '@/features/search/api/shortlistApi'
+import { shortlistItemFixture } from '@/test/fixtures/shortlist'
 
 describe('search CSV export', () => {
   it('quotes commas, quotes, and newlines without losing values', () => {
@@ -36,5 +38,11 @@ describe('search CSV export', () => {
         },
       ]),
     ).toContain('"\'=HYPERLINK(""https://example.test"")",\'+cmd,\'@remote,9,\'-senior')
+  })
+
+  it('exports the saved shortlist with CV, source-query, and dossier fields', () => {
+    expect(toShortlistCsv([parseShortlistItem(shortlistItemFixture)], 'https://sync.example')).toBe(
+      'Name,Title,Location,Years Experience,Seniority,Primary Role,Match Rate,Top Skills,CV URL,Source Query,Dossier URL\r\nMaya Hassan,Senior Platform Engineer,"Cairo, Egypt",8,senior,platform engineer,91%,"Kubernetes, Go",gs://candidate-cvs/maya.pdf,platform engineer,https://sync.example/dossier/22222222-2222-4222-8222-222222222222',
+    )
   })
 })

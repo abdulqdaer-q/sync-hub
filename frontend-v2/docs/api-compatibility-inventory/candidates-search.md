@@ -307,6 +307,14 @@ upsert payload (lines 91-111) both use a single, consistent snake_case field set
 `primary_role`, `top_skills`, `match_rate`, `cv_url`, `original_filename`, `source_query`,
 `search_snapshot`, `notes`, `created_at`, `updated_at`.
 
+**Ticket-11 implementation contract:** the v2 adapter accepts only that exact snake_case item shape for
+both the list and save responses. It preserves the database-nullable fields (`years_experience`,
+`seniority`, `primary_role`, `match_rate`, `cv_url`, `original_filename`) as `null`, accepts PostgreSQL
+timestamp offsets, and rejects missing fields, wrong scalar types, extra/speculative camelCase keys, and
+malformed `{ ok: true }` mutation acknowledgements. Request encoders emit `tenant_ids` for read/clear,
+an exact snake_case `item` for save, and `tenant_id` + `candidate_id` for delete. Raw fixture tests cover
+the item/list/acknowledgement shapes and their rejection cases before any value reaches React Query.
+
 ### All fields in `mapRemoteShortlistItem` (`search/apiMappers.ts:14-35`)
 
 - **Accepted wire names**: single snake_case name per field, exact match to `shortlistSelect` — **no

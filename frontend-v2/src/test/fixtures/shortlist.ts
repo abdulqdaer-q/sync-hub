@@ -1,0 +1,23 @@
+export const shortlistItemFixture = {
+  user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  tenant_id: '11111111-1111-4111-8111-111111111111',
+  candidate_id: '22222222-2222-4222-8222-222222222222',
+  candidate_name: 'Maya Hassan',
+  current_title: 'Senior Platform Engineer',
+  location: 'Cairo, Egypt',
+  years_experience: 8,
+  seniority: 'senior',
+  primary_role: 'platform engineer',
+  top_skills: ['Kubernetes', 'Go'],
+  match_rate: 91,
+  cv_url: 'gs://candidate-cvs/maya.pdf',
+  original_filename: 'maya-hassan-cv.pdf',
+  source_query: 'platform engineer',
+  search_snapshot: {
+    summary: 'Strong platform engineering match.',
+    matchSignals: { semantic: 0.91, skill: 0.88, experience: 0.86 },
+  },
+  notes: '',
+  created_at: '2026-07-20T08:00:00.123456+00:00',
+  updated_at: '2026-07-20T08:00:00.123456+00:00',
+}

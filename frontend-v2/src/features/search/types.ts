@@ -71,8 +71,46 @@ export const searchCsvRowSchema = searchResultSchema.pick({
   topSkills: true,
 })
 
+export const shortlistItemSchema = z
+  .object({
+    tenantId: z.string().min(1),
+    candidateId: z.string().min(1),
+    candidateName: z.string(),
+    currentTitle: z.string(),
+    location: z.string(),
+    yearsExperience: z.number().min(0).max(80).nullable(),
+    seniority: z.string().nullable(),
+    primaryRole: z.string().nullable(),
+    topSkills: z.array(z.string()),
+    matchRate: z.number().int().min(0).max(100).nullable(),
+    cvUrl: z.string().nullable(),
+    originalFilename: z.string().nullable(),
+    sourceQuery: z.string(),
+    searchSnapshot: z.record(z.string(), z.json()),
+    notes: z.string(),
+    createdAt: z.iso.datetime({ offset: true }),
+    updatedAt: z.iso.datetime({ offset: true }),
+  })
+  .strict()
+
+export const shortlistCommandResponseSchema = z.object({ ok: z.literal(true) }).strict()
+export const shortlistAddCommandSchema = z
+  .object({
+    candidate: searchResultSchema,
+    sourceQuery: z.string(),
+  })
+  .strict()
+export const shortlistRemoveCommandSchema = searchResultSchema.pick({
+  tenantId: true,
+  candidateId: true,
+})
+
 export type SearchParams = z.infer<typeof searchParamsSchema>
 export type SearchResult = z.infer<typeof searchResultSchema>
 export type SearchResponse = z.infer<typeof searchResponseSchema>
 export type SearchFilterOptions = z.infer<typeof searchFilterOptionsSchema>
 export type SearchCsvRow = z.infer<typeof searchCsvRowSchema>
+export type ShortlistItem = z.infer<typeof shortlistItemSchema>
+export type ShortlistCommandResponse = z.infer<typeof shortlistCommandResponseSchema>
+export type ShortlistAddCommand = z.infer<typeof shortlistAddCommandSchema>
+export type ShortlistRemoveCommand = z.infer<typeof shortlistRemoveCommandSchema>
